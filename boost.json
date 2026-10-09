@@ -1,0 +1,20 @@
+{
+    "agents": [
+        "claude_code",
+        "codex"
+    ],
+    "cloud": false,
+    "guidelines": true,
+    "packages": [
+        "filament/filament"
+    ],
+    "skills": [
+        "infer-conventions",
+        "laravel-best-practices",
+        "testing-best-practices",
+        "pulse-development",
+        "livewire-development",
+        "tailwindcss-development",
+        "filament-development"
+    ]
+}

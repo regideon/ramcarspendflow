@@ -1,0 +1,312 @@
+/* ---------------------------------------------------------
+   PURPLE GRADIENT THEME
+--------------------------------------------------------- */
+nav.fi-topbar,
+header.fi-sidebar-header {
+    background: linear-gradient(to left, #de7c44, #6528ba, #31013d);
+}
+.dark nav.fi-topbar,
+.dark header.fi-sidebar-header {
+    background: linear-gradient(to left, #431900 0%, #1e0245 50%, #15001b 100%);
+}
+.fi-ta-ctn:where(.dark, .dark *) {
+    background-color: oklch(0.18 0.04 302.17);
+    --tw-ring-color: #ffffff1a;
+}
+.fi-layout {
+    background: linear-gradient(to left, #e3dcfb, #f0ebf6, #ffffff);
+}
+.dark .fi-layout {
+    background: linear-gradient(to left, #110f2a 0%, #251e3b 50%, #180f2a 100%);
+}
+
+.dark .fi-ta-actions > a:hover {
+    color: oklch(0.382 0.244 272.151); /* neon blue-violet */
+    background-color: oklch(0.382 0.244 272.151 / 0.12); /* subtle 12% tint */
+    border-radius: 6px; /* optional: smoother UI */
+}
+.fi-icon-btn {
+    color: #0000df !important;
+}
+.fi-ta-ctn:where(.dark, .dark *) {
+    color: #5d65e1 !important;
+}
+
+.fi-simple-main-ctn {
+    background-image: url(/images/stock/modern-minimalist-house-866432.png);
+    background-repeat: no-repeat;
+    background-size: cover;
+    background-position: center;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.fi-logo {
+    color: #fff;
+    height: 2.5rem !important;
+    /*margin-bottom: 12px; */
+    /* height: 3.2rem !important; */
+}
+.fi-icon-btn {
+    color: #bfbfd4;
+}
+.fi-topbar-item.fi-active .fi-topbar-item-btn {
+    background-color: rgba(250, 250, 250, 0.7);
+}
+.fi-topbar-item:hover .fi-topbar-item-btn {
+    background-color: rgba(250, 250, 250, 0.5);
+}
+.fi-active > a.fi-sidebar-item-btn {
+    background-color: #ecf3fe;
+    color: #0f4fb4;
+}
+.dark .fi-active > a.fi-sidebar-item-btn {
+    background-color: #261a41; /* slate-800 */
+    color: #93c5fd;
+}
+.dark a.fi-sidebar-item-btn:hover {
+    background-color: #38295a; /* slightly brighter purple */
+    color: #d8c7ff; /* lighter violet for contrast */
+}
+
+aside.fi-sidebar.fi-main-sidebar.fi-sidebar-open {
+    width: 240px;
+    border-right: 1px solid #e6effd;
+}
+.dark aside.fi-sidebar.fi-main-sidebar.fi-sidebar-open {
+    border-right: 1px solid #1c1941;
+}
+.text-base {
+    font-size: 0.9rem;
+    line-height: 1.25rem;
+}
+.text-sm {
+    font-size: 0.825rem;
+    line-height: 1.25rem;
+}
+span.fi-sidebar-item-label {
+    font-size: 0.825rem !important;
+}
+
+main.fi-main.fi-width-7xl {
+    padding: 0 32px 32px 16px;
+}
+button.fi-icon-btn.fi-size-md.fi-topbar-open-sidebar-btn {
+    color: white;
+}
+.fi-sidebar-item.fi-active {
+    /* background-color: #5d2906; */
+}
+.fi-sidebar-nav {
+    padding-inline: calc(0.25rem * 6);
+}
+
+.fi-wi-stats-overview-stat {
+    border-left-color: #7700c1;
+    border-left-width: 4px;
+}
+
+button.fi-icon-btn.fi-size-md.fi-topbar-database-notifications-btn {
+    color: #fff;
+}
+
+span.fi-sidebar-item-label {
+    font-size: 0.875rem;
+}
+/* .fi-sidebar-item.fi-active > .fi-sidebar-item-btn {
+    background-color: tan;
+} */
+/* span.fi-sidebar-item-label,
+svg.fi-icon.fi-size-lg.fi-sidebar-item-icon {
+    color: #5d0625;
+}
+span.fi-ta-header-cell-sort-btn {
+    text-transform: uppercase;
+    color: #5d2906;
+    font-size: 0.725rem;
+} */
+
+.fi-topbar-item.fi-active .fi-topbar-item-label {
+    /* color: #ea3254; */
+    /* color: #3532ea; */
+    /* color: #e86d96; */
+    color: #d93b6f;
+}
+svg.fi-icon.fi-size-md.fi-topbar-item-icon {
+    color: #e991ae;
+}
+span.fi-topbar-item-label {
+    color: white;
+}
+span.fi-topbar-item-labelL:hover {
+    color: black;
+}
+header.fi-header {
+    margin-bottom: 1rem;
+}
+
+/* widget */
+span.fi-wi-stats-overview-stat-label {
+    color: #222;
+    font-size: 1rem;
+}
+
+/* toggle */
+svg.w-5.h-5.text-indigo-500 {
+    width: 24px;
+}
+span.flex.items-center.gap-2 {
+    font-size: 1rem;
+    text-align: center;
+}
+
+/* table horizontal scroll*/
+.fi-fo-table-repeater {
+    overflow-x: auto;
+    overflow-y: visible;
+    white-space: nowrap;
+    padding-bottom: 60px;
+}
+.fi-fo-table-repeater > table {
+    min-width: max-content;
+    width: auto;
+    /* margin-top: 26px; */
+}
+.fi-fo-table-repeater th,
+.fi-fo-table-repeater td {
+    white-space: nowrap;
+    min-width: fit-content;
+}
+.fi-fo-table-repeater td:first-child {
+    min-width: 200px;
+}
+/* .fi-select-input-ctn > .fi-dropdown-panel {
+    top: 0 !important;
+} */
+
+/* action buttons */
+/* .fi-ta-actions {
+    background-color: #fff5f8;
+    border: 1px solid #f7dae3;
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+} */
+.fi-ta-actions:hover {
+    background-color: #feeef3;
+}
+.fi-ta-actions > a,
+.fi-ta-actions > a:hover,
+.fi-ta-actions > a > span,
+span.font-semibold.text-sm.text-custom-600.dark\:text-custom-400.group-hover\/link\:underline.group-focus-visible\/link\:underline {
+    /* color: #0f4fb4 !important; */
+    /* color: rgba(79, 70, 229, 1) !important; */
+    text-decoration: none !important;
+}
+
+/* login */
+main.fi-simple-main.fi-width-lg {
+    /* background: rgba(0, 0, 0, 0.525); */
+    /* background: rgb(122 122 122 / 53%); */
+    background: rgb(255 255 255 / 30%);
+}
+
+/* flowforge */
+.flowforge-card-content.p-3 {
+}
+.fi-ac-btn-action[wire\:click*="Qualification"],
+.fi-ac-btn-action[wire\:click*="Monitoring"],
+.fi-ac-btn-action[wire\:click*="Deal Approval"],
+.fi-ac-btn-action[wire\:click*="Won"],
+.fi-ac-btn-action[wire\:click*="Lost"],
+.fi-ac-btn-action[wire\:click*="Archived"] {
+    display: none !important;
+}
+.items-start > h4.text-sm {
+    font-size: 0.975rem;
+}
+.fi-sc-component {
+    margin-top: -10px;
+}
+
+span.fi-sc-text {
+    margin-top: 6px;
+}
+
+a.fi-sidebar-item-btn:hover {
+    background-color: #f0f5fd;
+}
+
+button.fi-color.fi-color-primary.fi-bg-color-400.hover\:fi-bg-color-300.dark\:fi-bg-color-600.dark\:hover\:fi-bg-color-500.fi-text-color-900.hover\:fi-text-color-800.dark\:fi-text-color-950.dark\:hover\:fi-text-color-950.fi-btn.fi-disabled.fi-size-md.fi-ac-btn-action,
+button.fi-color.fi-color-primary.fi-bg-color-600.hover\:fi-bg-color-500.dark\:fi-bg-color-600.dark\:hover\:fi-bg-color-500.fi-text-color-0.hover\:fi-text-color-0.dark\:fi-text-color-0.dark\:hover\:fi-text-color-0.fi-btn.fi-disabled.fi-size-md.fi-ac-btn-action {
+    opacity: 0;
+}
+
+/* flowforge */
+h3.text-sm.font-medium.text-gray-700.dark\:text-gray-200 {
+    font-weight: bold;
+}
+.flowforge-column.w-\[300px\].min-w-\[300px\].flex-shrink-0.border.border-gray-200.dark\:border-gray-700.shadow-sm.dark\:shadow-md.rounded-xl.flex.flex-col.max-h-full.overflow-hidden {
+    border-color: #dbdbdb;
+}
+
+/* Repeater */
+.fi-fo-table-repeater td:first-child {
+    width: 30px !important;
+    min-width: 30px !important;
+}
+.fi-fo-table-repeater.fi-compact.budget-items-repeater {
+    padding-bottom: 110px;
+}
+
+.topbar-worker-btn svg {
+    color: white !important;
+}
+
+/* mobile top switcher */
+@media (min-width: 1024px) {
+    .fi-sidebar-nav .project-switcher {
+        display: none;
+    }
+}
+
+/* Repeater table mode — stack on mobile */
+@media (max-width: 768px) {
+    .fi-fo-repeater-item-table {
+        display: block !important;
+    }
+
+    .fi-fo-repeater-item-table thead {
+        display: none !important;
+    }
+
+    .fi-fo-repeater-item-table tbody tr {
+        display: flex !important;
+        flex-direction: column !important;
+        border-bottom: 1px solid #e5e7eb;
+        padding: 0.5rem 0;
+    }
+
+    .fi-fo-repeater-item-table tbody td {
+        display: block !important;
+        width: 100% !important;
+        padding: 0.25rem 0.5rem !important;
+    }
+}
+
+.fi-wi-stats-overview-stat {
+    padding: 1rem 0.75rem !important;
+}
+.fi-wi-stats-overview-stat-description.fi-color.fi-color-info.fi-text-color-600.dark\:fi-text-color-400 {
+    margin-bottom: 0.5rem;
+}
+
+@media only screen and (min-width: 766px) {
+    .project-switcher > select {
+        border-radius: 2rem;
+    }
+}
+button.fi-icon-btn.fi-size-md.fi-topbar-open-sidebar-btn {
+    color: #c1a9d3 !important;
+}
