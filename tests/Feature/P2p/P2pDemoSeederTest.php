@@ -53,7 +53,7 @@ it('seeds demo transactions across the P2P statuses', function () {
     $this->seed(P2pDemoMasterDataSeeder::class);
     $this->seed(P2pDemoTransactionSeeder::class);
 
-    expect(SapPurchaseOrder::count())->toBe(8)
+    expect(SapPurchaseOrder::count())->toBe(11)
         ->and(Invoice::count())->toBe(6)
         ->and(GoodReceiptState::query()->where('status', P2pStatus::Reversed->value)->exists())->toBeTrue()
         ->and(Invoice::query()->where('status', P2pStatus::SubmittedToAp->value)->exists())->toBeTrue();
@@ -64,6 +64,6 @@ it('re-runs P2P transaction seeding without duplicating rows', function () {
     $this->seed(P2pDemoTransactionSeeder::class);
     $this->seed(P2pDemoTransactionSeeder::class);
 
-    expect(SapPurchaseOrder::count())->toBe(8)
+    expect(SapPurchaseOrder::count())->toBe(11)
         ->and(Invoice::count())->toBe(6);
 });

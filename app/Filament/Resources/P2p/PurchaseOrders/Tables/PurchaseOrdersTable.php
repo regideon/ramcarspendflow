@@ -3,13 +3,19 @@
 namespace App\Filament\Resources\P2p\PurchaseOrders\Tables;
 
 use App\Enums\P2pPurchaseOrderStatus;
+use App\Enums\RoleName;
+use App\Filament\Resources\P2p\GoodsReceipts\GoodsReceiptResource;
 use App\Filament\Resources\P2p\PurchaseOrders\PurchaseOrderResource;
 use App\Models\P2p\SapPurchaseOrder;
+use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
 use Filament\Actions\ViewAction;
+use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 
 class PurchaseOrdersTable
 {
@@ -62,7 +68,22 @@ class PurchaseOrdersTable
                     ->options(P2pPurchaseOrderStatus::class),
             ])
             ->recordActions([
+                Action::make('viewGrs')
+                    ->label("View GR's")
+                    ->icon(Heroicon::OutlinedClipboardDocumentCheck)
+                    ->url(fn (SapPurchaseOrder $record): string => GoodsReceiptResource::getUrl('index', [
+                        'purchase_orders' => [$record->purchase_order],
+                    ])),
                 ViewAction::make()->iconButton(),
+            ])
+            ->toolbarActions([
+                BulkAction::make('processGrs')
+                    ->label('Process GRs')
+                    ->icon(Heroicon::OutlinedPlay)
+                    ->visible(fn (): bool => auth()->user()?->hasRole(RoleName::Vendor) ?? false)
+                    ->action(fn (Collection $records) => redirect(GoodsReceiptResource::getUrl('index', [
+                        'purchase_orders' => $records->pluck('purchase_order')->all(),
+                    ]))),
             ])
             ->recordUrl(fn (SapPurchaseOrder $record): string => PurchaseOrderResource::getUrl('view', ['record' => $record]))
             ->searchPlaceholder('Search PO no. or vendor')

@@ -73,6 +73,15 @@ class GoodsReceiptResource extends Resource
             $query->where('vendor_id', $user->vendor_id);
         }
 
+        // Reached from Purchase Orders ("View GR's" / "Process GRs").
+        if ($purchaseOrders = request()->query('purchase_orders')) {
+            $query->whereIn('purchase_order', (array) $purchaseOrders);
+        }
+
+        if ($grNumbers = request()->query('gr_numbers')) {
+            $query->whereIn('good_receipt_number', (array) $grNumbers);
+        }
+
         return $query;
     }
 

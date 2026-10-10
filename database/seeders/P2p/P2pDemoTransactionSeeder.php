@@ -51,6 +51,10 @@ class P2pDemoTransactionSeeder extends Seeder
                 ['4500000006', '5000000006', P2pStatus::EscalateToProcurement, P2pStatus::EscalateToProcurement],
                 ['4500000007', '5000000007', P2pStatus::PartiallyEscalated, P2pStatus::PartiallyEscalated],
                 ['4500000008', '5000000008', P2pStatus::Reversed, null],
+                // Extra pending GRs across POs so the vendor can demo bulk "Process Selected".
+                ['4500000009', '5000000009', P2pStatus::Pending, null],
+                ['4500000010', '5000000010', P2pStatus::Pending, null],
+                ['4500000011', '5000000011', P2pStatus::Pending, null],
             ];
 
             foreach ($scenarios as $index => [$po, $gr, $stateStatus, $invoiceStatus]) {

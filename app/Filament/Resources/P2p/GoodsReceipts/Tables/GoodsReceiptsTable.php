@@ -63,7 +63,7 @@ class GoodsReceiptsTable
                     ->label('Process Selected')
                     ->icon(Heroicon::OutlinedPlay)
                     ->visible(fn (): bool => auth()->user()?->hasRole(RoleName::Vendor) ?? false)
-                    ->url(fn (Collection $records): string => BulkGoodsReceipt::getUrl(['ids' => $records->pluck('id')->all()])),
+                    ->action(fn (Collection $records) => redirect(BulkGoodsReceipt::getUrl(['ids' => $records->pluck('id')->all()]))),
             ])
             ->recordUrl(fn (GoodReceiptState $record): string => GoodsReceiptResource::getUrl('view', ['record' => $record]))
             ->striped();
