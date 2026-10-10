@@ -42,7 +42,7 @@ Migrations, models, enums and seeders for the normalized P2P schema
 - **Acceptance:** audit columns store redacted request/response + exec time.
 
 ### P2P-1.6 — P2P enums
-- **Scope:** `P2pStatus` (replicate IDs 1–21), `P2pPurchaseOrderStatus`, `P2pThreeWayMatchStatus`, `P2pDownPaymentStatus`, `P2pMaterialType`.
+- **Scope:** `P2pStatus` (replicate IDs 1–21), `P2pPurchaseOrderStatus`, `P2pThreeWayMatchStatus`, `P2pDownPaymentStatus`. Material buckets are a table (`p2p_material_classifications`), not an enum.
 - **Acceptance:** every status referenced by key, none by magic number; PHPUnit covers key↔value.
 
 ### P2P-1.7 — Models, relationships, factories

@@ -2,6 +2,10 @@
 
 namespace Database\Seeders;
 
+use Database\Seeders\P2p\P2pDemoMasterDataSeeder;
+use Database\Seeders\P2p\P2pDemoTransactionSeeder;
+use Database\Seeders\P2p\P2pSlocMasterSeeder;
+use Database\Seeders\P2p\P2pVendorSeeder;
 use Database\Seeders\Rfp\ApprovalMatrixSeeder;
 use Database\Seeders\Rfp\DueTypeSeeder;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
@@ -27,6 +31,10 @@ class DatabaseSeeder extends Seeder
             WithholdingTaxSeeder::class,
             DemoMasterDataSeeder::class,
             RoleAndUserSeeder::class,
+            P2pDemoMasterDataSeeder::class,
+            P2pSlocMasterSeeder::class,
+            P2pVendorSeeder::class,
+            P2pDemoTransactionSeeder::class,
             ApprovalMatrixSeeder::class,
             DueTypeSeeder::class,
         ]);
