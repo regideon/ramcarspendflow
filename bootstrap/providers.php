@@ -1,6 +1,11 @@
 <?php
 
+use App\Providers\AppServiceProvider;
+use App\Providers\Filament\HubPanelProvider;
+use App\Providers\P2pStepActionServiceProvider;
+
 return [
-    App\Providers\AppServiceProvider::class,
-    App\Providers\Filament\HubPanelProvider::class,
+    AppServiceProvider::class,
+    HubPanelProvider::class,
+    P2pStepActionServiceProvider::class,
 ];

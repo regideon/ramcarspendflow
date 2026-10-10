@@ -109,6 +109,7 @@ class P2pGoodReceiptStatusService
 
         $invoiceId = InvoiceLine::query()
             ->whereIn('p2p_sap_good_receipt_item_id', $sapItemIds)
+            ->whereRelation('invoice', 'status', '!=', P2pStatus::Cancelled->value)
             ->latest('p2p_invoice_id')
             ->value('p2p_invoice_id');
 
