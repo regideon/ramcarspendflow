@@ -12,7 +12,7 @@ final readonly class StepActionContext
 {
     public function __construct(
         public Escalation $escalation,
-        public User $user,
+        public ?User $user = null,
         public ?string $remarks = null,
     ) {}
 }

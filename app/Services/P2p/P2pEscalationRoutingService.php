@@ -102,7 +102,7 @@ class P2pEscalationRoutingService
      * Run the current hop's action (if any) and move to the next hop, or resolve at
      * the terminal hop.
      */
-    public function advance(Escalation $escalation, User $by, ?string $remarks = null): void
+    public function advance(Escalation $escalation, ?User $by, ?string $remarks = null): void
     {
         DB::transaction(function () use ($escalation, $by, $remarks): void {
             /** @var Escalation $escalation */
@@ -137,7 +137,7 @@ class P2pEscalationRoutingService
     /**
      * Resolve an escalation; the GR returns to the status it had before escalating.
      */
-    public function resolve(Escalation $escalation, User $by, ?string $remarks = null): void
+    public function resolve(Escalation $escalation, ?User $by, ?string $remarks = null): void
     {
         DB::transaction(function () use ($escalation, $by, $remarks): void {
             /** @var Escalation $escalation */
@@ -153,7 +153,7 @@ class P2pEscalationRoutingService
         });
     }
 
-    public function cancel(Escalation $escalation, User $by, ?string $remarks = null): void
+    public function cancel(Escalation $escalation, ?User $by, ?string $remarks = null): void
     {
         DB::transaction(function () use ($escalation, $by, $remarks): void {
             /** @var Escalation $escalation */
@@ -211,7 +211,7 @@ class P2pEscalationRoutingService
         return $step->role === EscalationReasonStep::ROLE_ORIGIN ? ($originRole ?? 'origin') : $step->role;
     }
 
-    protected function afterClosed(Escalation $escalation, User $by, ?string $remarks, string $default): void
+    protected function afterClosed(Escalation $escalation, ?User $by, ?string $remarks, string $default): void
     {
         // Restore the header first: the GR's derived status follows the invoice.
         $this->syncHeaderStatus($escalation->invoice->fresh());
@@ -228,11 +228,11 @@ class P2pEscalationRoutingService
         $this->history($escalation, $by, $remarks, $default);
     }
 
-    protected function history(Escalation $escalation, User $by, ?string $remarks, string $default): void
+    protected function history(Escalation $escalation, ?User $by, ?string $remarks, string $default): void
     {
         ApprovalHistory::query()->create([
             'p2p_invoice_id' => $escalation->p2p_invoice_id,
-            'actioned_by' => $by->id,
+            'actioned_by' => $by?->id,
             'from_status' => null,
             'to_status' => $escalation->invoice->status,
             'remarks' => $remarks ?: $default,

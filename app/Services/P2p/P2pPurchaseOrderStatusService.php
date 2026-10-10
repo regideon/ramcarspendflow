@@ -26,12 +26,14 @@ class P2pPurchaseOrderStatusService
     private const array NOT_SUBMITTED = [P2pStatus::Pending->value];
 
     /**
-     * Statuses that drop a PO back to Partially Submitted.
+     * Statuses that drop a PO back to Partially Submitted (rejected, returned, or a
+     * GR voided by a SAP reversal).
      */
     private const array REJECTED_OR_RETURNED = [
         P2pStatus::Rejected->value,
         P2pStatus::RejectedLegacy->value,
         P2pStatus::ReturnedToVendor->value,
+        P2pStatus::Reversed->value,
     ];
 
     /**
