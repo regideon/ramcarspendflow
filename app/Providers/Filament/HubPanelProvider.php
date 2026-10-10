@@ -50,6 +50,7 @@ class HubPanelProvider extends PanelProvider
             ])
             ->navigationGroups([
                 'RFP',
+                'P2P',
                 'Settings',
                 'Help',
             ])
