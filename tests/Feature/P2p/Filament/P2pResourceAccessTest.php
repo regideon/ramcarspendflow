@@ -43,3 +43,31 @@ it('forbids a non-vendor from purchase orders', function () {
         ->get('/hub/p2p/purchase-orders')
         ->assertForbidden();
 });
+
+it('lets a vendor open goods receipts and the bulk page', function () {
+    $vendor = User::factory()->create()->assignRole(RoleName::Vendor);
+
+    $this->actingAs($vendor)->get('/hub/p2p/goods-receipts')->assertOk();
+    $this->actingAs($vendor)->get('/hub/p2p/bulk-goods-receipt')->assertOk();
+});
+
+it('forbids a non-vendor from the goods receipt flow', function () {
+    $processor = User::factory()->create()->assignRole(RoleName::ApProcessor);
+
+    $this->actingAs($processor)->get('/hub/p2p/goods-receipts')->assertForbidden();
+    $this->actingAs($processor)->get('/hub/p2p/bulk-goods-receipt')->assertForbidden();
+});
+
+it('lets vendors and AP processors open invoices', function () {
+    $this->actingAs(User::factory()->create()->assignRole(RoleName::Vendor))
+        ->get('/hub/p2p/invoices')->assertOk();
+
+    $this->actingAs(User::factory()->create()->assignRole(RoleName::ApProcessor))
+        ->get('/hub/p2p/invoices')->assertOk();
+});
+
+it('forbids a requestor from invoices', function () {
+    $this->actingAs(User::factory()->create()->assignRole(RoleName::Requestor))
+        ->get('/hub/p2p/invoices')
+        ->assertForbidden();
+});
