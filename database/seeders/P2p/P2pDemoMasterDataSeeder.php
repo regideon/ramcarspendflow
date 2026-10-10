@@ -10,7 +10,6 @@ use App\Models\P2p\EscalationReason;
 use App\Models\P2p\EscalationReasonStep;
 use App\Models\P2p\Item;
 use App\Models\P2p\MaterialClassification;
-use App\Models\P2p\SlocClassification;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -46,42 +45,14 @@ class P2pDemoMasterDataSeeder extends Seeder
             'unclassified' => ['Unclassified', 'gray', null, 99],
         ];
 
-        $ids = [];
-
         foreach ($classifications as $code => [$name, $color, $roleName, $sort]) {
-            $ids[$code] = MaterialClassification::updateOrCreate(
+            MaterialClassification::updateOrCreate(
                 ['code' => $code],
                 ['name' => $name, 'color' => $color, 'role_name' => $roleName, 'sort' => $sort, 'is_active' => true],
-            )->id;
+            );
         }
 
-        // Global default SLOC → classification mapping (company/plant = null).
-        $storageLocations = [
-            'B001' => ['raw_material', 'Raw material store'],
-            'B002' => ['spare_part', 'Spare parts store'],
-            'B602' => ['spare_part', 'Spare parts (plant 2)'],
-        ];
-
-        foreach ($storageLocations as $sloc => [$code, $description]) {
-            $existing = SlocClassification::query()
-                ->whereNull('company_code')->whereNull('plant')->where('storage_location', $sloc)->first();
-
-            // A manual classification is authoritative: only refresh the label.
-            if ($existing !== null) {
-                $existing->update(['description' => $description]);
-
-                continue;
-            }
-
-            SlocClassification::create([
-                'company_code' => null,
-                'plant' => null,
-                'storage_location' => $sloc,
-                'description' => $description,
-                'p2p_material_classification_id' => $ids[$code],
-                'is_active' => true,
-            ]);
-        }
+        // The SLOC master itself is imported from T001L by P2pSlocMasterSeeder.
     }
 
     protected function seedItems(): void

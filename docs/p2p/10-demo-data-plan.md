@@ -10,7 +10,9 @@ pattern: generic, **re-runnable**, and **blocked in production**.
 
 | Seeder | Seeds | Notes |
 |---|---|---|
-| `P2pDemoMasterDataSeeder` | Items, delivery types, material classifications + SLOC mapping, escalation reasons/steps, Points of Contact | Re-runnable (`updateOrCreate`) |
+| `P2pDemoMasterDataSeeder` | Items, delivery types, material classifications, escalation reasons/steps, Points of Contact | Re-runnable (`updateOrCreate`) |
+| `P2pSlocMasterSeeder` | `p2p_sloc_classifications` from `database/data/T001L_SLOC.csv` (270 rows) | Real SAP T001L extract |
+| `P2pVendorSeeder` | Shared `vendors` + `company_vendor` from `database/data/LocalVendor.csv` (~9.8k rows) | Real SAP vendor extract |
 | `P2pDemoTransactionSeeder` | Generic POs + GRs/items across every demo status | Re-runnable |
 | `RoleAndUserSeeder` (extend) | P2P demo logins (Vendor, AP Processor; Procurement/WHS already exist) | **Truncates** users/roles — dev only |
 

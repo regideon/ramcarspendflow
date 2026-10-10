@@ -63,9 +63,18 @@ to the originator. Status IDs reference `App\Enums\P2pStatus`.
 - A manual classification is authoritative: re-seeding refreshes only the `description`.
 - Warehouse escalation hops route to Raw Materials or Spare Parts from the line's SLOC.
 
-## 3.5 Master data for the mancom demo (fresh, generic)
+## 3.5 Ported master data (real SAP extracts)
 
-See [Demo data plan](10-demo-data-plan.md). Master-data seeders mirror the legacy
-`CompanySeeder` / `TaxCodeSeeder` / `MaterialClassificationSeeder` / `SlocMasterSeeder` /
-`EscalationReasonSeeder`, but as **generic demo data** (no SAP), consistent with the
-RFP `DemoMasterDataSeeder` approach.
+Two masters are imported from the legacy P2P extracts (reference data, not transactions):
+
+| Seeder | Source | Loads |
+|---|---|---|
+| `P2pVendorSeeder` | `database/data/LocalVendor.csv` (~9.8k rows) | Shared `vendors` (upsert by SAP code) + `company_vendor` per CoCd |
+| `P2pSlocMasterSeeder` | `database/data/T001L_SLOC.csv` (270 rows) | `p2p_sloc_classifications` (company + plant + SLOC + description), classified via `config/p2p.php` |
+
+`config/p2p.php` holds the SLOC → classification map today; later it becomes
+`p2p_sloc_classifications` data maintained in the UI. A manually classified SLOC is
+**never** re-classified by a re-seed (only its description is refreshed).
+
+The remaining P2P setup (items, delivery types, escalation reasons, points of contact)
+is generic demo data (`P2pDemoMasterDataSeeder`) — see [Demo data plan](10-demo-data-plan.md).
