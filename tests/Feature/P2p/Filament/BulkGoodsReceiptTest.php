@@ -66,8 +66,10 @@ it('processes multiple GRs across POs into one submission', function () {
     Livewire::test(BulkGoodsReceipt::class, ['ids' => array_map(fn ($s) => $s->id, $c['states'])])
         ->set('invoiceAt', now()->toDateString())
         ->set('referenceNumbers', 'DR-1, DR-2')
-        ->set('selected', [$c['items'][0]->id => true, $c['items'][1]->id => true])
-        ->set('quantities', [$c['items'][0]->id => '10', $c['items'][1]->id => '10'])
+        ->set('lines', [
+            ['p2p_sap_good_receipt_item_id' => $c['items'][0]->id, 'include' => true, 'quantity' => '10'],
+            ['p2p_sap_good_receipt_item_id' => $c['items'][1]->id, 'include' => true, 'quantity' => '10'],
+        ])
         ->call('submit')
         ->assertHasNoErrors();
 

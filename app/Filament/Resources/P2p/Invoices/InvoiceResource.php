@@ -29,10 +29,6 @@ class InvoiceResource extends Resource
 
     protected static string|UnitEnum|null $navigationGroup = 'P2P';
 
-    protected static ?string $modelLabel = 'invoice';
-
-    protected static ?string $pluralModelLabel = 'invoices';
-
     protected static ?string $slug = 'p2p/invoices';
 
     protected static ?int $navigationSort = 1;
@@ -40,6 +36,16 @@ class InvoiceResource extends Resource
     protected static ?string $recordTitleAttribute = 'grc_number';
 
     public static function getNavigationLabel(): string
+    {
+        return auth()->user()?->hasRole(RoleName::Vendor) ? 'Invoices' : 'Accounts Payables';
+    }
+
+    public static function getModelLabel(): string
+    {
+        return auth()->user()?->hasRole(RoleName::Vendor) ? 'invoice' : 'accounts payable';
+    }
+
+    public static function getPluralModelLabel(): string
     {
         return auth()->user()?->hasRole(RoleName::Vendor) ? 'Invoices' : 'Accounts Payables';
     }

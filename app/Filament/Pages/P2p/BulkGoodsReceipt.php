@@ -10,8 +10,18 @@ use App\Models\P2p\SapGoodReceiptItem;
 use App\Services\P2p\P2pEscalationRoutingService;
 use App\Services\P2p\P2pGoodReceiptSubmissionService;
 use BackedEnum;
+use Filament\Actions\Action;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Actions;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Computed;
@@ -23,8 +33,6 @@ use Livewire\Attributes\Url;
  */
 class BulkGoodsReceipt extends Page
 {
-    protected string $view = 'filament.pages.p2p.bulk-goods-receipt';
-
     protected static bool $shouldRegisterNavigation = false;
 
     protected static ?string $slug = 'p2p/bulk-goods-receipt';
@@ -41,29 +49,104 @@ class BulkGoodsReceipt extends Page
 
     public string $referenceNumbers = '';
 
-    /** @var array<int, bool> keyed by SAP GR item id */
-    public array $selected = [];
-
-    /** @var array<int, string> keyed by SAP GR item id */
-    public array $quantities = [];
+    /** @var array<int, array<string, mixed>> */
+    public array $lines = [];
 
     public ?string $escalationReason = null;
 
     public string $escalationRemarks = '';
 
+    public static function canAccess(): bool
+    {
+        return auth()->user()?->hasAnyRole([RoleName::Vendor, RoleName::Admin]) ?? false;
+    }
+
     public function mount(): void
     {
         $this->invoiceAt = now()->toDateString();
 
-        foreach ($this->items() as $item) {
-            $this->selected[$item->id] = true;
-            $this->quantities[$item->id] = (string) ($item->quantity_served ?? $item->quantity_po);
-        }
+        $this->lines = $this->items()
+            ->map(fn ($item): array => [
+                'p2p_sap_good_receipt_item_id' => $item->id,
+                'gr_number' => $item->goodReceipt?->good_receipt_number,
+                'include' => true,
+                'item_name' => $item->item_name,
+                'received' => (float) ($item->quantity_served ?? $item->quantity_po),
+                'unit_cost' => (float) $item->unit_cost,
+                'quantity' => (float) ($item->quantity_served ?? $item->quantity_po),
+            ])
+            ->values()
+            ->all();
     }
 
-    public static function canAccess(): bool
+    public function content(Schema $schema): Schema
     {
-        return auth()->user()?->hasAnyRole([RoleName::Vendor, RoleName::Admin]) ?? false;
+        return $schema->components([
+            Section::make('Invoice details')->schema([
+                DatePicker::make('invoiceAt')
+                    ->label('Invoice date')
+                    ->required(),
+                TextInput::make('referenceNumbers')
+                    ->label('Reference no(s).')
+                    ->helperText('Comma separated')
+                    ->required(),
+            ])->columns(2),
+
+            Section::make('Goods receipt lines')->schema([
+                Repeater::make('lines')
+                    ->hiddenLabel()
+                    ->addable(false)
+                    ->deletable(false)
+                    ->reorderable(false)
+                    ->columns(6)
+                    ->schema([
+                        Hidden::make('p2p_sap_good_receipt_item_id'),
+                        Toggle::make('include')
+                            ->label('Bill')
+                            ->inline(false),
+                        TextInput::make('gr_number')
+                            ->label('GR')
+                            ->disabled()
+                            ->dehydrated(false),
+                        TextInput::make('item_name')
+                            ->label('Item')
+                            ->disabled()
+                            ->dehydrated(false),
+                        TextInput::make('received')
+                            ->label('Received')
+                            ->disabled()
+                            ->dehydrated(false),
+                        TextInput::make('unit_cost')
+                            ->label('Unit cost')
+                            ->disabled()
+                            ->dehydrated(false),
+                        TextInput::make('quantity')
+                            ->label('Qty to bill')
+                            ->numeric()
+                            ->required(),
+                    ]),
+            ]),
+
+            Section::make('Escalate instead')->schema([
+                Select::make('escalationReason')
+                    ->label('Reason')
+                    ->options(fn (): array => $this->escalationReasons()->pluck('name', 'code')->all()),
+                TextInput::make('escalationRemarks')
+                    ->label('Remarks'),
+            ])->columns(2),
+
+            Actions::make([
+                Action::make('submit')
+                    ->label('Submit to AP')
+                    ->icon(Heroicon::OutlinedPaperAirplane)
+                    ->action('submit'),
+                Action::make('escalate')
+                    ->label('Escalate')
+                    ->color('warning')
+                    ->icon(Heroicon::OutlinedArrowTrendingUp)
+                    ->action('escalate'),
+            ]),
+        ]);
     }
 
     /**
@@ -74,7 +157,7 @@ class BulkGoodsReceipt extends Page
     {
         $query = GoodReceiptState::query()
             ->whereIn('id', $this->ids)
-            ->with(['sapGoodReceipt.items', 'vendor', 'company']);
+            ->with(['sapGoodReceipt.items.goodReceipt', 'vendor', 'company']);
 
         $user = auth()->user();
 
@@ -103,7 +186,7 @@ class BulkGoodsReceipt extends Page
         return EscalationReason::query()->active()->forRole('vendor')->get();
     }
 
-    public function submit(P2pGoodReceiptSubmissionService $service): void
+    public function submit(): void
     {
         $this->validate([
             'ids' => ['required', 'array', 'min:1'],
@@ -120,6 +203,7 @@ class BulkGoodsReceipt extends Page
         }
 
         $user = auth()->user();
+        $service = app(P2pGoodReceiptSubmissionService::class);
 
         $invoice = $service->start($user, array_map('intval', $this->ids));
         $service->submit($invoice, $lines, $user, [
@@ -132,7 +216,7 @@ class BulkGoodsReceipt extends Page
         $this->redirect(InvoiceResource::getUrl('index'));
     }
 
-    public function escalate(P2pGoodReceiptSubmissionService $submission, P2pEscalationRoutingService $escalations): void
+    public function escalate(): void
     {
         $this->validate([
             'ids' => ['required', 'array', 'min:1'],
@@ -141,9 +225,9 @@ class BulkGoodsReceipt extends Page
         ]);
 
         $user = auth()->user();
-        $invoice = $submission->start($user, array_map('intval', $this->ids));
 
-        $escalations->start($invoice, $this->escalationReason, array_map('intval', $this->ids), $user, $this->escalationRemarks);
+        $invoice = app(P2pGoodReceiptSubmissionService::class)->start($user, array_map('intval', $this->ids));
+        app(P2pEscalationRoutingService::class)->start($invoice, $this->escalationReason, array_map('intval', $this->ids), $user, $this->escalationRemarks);
 
         Notification::make()->title('Escalation raised')->success()->send();
 
@@ -157,16 +241,15 @@ class BulkGoodsReceipt extends Page
     {
         $lines = [];
 
-        foreach ($this->items() as $item) {
-            if (! ($this->selected[$item->id] ?? false)) {
+        foreach ($this->lines as $line) {
+            if (! ($line['include'] ?? false) || (float) ($line['quantity'] ?? 0) <= 0) {
                 continue;
             }
 
-            $quantity = $this->quantities[$item->id] ?? '0';
-
-            if ((float) $quantity > 0) {
-                $lines[] = ['p2p_sap_good_receipt_item_id' => $item->id, 'quantity_billed' => (string) $quantity];
-            }
+            $lines[] = [
+                'p2p_sap_good_receipt_item_id' => (int) $line['p2p_sap_good_receipt_item_id'],
+                'quantity_billed' => (string) $line['quantity'],
+            ];
         }
 
         return $lines;
