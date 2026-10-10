@@ -13,6 +13,7 @@ use App\Models\P2p\SapPurchaseOrder;
 use App\Models\User;
 use App\Services\P2p\Escalation\StepActionContext;
 use App\Services\P2p\Escalation\StepActionRegistry;
+use App\Services\P2p\Mail\EscalationMailService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -32,6 +33,7 @@ class P2pEscalationRoutingService
         private readonly P2pGoodReceiptStatusService $goodReceiptStatus,
         private readonly P2pPurchaseOrderStatusService $purchaseOrderStatus,
         private readonly StepActionRegistry $actions,
+        private readonly EscalationMailService $mail,
     ) {}
 
     /**
@@ -94,6 +96,11 @@ class P2pEscalationRoutingService
                 'is_visible_to_admin' => true,
             ]);
 
+            $created->each(function (Escalation $escalation): void {
+                $this->mail->sendForCurrentHop($escalation);
+                $this->mail->sendOriginNotice($escalation);
+            });
+
             return $created;
         });
     }
@@ -129,6 +136,8 @@ class P2pEscalationRoutingService
 
             $this->goodReceiptStatus->recalculate($escalation->goodReceiptState);
             $this->syncHeaderStatus($escalation->invoice->fresh());
+
+            $this->mail->sendForCurrentHop($escalation->fresh());
 
             $this->history($escalation, $by, $remarks, 'Escalation advanced.');
         });

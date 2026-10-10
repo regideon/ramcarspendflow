@@ -3,11 +3,13 @@
 namespace App\Services\P2p;
 
 use App\Enums\P2pStatus;
+use App\Mail\P2p\GoodReceiptCancelledMail;
 use App\Models\P2p\ApprovalHistory;
 use App\Models\P2p\Invoice;
 use App\Models\P2p\SapPurchaseOrder;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -45,7 +47,13 @@ class P2pGoodReceiptReturnService
             throw ValidationException::withMessages(['status' => 'Only a returned invoice can be cancelled.']);
         }
 
-        return $this->transition($invoice, P2pStatus::Cancelled, $by, $remarks, 'Request cancelled by vendor.', true);
+        $invoice = $this->transition($invoice, P2pStatus::Cancelled, $by, $remarks, 'Request cancelled by vendor.', true);
+
+        if ($invoice->vendor?->email !== null) {
+            Mail::to($invoice->vendor->email)->queue(new GoodReceiptCancelledMail($invoice));
+        }
+
+        return $invoice;
     }
 
     protected function transition(
