@@ -70,7 +70,8 @@ return new class extends Migration
             $table->string('purchase_order_item')->nullable();
             $table->unsignedBigInteger('item_id')->nullable();
             $table->string('storage_location')->nullable();
-            $table->string('material_type')->nullable()->index(); // P2pMaterialType
+            $table->foreignId('p2p_material_classification_id')->nullable()
+                ->constrained('p2p_material_classifications')->nullOnDelete();
             $table->foreignId('classified_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('classified_at')->nullable();
             $table->string('item_name')->nullable();

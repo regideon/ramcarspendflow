@@ -2,7 +2,6 @@
 
 namespace Database\Factories\P2p;
 
-use App\Enums\P2pMaterialType;
 use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -27,7 +26,6 @@ class InvoiceLineFactory extends Factory
             'purchase_order' => '45'.fake()->numerify('#########'),
             'purchase_order_item' => '00010',
             'storage_location' => 'B001',
-            'material_type' => P2pMaterialType::RawMaterial,
             'item_name' => fake()->words(2, true),
             'quantity_po' => $quantity,
             'quantity_billed' => $quantity,

@@ -2,7 +2,6 @@
 
 namespace App\Models\P2p;
 
-use App\Enums\P2pMaterialType;
 use App\Models\User;
 use Database\Factories\P2p\InvoiceLineFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -19,7 +18,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 #[Table('p2p_invoice_lines')]
 #[Fillable([
     'p2p_invoice_id', 'p2p_sap_good_receipt_item_id', 'purchase_order', 'purchase_order_item',
-    'item_id', 'storage_location', 'material_type', 'classified_by', 'classified_at', 'item_name',
+    'item_id', 'storage_location', 'p2p_material_classification_id', 'classified_by', 'classified_at', 'item_name',
     'item_description', 'quantity_po', 'quantity_billed', 'quantity_previous', 'quantity_remaining',
     'is_fully_billed', 'uom', 'unit_cost', 'amount',
 ])]
@@ -45,6 +44,14 @@ class InvoiceLine extends Model
     }
 
     /**
+     * @return BelongsTo<MaterialClassification, $this>
+     */
+    public function materialClassification(): BelongsTo
+    {
+        return $this->belongsTo(MaterialClassification::class, 'p2p_material_classification_id');
+    }
+
+    /**
      * @return BelongsTo<User, $this>
      */
     public function classifiedBy(): BelongsTo
@@ -58,7 +65,6 @@ class InvoiceLine extends Model
     protected function casts(): array
     {
         return [
-            'material_type' => P2pMaterialType::class,
             'quantity_po' => 'decimal:3',
             'quantity_billed' => 'decimal:3',
             'quantity_previous' => 'decimal:3',

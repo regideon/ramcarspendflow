@@ -86,6 +86,6 @@ Filament database notifications are used for interactive feedback (e.g. "SAP syn
 
 ## 5.7 Enums
 
-`P2pStatus`, `P2pPurchaseOrderStatus`, `P2pThreeWayMatchStatus`, `P2pDownPaymentStatus`,
-`P2pMaterialType` — see [Data model §2.7](02-data-model.md#27-enums). Role names use
-`App\Enums\RoleName`.
+`P2pStatus`, `P2pPurchaseOrderStatus`, `P2pThreeWayMatchStatus`, `P2pDownPaymentStatus`
+— see [Data model §2.7](02-data-model.md#27-enums). Material buckets are the
+`p2p_material_classifications` table, not an enum. Role names use `App\Enums\RoleName`.

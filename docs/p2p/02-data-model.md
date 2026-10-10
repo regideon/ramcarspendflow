@@ -138,8 +138,10 @@ rows to obtain it. To confirm with the SAP team; see `09-open-questions.md`.
 | `P2pPurchaseOrderStatus` | PO status derived by `PurchaseOrderStatusService` (0 Pending / 2 Partially / 3 Fully / 1 Completed) |
 | `P2pThreeWayMatchStatus` | Match / mismatch states |
 | `P2pDownPaymentStatus` | Down-payment lifecycle |
-| `P2pMaterialType` | Material type filter |
-| `P2pInvoiceOutcome` | Escalation `status` (`open`/`resolved`/`cancelled`) and step `action` (`EscalationReasonStep::ACTION_REVERSE_REGR`) |
+
+> Material buckets are **not** an enum — they are dynamic, so they live in the
+> `p2p_material_classifications` table and invoice lines reference it via
+> `p2p_material_classification_id` (see §2.3).
 
 Role names continue to use `App\Enums\RoleName` (never string literals).
 
