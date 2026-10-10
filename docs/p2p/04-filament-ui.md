@@ -32,7 +32,7 @@ flowchart TB
 
 | Resource | Model | Nav label | Access | Notes |
 |---|---|---|---|---|
-| `PurchaseOrderResource` | `P2pSapPurchaseOrder` | Purchase Orders | Admin, Vendor (nav) | Header "**Sync from SAP**" action (vendor) |
+| `PurchaseOrderResource` | `P2pSapPurchaseOrder` | Purchase Orders | Admin, Vendor (nav) | Header "**Sync from SAP**" action; bulk-select POs → open their GRs ("View GR's" / "Process Selected") |
 | `GoodsReceiptResource` | `P2pSapGoodReceipt` (or state projection) | Goods Receipt | Admin, Vendor | Nav hidden; reached via PO link / redirect |
 | `InvoiceResource` | `P2pInvoice` | **Invoices** (Vendor) / **Accounts Payables** (staff) | Vendor + staff | The submission worklist; label by role |
 | `P2pApprovalResource` | `P2pInvoice` | P2P Approvals | AP Processor (+ AP Checker later) | Nav **count badge**; scoped to the user's actionable queue |
@@ -57,6 +57,29 @@ On `BulkGoodsReceipt` and `BulkAccountsPayable`, the uploaded **invoice PDF rend
 side by side** with the PO/GR lines so quantities, prices and amounts can be compared
 without switching screens. A three-way-match badge (PO vs GR vs invoice) shows per line.
 Rebuild as Livewire 4 components (legacy `AccountsPayableProcessor{FormTop,FormRight,Table}`).
+
+### Multi-PO / multi-GR submissions (confirmed against the live system)
+
+Verified on `p2p.test` (vendor KatArt Corp): a vendor processes **one submission across
+multiple GRs — and multiple POs — at once**. The flow is:
+
+1. **Purchase Orders** list: each row has a checkbox and a **"View GR's"** link; a PO
+   can carry several GRs (plus partials like `-P1`, `-P3`).
+2. Selecting POs / opening GRs passes `purchase_orders[]` and `gr_numbers[]` query arrays
+   to the **Goods Receipts** list.
+3. **Goods Receipts** list (nav hidden): per-status tabs (Pending, Submitted to AP,
+   Escalate to Procurement, Rejected/Reversed, Returned to Vendor, Posted to SAP, All),
+   per-row **Process**, and a bulk **"Process Selected"** ("N records selected").
+4. **`BulkGoodsReceipt`** then processes every selected GR's lines in **one** submission.
+
+Our normalized model supports this natively: a submission (`p2p_invoices`) stores
+`po_numbers[]` and `gr_numbers[]`, and `p2p_invoice_lines` bill per GR item — so one
+invoice can span several POs and GRs. `P2pGoodReceiptSubmissionService::start()` already
+accepts many GR ids and enforces one company + one vendor.
+
+**Build implication:** the vendor "Process" entry point must be the **Goods Receipts
+list** (hidden-nav resource) with bulk selection and status tabs, not the PO list. The
+PO list links into it. (#32, #33, #36)
 
 ## 4.4 Access matrix (this pass)
 
