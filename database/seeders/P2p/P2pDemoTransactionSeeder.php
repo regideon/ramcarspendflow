@@ -74,8 +74,8 @@ class P2pDemoTransactionSeeder extends Seeder
         int $index,
     ): void {
         $items = [
-            ['RM-0001', 'Lead Ingot', 'KG', 'B001', 100.0, 85.00],
-            ['SP-0001', 'Conveyor Belt', 'M', 'B002', 20.0, 1250.00],
+            ['RM-0001', 'Lead Ingot', 'KG', 'B001', 100, 85.00],
+            ['SP-0001', 'Conveyor Belt', 'M', 'B002', 20, 1250.00],
         ];
 
         $total = 0.0;

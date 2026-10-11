@@ -74,8 +74,8 @@ class GoodReceiptState extends Model
     {
         return [
             'status' => P2pStatus::class,
-            'quantity_total' => 'decimal:3',
-            'quantity_served' => 'decimal:3',
+            'quantity_total' => 'integer',
+            'quantity_served' => 'integer',
             'amount_total' => 'decimal:2',
             'is_fully_processed' => 'boolean',
             'reversed_at' => 'datetime',

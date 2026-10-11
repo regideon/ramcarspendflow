@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\P2p\SapPurchaseOrder;
 use Database\Factories\VendorFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -37,6 +38,14 @@ class Vendor extends Model
         return $this->belongsToMany(Company::class)
             ->withPivot(['reconciliation_account', 'payment_terms', 'payment_methods', 'is_active'])
             ->withTimestamps();
+    }
+
+    /**
+     * @return HasMany<SapPurchaseOrder, $this>
+     */
+    public function sapPurchaseOrders(): HasMany
+    {
+        return $this->hasMany(SapPurchaseOrder::class, 'vendor_code', 'code');
     }
 
     /**

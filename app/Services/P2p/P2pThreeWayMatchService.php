@@ -16,17 +16,17 @@ class P2pThreeWayMatchService
      */
     public function match(SapGoodReceiptItem $item, InvoiceLine $line): P2pThreeWayMatchStatus
     {
-        $ordered = (string) ($item->quantity_po ?? '0');
-        $received = (string) ($item->quantity_served ?? $item->quantity_po ?? '0');
-        $billed = (string) $line->quantity_billed;
+        $ordered = (int) ($item->quantity_po ?? 0);
+        $received = (int) ($item->quantity_served ?? $item->quantity_po ?? 0);
+        $billed = (int) $line->quantity_billed;
 
         // Invoiced more than received — a real mismatch (over-delivery, wrong qty).
-        if (bccomp($billed, $received, 3) > 0) {
+        if ($billed > $received) {
             return P2pThreeWayMatchStatus::NoMatch;
         }
 
         // Invoice reconciles with the receipt, but the PO still has an open quantity.
-        if (bccomp($received, $ordered, 3) < 0) {
+        if ($received < $ordered) {
             return P2pThreeWayMatchStatus::OpenPo;
         }
 

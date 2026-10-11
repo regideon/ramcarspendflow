@@ -9,7 +9,6 @@ use App\Filament\Resources\P2p\PurchaseOrders\PurchaseOrderResource;
 use App\Models\P2p\SapPurchaseOrder;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
-use Filament\Actions\ViewAction;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -22,44 +21,49 @@ class PurchaseOrdersTable
     public static function configure(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query): Builder => $query->with('goodReceipts'))
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query->with('goodReceipts', 'company'))
             ->columns([
                 TextColumn::make('purchase_order')
-                    ->label('PO no.')
+                    ->label('PO Number')
                     ->searchable()
                     ->sortable()
                     ->weight('medium'),
+                TextColumn::make('gr_numbers')
+                    ->label('GRs')
+                    ->state(fn (SapPurchaseOrder $record): int => implode(', ', $record->gr_numbers ?? [])),
                 TextColumn::make('vendor_code')
                     ->label('Vendor')
                     ->searchable()
-                    ->toggleable(),
-                TextColumn::make('company_code')
+                    ->toggleable(isToggledHiddenByDefault: (fn ($record): bool => auth()->user()?->hasRole(RoleName::Vendor) ?? false)),
+                TextColumn::make('company.name')
                     ->label('Company')
-                    ->sortable(),
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: (fn ($record): bool => ! (auth()->user()?->hasRole(RoleName::Vendor) ?? false))),
                 TextColumn::make('status_id')
                     ->label('Status')
                     ->badge()
                     ->sortable(),
-                TextColumn::make('total_amount')
-                    ->label('Amount')
-                    ->numeric(decimalPlaces: 2)
-                    ->description(fn (SapPurchaseOrder $record): ?string => $record->currency_key)
-                    ->alignEnd()
-                    ->sortable(),
-                TextColumn::make('gr_numbers')
-                    ->label('GRs')
-                    ->state(fn (SapPurchaseOrder $record): int => count($record->gr_numbers ?? []))
-                    ->badge()
-                    ->color('gray'),
+                // TextColumn::make('total_amount')
+                //     ->label('Amount')
+                //     ->numeric(decimalPlaces: 2)
+                //     ->prefix(fn (SapPurchaseOrder $record): ?string => $record->currency_key . ' ')
+                //     ->alignEnd()
+                //     ->sortable(),
                 TextColumn::make('purchase_order_date')
                     ->label('PO date')
                     ->date()
                     ->sortable()
                     ->toggleable(),
-                TextColumn::make('changed_on')
-                    ->label('Last change')
-                    ->date()
-                    ->sortable(),
+                TextColumn::make('quantity_po_balance')
+                    ->label('PO balance')
+                    ->alignEnd()
+                    ->sortable()
+                    ->toggleable(),
+
+                // TextColumn::make('changed_on')
+                //     ->label('Last change')
+                //     ->date()
+                //     ->sortable(),
             ])
             ->defaultSort('changed_on', 'desc')
             ->filters([
@@ -74,7 +78,6 @@ class PurchaseOrdersTable
                     ->url(fn (SapPurchaseOrder $record): string => GoodsReceiptResource::getUrl('index', [
                         'purchase_orders' => [$record->purchase_order],
                     ])),
-                ViewAction::make()->iconButton(),
             ])
             ->toolbarActions([
                 BulkAction::make('processGrs')

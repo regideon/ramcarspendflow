@@ -54,11 +54,11 @@ class SapGoodReceiptItem extends Model
     protected function casts(): array
     {
         return [
-            'quantity_po' => 'decimal:3',
-            'quantity_served' => 'decimal:3',
+            'quantity_po' => 'integer',
+            'quantity_served' => 'integer',
             'unit_cost' => 'decimal:2',
             'amount' => 'decimal:2',
-            'quantity_po_balance' => 'decimal:3',
+            'quantity_po_balance' => 'integer',
         ];
     }
 }
