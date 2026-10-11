@@ -30,7 +30,7 @@ class Item extends Model
     protected function casts(): array
     {
         return [
-            'unit_cost' => 'decimal:2',
+            'unit_cost' => 'decimal:4',
             'is_active' => 'boolean',
         ];
     }

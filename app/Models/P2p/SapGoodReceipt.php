@@ -63,7 +63,7 @@ class SapGoodReceipt extends Model
     protected function casts(): array
     {
         return [
-            'amount_total' => 'decimal:2',
+            'amount_total' => 'decimal:4',
             'due_at' => 'date',
             'upload_at' => 'date',
             'date_at' => 'date',

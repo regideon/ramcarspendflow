@@ -78,7 +78,7 @@ class SapPurchaseOrder extends Model
             'status_id' => P2pPurchaseOrderStatus::class,
             'purchase_order_date' => 'date',
             'changed_on' => 'date',
-            'total_amount' => 'decimal:2',
+            'total_amount' => 'decimal:4',
             'gr_numbers' => 'array',
             'quantity_po_balance' => 'integer',
             'has_down_payment' => 'boolean',

@@ -1,6 +1,8 @@
 <?php
 
 use App\Enums\P2pStatus;
+use App\Models\Company;
+use App\Models\P2p\DeliveryType;
 use App\Models\P2p\EscalationReason;
 use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\Invoice;
@@ -8,8 +10,11 @@ use App\Models\P2p\Item;
 use App\Models\P2p\MaterialClassification;
 use App\Models\P2p\SapPurchaseOrder;
 use Database\Seeders\CompanySeeder;
+use Database\Seeders\P2p\P2pCompanySeeder;
+use Database\Seeders\P2p\P2pDeliveryTypeSeeder;
 use Database\Seeders\P2p\P2pDemoMasterDataSeeder;
 use Database\Seeders\P2p\P2pDemoTransactionSeeder;
+use Database\Seeders\P2p\P2pItemSeeder;
 use Database\Seeders\RoleAndUserSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
@@ -21,10 +26,15 @@ beforeEach(function () {
 });
 
 it('seeds P2P master data', function () {
+    $this->seed(P2pCompanySeeder::class);
     $this->seed(P2pDemoMasterDataSeeder::class);
+    $this->seed(P2pItemSeeder::class);
+    $this->seed(P2pDeliveryTypeSeeder::class);
 
     expect(MaterialClassification::count())->toBe(3)
-        ->and(Item::count())->toBe(6)
+        ->and(Item::count())->toBe(2)
+        ->and(DeliveryType::count())->toBe(2)
+        ->and(Company::count())->toBe(51)
         ->and(EscalationReason::count())->toBe(7);
 });
 

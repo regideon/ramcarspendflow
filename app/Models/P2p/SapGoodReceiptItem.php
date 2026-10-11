@@ -56,8 +56,8 @@ class SapGoodReceiptItem extends Model
         return [
             'quantity_po' => 'integer',
             'quantity_served' => 'integer',
-            'unit_cost' => 'decimal:2',
-            'amount' => 'decimal:2',
+            'unit_cost' => 'decimal:4',
+            'amount' => 'decimal:4',
             'quantity_po_balance' => 'integer',
         ];
     }
