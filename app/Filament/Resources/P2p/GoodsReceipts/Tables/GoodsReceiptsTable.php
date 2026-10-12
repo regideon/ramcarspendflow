@@ -8,7 +8,6 @@ use App\Filament\Resources\P2p\GoodsReceipts\GoodsReceiptResource;
 use App\Models\P2p\GoodReceiptState;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
-use Filament\Actions\ViewAction;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -41,7 +40,9 @@ class GoodsReceiptsTable
                 TextColumn::make('amount_total')
                     ->label('Amount')
                     ->numeric(decimalPlaces: 2)
-                    ->alignEnd(),
+                    ->alignEnd()
+                    // Vendors do not see pricing on their own goods receipts.
+                    ->visible(fn (): bool => ! (auth()->user()?->hasRole(RoleName::Vendor) ?? false)),
                 TextColumn::make('updated_at')
                     ->label('Updated')
                     ->dateTime('M j, Y g:i A')
@@ -56,7 +57,6 @@ class GoodsReceiptsTable
                     ->visible(fn (GoodReceiptState $record): bool => $record->status->isEditableByVendor()
                         && (auth()->user()?->hasRole(RoleName::Vendor) ?? false))
                     ->url(fn (GoodReceiptState $record): string => BulkGoodsReceipt::getUrl(['ids' => [$record->id]])),
-                ViewAction::make()->iconButton(),
             ])
             ->toolbarActions([
                 BulkAction::make('processSelected')

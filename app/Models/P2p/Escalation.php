@@ -4,10 +4,13 @@ namespace App\Models\P2p;
 
 use App\Enums\P2pStatus;
 use App\Models\User;
+use App\Services\P2p\Escalation\StepAction;
+use App\Services\P2p\Escalation\StepActionRegistry;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Table;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Collection;
 
 /**
  * An escalation raised against a GR (one row per GR, sharing a batch_number).
@@ -75,9 +78,88 @@ class Escalation extends Model
      */
     public function currentStep(): ?EscalationReasonStep
     {
+        if ($this->relationLoaded('reason')) {
+            return $this->reason?->steps->firstWhere('step_order', $this->current_step_order);
+        }
+
+        return $this->reason()
+            ->with('steps')
+            ->first()
+            ?->steps
+            ->firstWhere('step_order', $this->current_step_order);
+    }
+
+    /**
+     * The hop the escalation would move to next, or null at the final hop.
+     */
+    public function nextStep(): ?EscalationReasonStep
+    {
+        return $this->orderedSteps()
+            ->first(fn (EscalationReasonStep $step): bool => $step->step_order > $this->current_step_order);
+    }
+
+    /**
+     * The hop just before the current one, or null at the first hop (where the
+     * previous handler is the originator).
+     */
+    public function previousStep(): ?EscalationReasonStep
+    {
+        return $this->orderedSteps()
+            ->last(fn (EscalationReasonStep $step): bool => $step->step_order < $this->current_step_order);
+    }
+
+    /**
+     * The configured label for the current hop's button, if any.
+     */
+    public function currentActionLabel(): ?string
+    {
+        $label = $this->currentStep()?->action_label;
+
+        return filled($label) ? (string) $label : null;
+    }
+
+    /**
+     * The custom step action configured on the current hop, if any. Replaces the
+     * generic "Advance" when set.
+     */
+    public function currentStepAction(): ?StepAction
+    {
+        return app(StepActionRegistry::class)->resolve($this->currentStep()?->action);
+    }
+
+    /**
+     * The role a "Return" would hand the escalation back to: the previous hop, or
+     * the originator when it is already at its first hop.
+     */
+    public function previousHopRole(): ?string
+    {
+        $previous = $this->previousStep();
+
+        if ($previous === null) {
+            return $this->origin_role;
+        }
+
+        return $previous->role === EscalationReasonStep::ROLE_ORIGIN
+            ? $this->origin_role
+            : $previous->role;
+    }
+
+    /**
+     * Label for where a "Return" would send the escalation, e.g. "Vendor".
+     */
+    public function previousRoleLabel(): string
+    {
+        return self::roleLabel($this->previousHopRole());
+    }
+
+    /**
+     * @return Collection<int, EscalationReasonStep>
+     */
+    protected function orderedSteps(): Collection
+    {
         $this->loadMissing('reason.steps');
 
-        return $this->reason?->steps->firstWhere('step_order', $this->current_step_order);
+        return ($this->reason?->steps ?? collect())->sortBy('step_order')->values();
     }
 
     /**

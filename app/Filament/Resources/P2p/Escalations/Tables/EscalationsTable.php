@@ -12,6 +12,11 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 
+/**
+ * Escalations a team must act on: the current hop reads from the reason's route,
+ * so the row action is the hop's own custom action when it defines one (e.g.
+ * "Reverse & re-GR"), otherwise Advance / Resolve.
+ */
 class EscalationsTable
 {
     public static function configure(Table $table): Table
@@ -93,24 +98,13 @@ class EscalationsTable
                     ]),
             ])
             ->recordActions([
-                Action::make('advance')
-                    ->label('Advance')
-                    ->icon(Heroicon::OutlinedArrowRightCircle)
-                    ->color('warning')
-                    ->visible(fn (Escalation $record): bool => $record->current_role !== 'origin')
-                    ->schema([
-                        Textarea::make('remarks')->required()->columnSpanFull(),
-                    ])
-                    ->action(function (Escalation $record, array $data): void {
-                        app(P2pEscalationRoutingService::class)->advance($record, auth()->user(), $data['remarks']);
-
-                        Notification::make()->title('Escalation advanced')->success()->send();
-                    }),
+                self::hopAction(),
 
                 Action::make('resolve')
                     ->label('Resolve')
                     ->icon(Heroicon::OutlinedCheckCircle)
                     ->color('success')
+                    ->visible(fn (Escalation $record): bool => $record->currentStepAction() === null)
                     ->schema([
                         Textarea::make('remarks')->required()->columnSpanFull(),
                     ])
@@ -121,5 +115,34 @@ class EscalationsTable
                     }),
             ])
             ->striped();
+    }
+
+    /**
+     * The hop's action. A step with a custom action (e.g. "Reverse & re-GR") supplies
+     * the label and lets the route settle the escalation; otherwise the generic
+     * "Advance" walks the route one hop at a time.
+     */
+    protected static function hopAction(): Action
+    {
+        return Action::make('advance')
+            ->label(fn (Escalation $record): string => $record->currentStepAction() !== null
+                ? ($record->currentActionLabel() ?? $record->currentStepAction()->label ?? 'Advance')
+                : 'Advance')
+            ->icon(fn (Escalation $record): string|\BackedEnum => $record->currentStepAction() !== null
+                ? Heroicon::OutlinedArrowUturnLeft
+                : Heroicon::OutlinedArrowRightCircle)
+            ->color(fn (Escalation $record): string => $record->currentStepAction() !== null ? 'danger' : 'warning')
+            ->visible(fn (Escalation $record): bool => $record->current_role !== 'origin')
+            ->modalHeading(fn (Escalation $record): string => $record->currentActionLabel() ?? 'Advance escalation')
+            ->schema([
+                Textarea::make('remarks')
+                    ->required()
+                    ->columnSpanFull(),
+            ])
+            ->action(function (Escalation $record, array $data): void {
+                app(P2pEscalationRoutingService::class)->advance($record, auth()->user(), $data['remarks']);
+
+                Notification::make()->title('Escalation advanced')->success()->send();
+            });
     }
 }

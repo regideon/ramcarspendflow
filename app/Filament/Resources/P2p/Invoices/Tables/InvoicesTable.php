@@ -21,12 +21,6 @@ class InvoicesTable
         return $table
             ->modifyQueryUsing(fn (Builder $query): Builder => $query->with(['vendor', 'company']))
             ->columns([
-                TextColumn::make('grc_number')
-                    ->label('GRC no.')
-                    ->searchable()
-                    ->sortable()
-                    ->weight('medium'),
-
                 TextColumn::make('vendor.name')
                     ->label('Vendor')
                     ->searchable()
@@ -40,14 +34,11 @@ class InvoicesTable
 
                 TextColumn::make('po_numbers')
                     ->label('PO')
-                    ->badge()
                     ->listWithLineBreaks()
                     ->searchable(),
 
                 TextColumn::make('reference_number')
                     ->label('Reference')
-                    ->badge()
-                    ->listWithLineBreaks()
                     ->searchable(),
 
                 TextColumn::make('invoice_at')
@@ -57,7 +48,6 @@ class InvoicesTable
 
                 TextColumn::make('gr_numbers')
                     ->label('GR')
-                    ->badge()
                     ->listWithLineBreaks()
                     ->searchable(),
 

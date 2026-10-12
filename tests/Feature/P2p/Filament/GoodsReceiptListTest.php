@@ -122,3 +122,20 @@ it('links back to purchase orders', function () {
         ->test(ListGoodsReceipts::class)
         ->assertActionExists('back');
 });
+
+it('hides the amount column from vendors', function () {
+    [$user] = grListContext();
+    $this->actingAs($user);
+
+    Livewire::withQueryParams(['activeTab' => 'all'])
+        ->test(ListGoodsReceipts::class)
+        ->assertTableColumnHidden('amount_total');
+});
+
+it('shows the amount column to staff', function () {
+    $this->actingAs(User::factory()->create()->assignRole(RoleName::Admin));
+
+    Livewire::withQueryParams(['activeTab' => 'all'])
+        ->test(ListGoodsReceipts::class)
+        ->assertTableColumnVisible('amount_total');
+});
