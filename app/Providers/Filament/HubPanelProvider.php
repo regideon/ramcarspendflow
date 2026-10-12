@@ -30,6 +30,7 @@ class HubPanelProvider extends PanelProvider
             ->id('hub')
             ->path('hub')
             ->login()
+            ->viteTheme('resources/css/filament/hub/theme.css')
 
             ->passwordReset()
             ->unsavedChangesAlerts()
