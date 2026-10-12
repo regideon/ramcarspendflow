@@ -89,8 +89,11 @@
         @endif
     </div>
 
-    {{-- The forward path. Dead-end statuses (rejected/cancelled/reversed) bolt an
-         extra node on the end so the trail still shows where it stopped. --}}
+    {{-- The forward path. Hidden while the request is out on an escalation, so the
+         escalation route(s) below become the primary flow. Dead-end statuses
+         (rejected/cancelled/reversed) bolt an extra node on the end so the trail
+         still shows where it stopped. --}}
+    @unless ($escalationList->isNotEmpty())
     <div class="flex items-start">
         @foreach ($flow as $index => $step)
             @php
@@ -143,6 +146,7 @@
             </div>
         @endif
     </div>
+    @endunless
 
     {{-- Escalated crossings: one stepper per GR/batch, showing the configured hops. --}}
     @foreach ($escalationList as $escalation)
@@ -152,7 +156,7 @@
             $resolved = $escalation->status === Escalation::STATUS_RESOLVED;
         @endphp
 
-        <div class="mt-4 border-t border-gray-100 pt-3 dark:border-white/10">
+        <div class="{{ $loop->first ? '' : 'mt-4 border-t border-gray-100 pt-3 dark:border-white/10' }}">
             <div class="mb-2 flex items-center justify-between gap-2">
                 <p class="text-xs font-semibold uppercase tracking-wide text-[#5a647a] dark:text-gray-400">
                     Escalation · {{ $escalation->requestNumber() }}
@@ -164,7 +168,7 @@
 
             <div class="flex items-start">
                 {{-- Origin node --}}
-                <div class="flex-none">
+                <div class="flex-1">
                     <div class="flex items-center">
                         <div class="flex flex-col items-center">
                             <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-[#38A169] bg-[#E3F5EA] text-[#1E7A47] text-[11px] font-bold dark:border-green-500/60 dark:bg-green-500/10 dark:text-green-400">
