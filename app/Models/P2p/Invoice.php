@@ -117,6 +117,20 @@ class Invoice extends Model
     }
 
     /**
+     * Submissions waiting on the AP processor: submitted by the vendor, or sent
+     * back to AP by the checker. This is the Approvals worklist.
+     */
+    #[Scope]
+    protected function actionableByApProcessor(Builder $query): void
+    {
+        $query->whereIn('status', [
+            P2pStatus::SubmittedToAp,
+            P2pStatus::ApReview,
+            P2pStatus::ReturnedToApProcessor,
+        ]);
+    }
+
+    /**
      * @return array<string, string>
      */
     protected function casts(): array
