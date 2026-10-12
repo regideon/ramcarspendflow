@@ -6,9 +6,11 @@ use App\Enums\P2pStatus;
 use App\Enums\RoleName;
 use App\Filament\Pages\P2p\BulkGoodsReceipt;
 use App\Models\P2p\Invoice;
+use App\Services\P2p\P2pThreeWayMatchService;
 use Filament\Actions\Action;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\ViewColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -63,6 +65,19 @@ class InvoicesTable
                     ->placeholder('—')
                     ->searchable(),
 
+                TextColumn::make('three_way')
+                    ->label('3-Way Match')
+                    ->badge()
+                    ->state(fn (Invoice $record): string => self::threeWay($record)['label'])
+                    ->color(fn (Invoice $record): string => self::threeWay($record)['color'])
+                    ->tooltip(fn (Invoice $record): string => self::threeWay($record)['reason'])
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                ViewColumn::make('attachments')
+                    ->label('Attachments')
+                    ->view('filament.tables.columns.attachments-column')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 TextColumn::make('status')
                     ->badge()
                     ->sortable(),
@@ -111,5 +126,19 @@ class InvoicesTable
         }
 
         return null;
+    }
+
+    /**
+     * The 3-way breakdown for a row, memoised so the label, colour and tooltip
+     * resolvers share one computation per invoice.
+     *
+     * @return array{label: string, color: string, reason: string}
+     */
+    private static function threeWay(Invoice $record): array
+    {
+        /** @var array<int, array{label: string, color: string, reason: string}> $cache */
+        static $cache = [];
+
+        return $cache[$record->getKey()] ??= app(P2pThreeWayMatchService::class)->breakdownForInvoice($record);
     }
 }

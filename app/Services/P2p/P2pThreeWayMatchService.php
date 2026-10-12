@@ -5,6 +5,7 @@ namespace App\Services\P2p;
 use App\Enums\P2pStatus;
 use App\Enums\P2pThreeWayMatchStatus;
 use App\Models\P2p\GoodReceiptState;
+use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
 use App\Models\P2p\SapGoodReceiptItem;
 use Illuminate\Support\Collection;
@@ -118,6 +119,62 @@ class P2pThreeWayMatchService
             'color' => $status->getColor(),
             'reason' => $status->description(),
             'rows' => $rows,
+        ];
+    }
+
+    /**
+     * Reconcile a whole submission (all of its GR lines) into one rollup, so the
+     * list can show a 3-way badge per invoice rather than per line.
+     *
+     * @return array{ordered: int, received: int, invoiced: int, status: string, label: string, color: string, reason: string, lines: array<int, array{po_number: string, po_item: string, ordered: int, received: int, invoiced: int, status: string, label: string, color: string}>}
+     */
+    public function breakdownForInvoice(Invoice $invoice): array
+    {
+        $items = SapGoodReceiptItem::query()
+            ->whereIn('purchase_order', $invoice->po_numbers ?? [])
+            ->with('goodReceipt')
+            ->get();
+
+        $reversed = $this->reversedGoodReceiptIds($items);
+        $billed = $this->billedQuantitiesFor($items->pluck('id'));
+
+        $ordered = 0;
+        $received = 0;
+        $invoiced = 0;
+        $lines = [];
+
+        foreach ($items->groupBy('purchase_order') as $purchaseOrder => $poItems) {
+            foreach ($poItems->groupBy('purchase_order_item') as $purchaseOrderItem => $lineItems) {
+                $detail = $this->breakdownForItems($lineItems, $reversed, $billed);
+
+                $ordered += $detail['ordered'];
+                $received += $detail['received'];
+                $invoiced += $detail['invoiced'];
+
+                $lines[] = [
+                    'po_number' => (string) $purchaseOrder,
+                    'po_item' => (string) $purchaseOrderItem,
+                    'ordered' => $detail['ordered'],
+                    'received' => $detail['received'],
+                    'invoiced' => $detail['invoiced'],
+                    'status' => $detail['status'],
+                    'label' => $detail['label'],
+                    'color' => $detail['color'],
+                ];
+            }
+        }
+
+        $status = $this->statusFor($ordered, $received, $invoiced);
+
+        return [
+            'ordered' => $ordered,
+            'received' => $received,
+            'invoiced' => $invoiced,
+            'status' => $status->value,
+            'label' => $status->getLabel(),
+            'color' => $status->getColor(),
+            'reason' => $status->description(),
+            'lines' => $lines,
         ];
     }
 
