@@ -6,8 +6,9 @@ _Last updated: 2026-10-10 · When answered, move to `docs/07-decisions.md`._
 
 | # | Question | Why it matters | Owner |
 |---|---|---|---|
-| **B1** | **Which RFP role is "AP Checker"?** `RoleName::ApSupervisor` (legacy `checker`) or a new role? | Decision #5: P2P development stops at AP Processor until confirmed. Blocks checker screen + SAP park | Business / RFP team |
 | **B2** | For P2P, does the AP Supervisor/Checker "Return to AP Processor" or also "Return to Vendor"? | Checker action set | Business |
+
+> **B1 resolved (2026-10-12):** the legacy P2P "AP Checker" is `RoleName::ApSupervisor`, not a new role. See [07-decisions](../07-decisions.md).
 
 ## Confirmations
 

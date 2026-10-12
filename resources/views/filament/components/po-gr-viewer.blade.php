@@ -1,10 +1,11 @@
 @php
     /**
-     * Medius-style side-by-side comparison: the submitted lines on the left, the
-     * PO/GR mirror with a per-line 3-way badge on the right, so quantities and
-     * amounts can be compared without leaving the screen.
+     * The Items section: the submission's lines against the SAP PO/GR mirror, with a
+     * per-line 3-way match badge. When the viewer is the AP Processor, each line also
+     * carries a tick that escalates just that line.
      */
     $receipts = $receipts ?? [];
+    $escalatable = $escalatable ?? false;
 
     $fmt = fn ($value): string => rtrim(rtrim(number_format((float) $value, 2, '.', ''), '0'), '.') ?: '0';
 
@@ -21,15 +22,14 @@
 @endphp
 
 <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden;">
-    <div style="padding:10px 14px; background:#f9fafb; border-bottom:1px solid #e5e7eb;">
-        <strong style="font-size:13px;">PO / GR comparison</strong>
-        <span style="font-size:12px; color:#6b7280; margin-left:8px;">
-            Submitted lines next to the SAP mirror, with the per-line 3-way match.
-        </span>
-    </div>
+    @if ($escalatable)
+        <div style="padding:10px 14px; background:#fffbeb; border-bottom:1px solid #fde68a; font-size:12px; color:#92400e;">
+            Tick a line to include it when you escalate. Lines left unticked are not escalated.
+        </div>
+    @endif
 
-    @forelse ($receipts as $gr)
-        <div style="padding:10px 14px; border-bottom:1px solid #f3f4f6;">
+    @forelse ($receipts as $grIndex => $gr)
+        <div style="padding:10px 14px; border-bottom:1px solid #f3f4f6;" wire:key="gr-{{ $grIndex }}">
             <div style="font-size:12px; color:#374151; margin-bottom:6px;">
                 <strong>GR {{ $gr['good_receipt_number'] ?? '—' }}</strong>
                 <span style="color:#6b7280;"> &middot; PO {{ $gr['purchase_order'] ?? '—' }}</span>
@@ -38,6 +38,9 @@
             <table style="width:100%; border-collapse:collapse; font-size:13px;">
                 <thead>
                     <tr style="text-align:left; color:#6b7280; font-size:11px; text-transform:uppercase;">
+                        @if ($escalatable)
+                            <th style="padding:4px 8px 4px 0; width:28px;">Esc.</th>
+                        @endif
                         <th style="padding:4px 0;">Item</th>
                         <th style="padding:4px 0; text-align:right;">PO Qty</th>
                         <th style="padding:4px 0; text-align:right;">GR Qty</th>
@@ -48,9 +51,18 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach ($gr['goodReceiptItems'] ?? [] as $item)
+                    @foreach ($gr['goodReceiptItems'] ?? [] as $itemIndex => $item)
                         @php $match = $item['match'] ?? []; @endphp
-                        <tr style="border-top:1px solid #f3f4f6;">
+                        <tr style="border-top:1px solid #f3f4f6;" wire:key="gr-{{ $grIndex }}-item-{{ $itemIndex }}">
+                            @if ($escalatable)
+                                <td style="padding:4px 8px 4px 0;">
+                                    <input
+                                        type="checkbox"
+                                        wire:model="goods_receipts.{{ $grIndex }}.goodReceiptItems.{{ $itemIndex }}.escalate"
+                                        style="cursor:pointer;"
+                                    >
+                                </td>
+                            @endif
                             <td style="padding:4px 0;">
                                 <div>{{ $item['item_name'] ?? '—' }}</div>
                                 <div style="font-size:11px; color:#6b7280;">

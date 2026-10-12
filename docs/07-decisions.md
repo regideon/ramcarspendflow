@@ -4,6 +4,7 @@ Newest first. Each entry gives the decision and the reason for it.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-12 | **B1 resolved:** the legacy P2P "AP Checker" is `RoleName::ApSupervisor` (no new role). The checker screens, queue and SAP park all key off AP Supervisor. Closes B1 in [P2P 09-open-questions](p2p/09-open-questions.md) | Confirmed by the user; matches the existing "AP Supervisor (not AP Checker)" role decision |
 | 2026-10-12 | **My Requests** (`/hub/rfps`) = legacy "My RFPs": only your own RFPs, even for Admins. **RFP Approvals** (`/hub/rfp-approvals`) = legacy "Approvals": the approver/Accounting queue. Named "RFP …" so **P2P Approvals** can be added beside it | User decision |
 | 2026-10-12 | An RFP records who must act next: `current_approver_role`, plus a person when one is assigned (legacy assigns people; with none, anyone with the role may act). Keeps R3 open for new RFPs | Needed for the queue and the legacy data |
 | 2026-10-12 | **Legacy RFP data is imported** (`rfp:import-legacy`, see [09](09-legacy-rfp-import.md)): RFP, item and one-time vendor ids kept; users matched by email with their legacy password hash and mapped roles; legacy master data imported by code and demo master data deactivated. Replaces "legacy-database import dropped" | User wants real data to work with |

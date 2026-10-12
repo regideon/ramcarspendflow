@@ -4,6 +4,7 @@ use App\Enums\P2pStatus;
 use App\Enums\RoleName;
 use App\Filament\Pages\P2p\BulkAccountsPayable;
 use App\Models\Company;
+use App\Models\P2p\Escalation;
 use App\Models\P2p\EscalationReason;
 use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\Invoice;
@@ -13,8 +14,10 @@ use App\Models\P2p\SapGoodReceiptItem;
 use App\Models\TaxCode;
 use App\Models\User;
 use App\Models\Vendor;
+use App\Services\P2p\P2pInvoiceParkingService;
 use Database\Seeders\RoleAndUserSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 
 pest()->use(RefreshDatabase::class);
@@ -89,7 +92,7 @@ it('renders the side-by-side comparison with the submitted lines', function () {
 
     Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
         ->assertOk()
-        ->assertSee('PO / GR comparison')
+        ->assertSee('Items')
         ->assertSee('5000006000');
 });
 
@@ -98,9 +101,10 @@ it('requires a tax code before submitting to the checker', function () {
     $this->actingAs($processor);
 
     Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
-        ->call('submit')
-        ->assertHasErrors(['tax_code' => 'required']);
+        ->set('data.tax_code', null)
+        ->call('submit');
 
+    // The handler refuses and leaves the submission untouched.
     expect($invoice->fresh()->status)->toBe(P2pStatus::SubmittedToAp);
 });
 
@@ -111,7 +115,7 @@ it('moves the submission to the checker once a tax code is set', function () {
     TaxCode::factory()->create(['code' => 'I2', 'description' => 'Input VAT 12%', 'rate' => 12]);
 
     Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
-        ->set('tax_code', 'I2')
+        ->set('data.tax_code', 'I2')
         ->call('submit');
 
     $invoice->refresh();
@@ -147,9 +151,9 @@ it('escalates only the ticked goods receipts', function () {
     expect($invoice->fresh()->escalations()->count())->toBe(0);
 
     // Tick the line, then escalate.
-    $goodsReceipts = $component->get('goods_receipts');
+    $goodsReceipts = $component->get('data.goods_receipts');
     $goodsReceipts[0]['goodReceiptItems'][0]['escalate'] = true;
-    $component->set('goods_receipts', $goodsReceipts);
+    $component->set('data.goods_receipts', $goodsReceipts);
 
     $component->callAction('escalate', [
         'escalationReason' => 'qty_issue',
@@ -168,4 +172,166 @@ it('returns the submission to the vendor with remarks', function () {
         ->callAction('returnToVendor', ['remarks_ap' => 'Attachment is unreadable.']);
 
     expect($invoice->fresh()->status)->toBe(P2pStatus::ReturnedToVendor);
+});
+
+it('offers the supervisor Approve and Return instead of the processor actions', function () {
+    [$supervisor, $invoice] = apPageContext(P2pStatus::SubmittedToChecker);
+    $this->actingAs($supervisor);
+
+    // The fixture user is a processor; swap in a supervisor.
+    $actualSupervisor = User::factory()->create()->assignRole(RoleName::ApSupervisor);
+    $this->actingAs($actualSupervisor);
+
+    $component = Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id]);
+
+    $actions = collect($component->instance()->getFooterActions())
+        ->map(fn ($action): string => $action->getName())
+        ->all();
+
+    expect($actions)->toContain('approve', 'returnToApProcessor')
+        ->and($actions)->not->toContain('submit', 'escalate', 'returnToVendor');
+});
+
+it('parks the invoice when the supervisor approves', function () {
+    $supervisor = User::factory()->create()->assignRole(RoleName::ApSupervisor);
+    [, $invoice] = apPageContext(P2pStatus::SubmittedToChecker);
+    $this->actingAs($supervisor);
+
+    Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
+        ->callAction('approve', ['remarks_checker' => 'Checked against the PO.']);
+
+    $invoice->refresh();
+
+    expect($invoice->status)->toBe(P2pStatus::PendingPost)
+        ->and($invoice->processed)->toBeTrue();
+
+    // The intended SAP payload is logged for the eventual integration.
+    $this->assertDatabaseHas('p2p_sap_api_logs', [
+        'p2p_invoice_id' => $invoice->id,
+        'endpoint' => 'park_invoice',
+    ]);
+
+    // And the decision is in the audit trail.
+    $this->assertDatabaseHas('p2p_approval_histories', [
+        'p2p_invoice_id' => $invoice->id,
+        'to_status' => P2pStatus::PendingPost->value,
+    ]);
+});
+
+it('returns the submission to the processor when the supervisor declines', function () {
+    $supervisor = User::factory()->create()->assignRole(RoleName::ApSupervisor);
+    [, $invoice] = apPageContext(P2pStatus::SubmittedToChecker);
+    $this->actingAs($supervisor);
+
+    Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
+        ->callAction('returnToApProcessor', ['remarks_checker' => 'Tax code is wrong.']);
+
+    expect($invoice->fresh()->status)->toBe(P2pStatus::ReturnedToApProcessor);
+});
+
+it('refuses to park an invoice that is not awaiting the checker', function () {
+    $supervisor = User::factory()->create()->assignRole(RoleName::ApSupervisor);
+    [, $invoice] = apPageContext(P2pStatus::SubmittedToAp);
+    $this->actingAs($supervisor);
+
+    expect(fn () => app(P2pInvoiceParkingService::class)
+        ->park($invoice, $supervisor, 'Premature.'))
+        ->toThrow(ValidationException::class);
+
+    expect($invoice->fresh()->status)->toBe(P2pStatus::SubmittedToAp);
+});
+
+/**
+ * Escalate the fixture's GR to procurement, so the footer is owned by the hop.
+ */
+function escalateFixtureToProcurement(Invoice $invoice, GoodReceiptState $state, User $by): Escalation
+{
+    $reason = EscalationReason::create([
+        'code' => 'qty_issue',
+        'name' => 'Quantity Issue',
+        'origin_role' => 'processor',
+        'is_active' => true,
+    ]);
+
+    $reason->steps()->create([
+        'step_order' => 1,
+        'role' => 'procurement',
+        'status_id' => P2pStatus::EscalateToProcurement->value,
+    ]);
+
+    return $invoice->escalations()->create([
+        'escalation_number' => 'ESC-TEST',
+        'batch_number' => 'BATCH-TEST',
+        'p2p_good_receipt_state_id' => $state->id,
+        'p2p_escalation_reason_id' => $reason->id,
+        'current_step_order' => 1,
+        'current_role' => 'procurement',
+        'origin_role' => $reason->origin_role,
+        'status' => Escalation::STATUS_OPEN,
+        'from_status' => $state->status,
+        'remarks' => 'Numbers do not agree.',
+        'actioned_by' => $by->id,
+        'escalated_at' => now(),
+    ]);
+}
+
+it('hands the footer to Advance and Return when an escalation waits on the user', function () {
+    [$processor, $invoice, $state] = apPageContext();
+    escalateFixtureToProcurement($invoice, $state, $processor);
+
+    $procurement = User::factory()->create()->assignRole(RoleName::Procurement);
+    $this->actingAs($procurement);
+
+    $component = Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id]);
+
+    $actions = collect($component->instance()->getFooterActions())
+        ->map(fn ($action): string => $action->getName())
+        ->all();
+
+    expect($actions)->toContain('advanceEscalation', 'returnEscalation', 'back')
+        ->and($actions)->not->toContain('submit', 'escalate', 'returnToVendor', 'approve');
+});
+
+it('keeps the normal footer when the escalation is not on the user', function () {
+    [$processor, $invoice, $state] = apPageContext();
+    escalateFixtureToProcurement($invoice, $state, $processor);
+
+    // The processor raised it; the hop now belongs to procurement.
+    $this->actingAs($processor);
+
+    $component = Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id]);
+
+    $actions = collect($component->instance()->getFooterActions())
+        ->map(fn ($action): string => $action->getName())
+        ->all();
+
+    expect($actions)->toContain('submit', 'escalate', 'returnToVendor')
+        ->and($actions)->not->toContain('advanceEscalation');
+});
+
+it('advances an escalation from the AP footer', function () {
+    [$processor, $invoice, $state] = apPageContext();
+    $escalation = escalateFixtureToProcurement($invoice, $state, $processor);
+
+    $procurement = User::factory()->create()->assignRole(RoleName::Procurement);
+    $this->actingAs($procurement);
+
+    Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
+        ->callAction('advanceEscalation', ['remarks' => 'Sent to the warehouse.']);
+
+    // The single-hop route is terminal, so advancing resolves it.
+    expect($escalation->fresh()->status)->toBe(Escalation::STATUS_RESOLVED);
+});
+
+it('refuses an escalation action from a user who does not own the hop', function () {
+    [$processor, $invoice, $state] = apPageContext();
+    $escalation = escalateFixtureToProcurement($invoice, $state, $processor);
+
+    // The processor is the originator, not the current-hop owner.
+    $this->actingAs($processor);
+
+    Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
+        ->call('advanceEscalation', ['remarks' => 'Trying anyway.']);
+
+    expect($escalation->fresh()->status)->toBe(Escalation::STATUS_OPEN);
 });

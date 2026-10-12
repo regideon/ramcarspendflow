@@ -14,11 +14,10 @@ use Illuminate\Database\Eloquent\Builder;
 use UnitEnum;
 
 /**
- * The AP processor's worklist: submissions waiting on them. Rows open the bulk
- * accounts-payable screen where the tax/WHT are assigned and the invoice is
- * submitted, escalated or returned.
+ * The AP worklist: submissions waiting on the processor, or — for the AP
+ * Supervisor (checker) — those waiting to be approved and parked in SAP.
  *
- * The AP checker's queue is intentionally out of scope (blocked on B1).
+ * Shown as a single navigation destination rather than a group.
  */
 class ApprovalResource extends Resource
 {
@@ -28,7 +27,7 @@ class ApprovalResource extends Resource
 
     protected static string|UnitEnum|null $navigationGroup = 'P2P';
 
-    protected static ?string $navigationLabel = 'P2P Approvals';
+    protected static ?string $navigationLabel = 'Approvals';
 
     protected static ?string $modelLabel = 'approval';
 
@@ -40,21 +39,19 @@ class ApprovalResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'grc_number';
 
-    protected static bool $shouldRegisterNavigation = false;
-
     public static function table(Table $table): Table
     {
         return ApprovalsTable::configure($table);
     }
 
     /**
-     * The processor's queue: only submissions awaiting AP, scoped the same way the
-     * Invoices list is.
+     * The viewer's queue: the processor sees what they must act on, the supervisor
+     * sees what is waiting on them. Both are scoped the way the Invoices list is.
      */
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->actionableByApProcessor()
+            ->actionableBy(auth()->user())
             ->visibleTo(auth()->user())
             ->with(['vendor', 'company']);
     }
@@ -75,6 +72,7 @@ class ApprovalResource extends Resource
     {
         return auth()->user()?->hasAnyRole([
             RoleName::ApProcessor,
+            RoleName::ApSupervisor,
             RoleName::Admin,
         ]) ?? false;
     }

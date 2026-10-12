@@ -118,7 +118,7 @@ class Invoice extends Model
 
     /**
      * Submissions waiting on the AP processor: submitted by the vendor, or sent
-     * back to AP by the checker. This is the Approvals worklist.
+     * back to AP by the supervisor.
      */
     #[Scope]
     protected function actionableByApProcessor(Builder $query): void
@@ -128,6 +128,46 @@ class Invoice extends Model
             P2pStatus::ApReview,
             P2pStatus::ReturnedToApProcessor,
         ]);
+    }
+
+    /**
+     * Submissions waiting on the AP supervisor (checker) to approve and park in SAP.
+     */
+    #[Scope]
+    protected function actionableByApSupervisor(Builder $query): void
+    {
+        $query->whereIn('status', [
+            P2pStatus::SubmittedToChecker,
+            P2pStatus::CheckerReview,
+        ]);
+    }
+
+    /**
+     * The worklist for a user: a supervisor sees the checker queue, everyone else
+     * in AP (processor) sees the processor queue. An admin sees both.
+     */
+    #[Scope]
+    protected function actionableBy(Builder $query, User $user): void
+    {
+        if ($user->hasRole(RoleName::Admin)) {
+            $query->whereIn('status', [
+                P2pStatus::SubmittedToAp,
+                P2pStatus::ApReview,
+                P2pStatus::ReturnedToApProcessor,
+                P2pStatus::SubmittedToChecker,
+                P2pStatus::CheckerReview,
+            ]);
+
+            return;
+        }
+
+        if ($user->hasRole(RoleName::ApSupervisor)) {
+            $query->actionableByApSupervisor();
+
+            return;
+        }
+
+        $query->actionableByApProcessor();
     }
 
     /**
