@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\P2pThreeWayMatchStatus;
+use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
 use App\Models\P2p\SapGoodReceipt;
 use App\Models\P2p\SapGoodReceiptItem;
@@ -34,6 +35,37 @@ it('returns null when the line has no mirror item', function () {
     $line = InvoiceLine::factory()->create();
 
     expect(app(P2pThreeWayMatchService::class)->matchLine($line))->toBeNull();
+});
+
+it('rolls a whole submission up into one 3-way breakdown', function () {
+    $receipt = SapGoodReceipt::factory()->create(['purchase_order' => '4500009000', 'good_receipt_number' => '5000009000']);
+    $item = SapGoodReceiptItem::factory()->for($receipt, 'goodReceipt')->create([
+        'purchase_order' => '4500009000',
+        'purchase_order_item' => '00010',
+        'quantity_po' => 10,
+        'quantity_served' => 10,
+    ]);
+
+    $invoice = Invoice::factory()->create(['po_numbers' => ['4500009000']]);
+    InvoiceLine::factory()->create(['p2p_sap_good_receipt_item_id' => $item->id, 'quantity_billed' => 10]);
+
+    $rollup = app(P2pThreeWayMatchService::class)->breakdownForInvoice($invoice->fresh());
+
+    expect($rollup['ordered'])->toBe(10)
+        ->and($rollup['received'])->toBe(10)
+        ->and($rollup['invoiced'])->toBe(10)
+        ->and($rollup['status'])->toBe(P2pThreeWayMatchStatus::Matched->value)
+        ->and($rollup['lines'])->toHaveCount(1)
+        ->and($rollup['lines'][0]['po_number'])->toBe('4500009000');
+});
+
+it('reports no lines for an invoice with no matching purchase orders', function () {
+    $invoice = Invoice::factory()->create(['po_numbers' => ['4599999999']]);
+
+    $rollup = app(P2pThreeWayMatchService::class)->breakdownForInvoice($invoice);
+
+    expect($rollup['lines'])->toBeEmpty()
+        ->and($rollup['ordered'])->toBe(0);
 });
 
 it('aggregates a PO line across several goods receipts', function () {
