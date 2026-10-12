@@ -22,7 +22,8 @@ use Illuminate\Database\Eloquent\Model;
 use UnitEnum;
 
 /**
- * The requestor's own Requests for Payment (Admins see all).
+ * The requestor's own Requests for Payment (legacy "My RFPs"). Approvers and Accounting
+ * work them in RFP Approvals.
  */
 class RfpResource extends Resource
 {
@@ -30,9 +31,9 @@ class RfpResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBanknotes;
 
-    protected static string|UnitEnum|null $navigationGroup = 'RFP';
+    // protected static string|UnitEnum|null $navigationGroup = 'RFP';
 
-    protected static ?string $navigationLabel = 'My Requests';
+    protected static ?string $navigationLabel = 'RFP Requests'; // My Requests
 
     protected static ?string $modelLabel = 'request for payment';
 
@@ -61,7 +62,7 @@ class RfpResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->visibleTo(auth()->user());
+        return parent::getEloquentQuery()->ownedBy(auth()->user());
     }
 
     public static function canAccess(): bool

@@ -12,10 +12,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Append-only record of an RFP status change.
+ * Append-only record of an RFP status change or action (e.g. "Approved"). Imported
+ * legacy rows carry the legacy action and, where it is clear, the resulting status.
  */
 #[Table('rfp_histories')]
-#[Fillable(['rfp_id', 'user_id', 'from_status', 'to_status', 'remarks'])]
+#[Fillable(['rfp_id', 'user_id', 'action', 'from_status', 'to_status', 'remarks'])]
 class History extends Model
 {
     /** @use HasFactory<HistoryFactory> */

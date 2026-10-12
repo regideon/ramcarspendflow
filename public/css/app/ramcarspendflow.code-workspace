@@ -10,5 +10,7 @@
 			"path": "../../../../rfp-portal"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"git.ignoreLimitWarning": true
+	}
 }

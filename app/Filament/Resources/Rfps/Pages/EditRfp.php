@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Rfps\Pages;
 
 use App\Enums\RfpStatus;
 use App\Filament\Resources\Rfps\RfpResource;
+use App\Filament\Resources\Rfps\Widgets\RfpProgress;
 use App\Models\Rfp\Rfp;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
@@ -15,6 +16,13 @@ use Illuminate\Validation\ValidationException;
 class EditRfp extends EditRecord
 {
     protected static string $resource = RfpResource::class;
+
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            RfpProgress::class,
+        ];
+    }
 
     public function getTitle(): string
     {

@@ -22,13 +22,16 @@ class KnowledgeBase extends Page
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBookOpen;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Help';
+    // protected static string|UnitEnum|null $navigationGroup = 'Help';
+    protected static string|UnitEnum|null $navigationGroup = 'Settings';
 
     protected static ?string $navigationLabel = 'Knowledge Base';
 
     protected static ?string $title = 'Knowledge Base';
 
     protected static ?string $slug = 'knowledge-base';
+
+    protected static ?int $navigationSort = 200;
 
     #[Url]
     public ?string $article = null;

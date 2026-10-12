@@ -10,6 +10,7 @@
         RfpStatus::ForAccountingApproval->value => 'With the AP Supervisor, then the AP Manager (Step 5). Either can return it to the AP Processor.',
         RfpStatus::ForTreasury->value => 'With Treasury for release (Step 6).',
         RfpStatus::Completed->value => 'Done. Treasury has completed the request.',
+        RfpStatus::Rejected->value => 'Rejected by an approver, with the reason in the history. No further action.',
         RfpStatus::Cancelled->value => 'Cancelled, with the reason recorded in the history. No further action.',
     ];
 @endphp

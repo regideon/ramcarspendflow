@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+    // Read receipt on RFP items (App\Ai\Agents\ReceiptReader), via the "openai" provider in config/ai.php
+    'receipt_reader' => [
+        'enabled' => env('RECEIPT_READER_ENABLED', true),
+        'model' => env('RECEIPT_READER_MODEL'), // empty: the provider's default text model
+        'per_hour' => (int) env('RECEIPT_READER_PER_HOUR', 30), // reads per user, to cap cost
+    ],
+
 ];

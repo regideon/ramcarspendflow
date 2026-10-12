@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Rfps\Schemas;
 
 use App\Enums\RfpRequestType;
 use App\Enums\RfpVendorType;
+use App\Filament\Resources\Rfps\Actions\ReadReceiptAction;
 use App\Models\AccountGroup;
 use App\Models\Company;
 use App\Models\CostCenter;
@@ -12,11 +13,14 @@ use App\Models\ExchangeRate;
 use App\Models\PaymentMethod;
 use App\Models\Rfp\ApprovalRule;
 use App\Models\Rfp\ApprovalRuleStep;
+use App\Models\Rfp\Category;
 use App\Models\Rfp\DueType;
 use App\Models\Rfp\Subcategory;
 use App\Models\Vendor;
+use App\Services\Rfp\ReceiptScanner;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Repeater\TableColumn;
 use Filament\Forms\Components\Select;
@@ -26,14 +30,15 @@ use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\ToggleButtons;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Grid;
-use Filament\Schemas\Components\Group;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\Alignment;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Collection;
+use Livewire\Component;
 
 /**
  * The legacy RFP Portal request form (RFP info, items, totals), rebuilt compact.
@@ -46,7 +51,7 @@ class RfpForm
     public const array ACCOUNTING_TAIL = ['AP Processor', 'AP Supervisor', 'AP Manager', 'Treasury'];
 
     /**
-     * Supporting documents: PDF, images, CSV and Excel, as on the legacy form.
+     * Supporting documents: PDF, images, CSV, Excel and Word.
      */
     public const array DOCUMENT_TYPES = [
         'application/pdf',
@@ -56,6 +61,8 @@ class RfpForm
         'application/csv',
         'application/vnd.ms-excel',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     ];
 
     public static function configure(Schema $schema): Schema
@@ -182,112 +189,98 @@ class RfpForm
         return Section::make('Items')
             ->description('Enter each line item within the RFP.')
             ->compact()
+
             ->schema([
                 Repeater::make('items')
                     ->hiddenLabel()
                     ->relationship()
+                    ->columns(['sm' => 1, 'md' => 12])
                     ->orderColumn('sort')
                     // ->compact()
 
                     // ->extraAttributes(['class' => 'sf-sheet']) // custom CSS off for now
                     // Cells are matched to columns by position, so the Reimbursement-only
                     // fields come last and their columns are added only on a Reimbursement.
-                    ->table(fn (Get $get): array => [
-                        // Charging first (AP request 2026-10-07): cost center or PO, then the sub category
-                        TableColumn::make('Item details')->markAsRequired()->width('16%'),
-                        TableColumn::make('Cost center')->width('14%'),
-                        TableColumn::make('PO no.')->width('8%'),
-                        TableColumn::make('Sub category')->markAsRequired()->width('15%'),
-                        TableColumn::make('Invoice no.')->markAsRequired()->width('9%'),
-                        TableColumn::make('Invoice date')->markAsRequired()->width('10%'),
-                        TableColumn::make('Currency')->markAsRequired()->width('7%'),
-                        TableColumn::make('Amount')->markAsRequired()->alignment(Alignment::End)->width('9%'),
-                        TableColumn::make('PHP')->alignment(Alignment::End)->width('9%'),
-                        TableColumn::make('Documents')->markAsRequired(),
-                        ...(static::isReimbursement($get) ? [
-                            TableColumn::make('Vendor company')->markAsRequired()->width('11%'),
-                            TableColumn::make('Paid to')->markAsRequired()->width('9%'),
-                            TableColumn::make('Vendor')->markAsRequired()->width('13%'),
-                        ] : []),
-                    ])
+                    // ->table(fn (Get $get): array => [
+                    //     // Charging first (AP request 2026-10-07): cost center or PO, then the sub category
+                    //     TableColumn::make('Item details')->markAsRequired()->width('16%'),
+                    //     TableColumn::make('Cost center')->width('14%'),
+                    //     TableColumn::make('PO no.')->width('8%'),
+                    //     TableColumn::make('Sub category')->markAsRequired()->width('15%'),
+                    //     TableColumn::make('Invoice no.')->markAsRequired()->width('9%'),
+                    //     TableColumn::make('Invoice date')->markAsRequired()->width('10%'),
+                    //     TableColumn::make('Currency')->markAsRequired()->width('7%'),
+                    //     TableColumn::make('Amount')->markAsRequired()->alignment(Alignment::End)->width('9%'),
+                    //     TableColumn::make('PHP')->alignment(Alignment::End)->width('9%'),
+                    //     TableColumn::make('Documents')->markAsRequired(),
+                    //     ...(static::isReimbursement($get) ? [
+                    //         TableColumn::make('Vendor company')->markAsRequired()->width('11%'),
+                    //         TableColumn::make('Paid to')->markAsRequired()->width('9%'),
+                    //         TableColumn::make('Vendor')->markAsRequired()->width('13%'),
+                    //     ] : []),
+                    // ])
+                    // Same rows as the legacy RFP Portal item form. Cost Center / PO Number come
+                    // before Category: "charging first" (AP request 2026-10-07).
                     ->schema([
-                        TextInput::make('description')
-                            ->required()
-                            ->maxLength(150),
-                        Select::make('cost_center_id')
-                            ->options(fn (Get $get): array => static::costCenterOptions($get('../../company_id')))
-                            ->searchable()
-                            ->placeholder(fn (Get $get): string => filled($get('po_number')) ? 'n/a' : 'Select')
-                            ->disabled(fn (Get $get): bool => filled($get('po_number')))
-                            ->dehydrated()
-                            ->required(fn (Get $get): bool => blank($get('po_number')))
-                            ->validationMessages(['required' => 'Choose a cost center or enter a PO no.'])
-                            ->live()
-                            ->afterStateUpdated(fn (Get $get, Set $set) => static::clearSubcategoryIfNotAllowed($get, $set)),
-                        TextInput::make('po_number')
-                            ->maxLength(15)
-                            ->placeholder(fn (Get $get): string => filled($get('cost_center_id')) ? 'n/a' : 'or PO no.')
-                            ->disabled(fn (Get $get): bool => filled($get('cost_center_id')))
-                            ->dehydrated()
-                            ->live(onBlur: true)
-                            ->afterStateUpdated(fn (Get $get, Set $set) => static::clearSubcategoryIfNotAllowed($get, $set)),
-                        Select::make('rfp_subcategory_id')
-                            ->options(fn (Get $get): array => static::subcategoryOptions($get('cost_center_id'), $get('po_number')))
-                            ->in(fn (Get $get): array => static::allowedSubcategoryIds($get('cost_center_id'), $get('po_number')))
-                            ->validationMessages(['in' => 'This sub category is not allowed for the cost center or PO.'])
-                            ->searchable()
-                            ->placeholder(fn (Get $get): string => blank($get('cost_center_id')) && blank($get('po_number')) ? 'Cost center or PO first' : 'Select')
-                            ->required(),
-                        TextInput::make('invoice_number')
-                            ->required()
-                            ->maxLength(50),
-                        DatePicker::make('invoice_date')
-                            ->required()
-                            ->minDate(fn () => today()->subMonths(6))
-                            ->maxDate(fn () => today()->addDay()),
-                        Select::make('currency_id')
-                            ->options(fn (): array => static::currencyOptions())
-                            ->default(fn (): ?int => array_search('PHP', static::currencyOptions(), true) ?: null)
-                            ->searchable()
-                            ->required()
-                            ->live(),
-                        TextInput::make('amount')
-                            ->numeric()
-                            ->minValue(0.01)
-                            ->maxValue(999_999_999)
-                            ->step(0.01)
-                            ->inputMode('decimal')
-                            ->required()
-                            ->extraInputAttributes(['class' => 'text-end tabular-nums'])
-                            ->live(onBlur: true),
-                        TextEntry::make('php_amount_preview')
-                            ->hiddenLabel()
-                            ->state(fn (Get $get): ?string => static::linePhpAmount($get('currency_id'), $get('amount')))
-                            ->tooltip(fn (Get $get): ?string => static::rateHint($get('currency_id')))
-                            ->color(fn (Get $get): ?string => filled($get('currency_id')) && static::rateToPhp($get('currency_id')) === null ? 'danger' : 'gray')
-                            // ->extraAttributes(['class' => 'sf-cell-text text-end tabular-nums']) // custom CSS off for now
-                            ->placeholder('—'),
                         FileUpload::make('attachments')
-                            ->placeholder('Attach invoice, receipt…')
+                            ->label('Supporting Document (e.g. an official receipt, sales invoice, or a Meralco, Maynilad, PLDT or Globe bill.)')
+                            ->validationAttribute('supporting document')
+                            ->markAsRequired()
                             ->multiple()
                             ->disk('local')
                             ->directory('rfp-attachments')
                             ->visibility('private')
                             ->acceptedFileTypes(self::DOCUMENT_TYPES)
                             ->maxSize(10_240)
-                            ->maxFiles(10)
+                            ->maxFiles(1)
                             ->downloadable()
                             ->openable()
-                            ->imagePreviewHeight('48'),
-                        // Reimbursement only (see the table columns above)
+                            ->panelLayout('grid')
+                            ->live() // shows Read receipt once a PDF or image is uploaded
+                            // Removing a file doesn't re-render the form, so refresh to hide Read receipt
+                            ->afterStateUpdated(fn (FileUpload $component, Component $livewire) => ReceiptScanner::readableFiles($component->getRawState(), $component->getDiskName()) === []
+                                ? $livewire->js('$wire.$refresh()')
+                                : null)
+                            // helperText() and belowContent() share one slot, so the helper text goes here too
+                            ->belowContent([
+                                Text::make('Accepted files: PDF, JPG/PNG, Excel (.xls, .xlsx), Word (.doc, .docx) or CSV, up to 10 MB.'),
+                                ReadReceiptAction::make(),
+                            ])
+                            ->columnSpanFull(),
+                        // ->columnSpan(['sm' => 12, 'md' => 6]),
+
+                        TextInput::make('description')
+                            ->label('Item Details')
+                            ->required()
+                            ->maxLength(150)
+                            ->columnSpan(['sm' => 12, 'md' => 6]),
+
+                        TextInput::make('invoice_number')
+                            ->label('Invoice No.')
+                            ->required()
+                            ->maxLength(50)
+                            ->columnSpan(['sm' => 12, 'md' => 3]),
+
+                        DatePicker::make('invoice_date')
+                            ->label('Invoice Date')
+                            ->default(fn () => today())
+                            ->required()
+                            ->minDate(fn () => today()->subMonths(6))
+                            ->maxDate(fn () => today()->addDay())
+                            ->columnSpan(['sm' => 12, 'md' => 3]),
+
+                        // Reimbursement only: who the requestor paid
                         Select::make('company_id')
-                            ->options(fn (): array => Company::query()->orderBy('code')->get()->mapWithKeys(fn (Company $company): array => [$company->id => $company->short_name ?? $company->name])->all())
+                            ->label('Company')
+                            ->options(fn (): array => Company::query()->orderBy('code')->pluck('name', 'id')->all())
                             ->default(fn (Get $get): mixed => $get('../../company_id'))
                             ->visible(fn (Get $get): bool => static::isReimbursement($get, '../../request_type'))
                             ->required()
                             ->live()
-                            ->afterStateUpdated(fn (Set $set) => $set('vendor_id', null)),
+                            ->afterStateUpdated(fn (Set $set) => $set('vendor_id', null))
+                            ->columnSpan(['sm' => 12, 'md' => 4]),
                         Select::make('vendor_type')
+                            ->label('Vendor Type')
                             ->options(RfpVendorType::class)
                             ->default(RfpVendorType::Vendor)
                             ->selectablePlaceholder(false)
@@ -297,38 +290,126 @@ class RfpForm
                             ->afterStateUpdated(function (Set $set): void {
                                 $set('vendor_id', null);
                                 $set('rfp_one_time_vendor_id', null);
-                            }),
-                        Group::make([
-                            Select::make('vendor_id')
-                                ->hiddenLabel()
-                                ->searchable()
-                                ->getSearchResultsUsing(fn (string $search, Get $get): array => static::vendorOptions(
-                                    static::vendorQuery($get('company_id'))
-                                        ->where(fn ($query) => $query->where('code', 'like', "%{$search}%")->orWhere('name', 'like', "%{$search}%")),
-                                ))
-                                ->options(fn (Get $get): array => static::vendorOptions(static::vendorQuery($get('company_id'))))
-                                ->getOptionLabelUsing(fn ($value): ?string => static::vendorLabel(Vendor::find($value)))
-                                ->visible(fn (Get $get): bool => static::enumValue($get('vendor_type')) === RfpVendorType::Vendor->value)
-                                ->required()
-                                ->validationAttribute('vendor'),
-                            Select::make('rfp_one_time_vendor_id')
-                                ->hiddenLabel()
-                                ->relationship('oneTimeVendor', 'name')
-                                ->getOptionLabelFromRecordUsing(fn ($record): string => "{$record->name} · TIN {$record->tin}")
-                                ->searchable(['name', 'tin'])
-                                ->createOptionForm([
-                                    TextInput::make('title')->maxLength(150),
-                                    TextInput::make('name')->required()->maxLength(150),
-                                    TextInput::make('tin')->label('TIN')->required()->maxLength(15),
-                                    TextInput::make('street')->maxLength(150),
-                                    TextInput::make('city')->maxLength(150),
-                                ])
-                                ->createOptionAction(fn ($action) => $action->modalWidth('md'))
-                                ->visible(fn (Get $get): bool => static::enumValue($get('vendor_type')) === RfpVendorType::OneTimeVendor->value)
-                                ->required()
-                                ->validationAttribute('one-time vendor'),
-                        ])
-                            ->visible(fn (Get $get): bool => static::isReimbursement($get, '../../request_type')),
+                            })
+                            ->columnSpan(['sm' => 12, 'md' => 4]),
+                        Select::make('vendor_id')
+                            ->label('Vendor')
+                            ->searchable()
+                            ->getSearchResultsUsing(fn (string $search, Get $get): array => static::vendorOptions(
+                                static::vendorQuery($get('company_id'))
+                                    ->where(fn ($query) => $query->where('code', 'like', "%{$search}%")->orWhere('name', 'like', "%{$search}%")),
+                            ))
+                            ->options(fn (Get $get): array => static::vendorOptions(static::vendorQuery($get('company_id'))))
+                            ->getOptionLabelUsing(fn ($value): ?string => static::vendorLabel(Vendor::find($value)))
+                            ->visible(fn (Get $get): bool => static::isReimbursement($get, '../../request_type') && static::enumValue($get('vendor_type')) === RfpVendorType::Vendor->value)
+                            ->required()
+                            ->columnSpan(['sm' => 12, 'md' => 4]),
+                        Select::make('rfp_one_time_vendor_id')
+                            ->label('Vendor')
+                            ->relationship('oneTimeVendor', 'name')
+                            ->getOptionLabelFromRecordUsing(fn ($record): string => "{$record->name} · TIN {$record->tin}")
+                            ->searchable(['name', 'tin'])
+                            ->createOptionForm([
+                                TextInput::make('title')->maxLength(150),
+                                TextInput::make('name')->required()->maxLength(150),
+                                TextInput::make('tin')->label('TIN')->required()->maxLength(15),
+                                TextInput::make('street')->maxLength(150),
+                                TextInput::make('city')->maxLength(150),
+                            ])
+                            ->createOptionAction(fn ($action) => $action->modalWidth('md'))
+                            ->visible(fn (Get $get): bool => static::isReimbursement($get, '../../request_type') && static::enumValue($get('vendor_type')) === RfpVendorType::OneTimeVendor->value)
+                            ->required()
+                            ->validationAttribute('one-time vendor')
+                            ->columnSpan(['sm' => 12, 'md' => 4]),
+
+                        // Category lists every active category, chained to Sub Category (as in legacy).
+                        // It is a filter only (not stored); on edit it is read back from the sub category.
+                        Select::make('rfp_category_id')
+                            ->label('Category')
+                            ->options(fn (): array => static::categoryOptions())
+                            ->default(fn (): ?int => Category::query()->where('is_default', true)->where('is_active', true)->value('id'))
+                            ->searchable()
+                            ->markAsRequired()
+                            ->dehydrated(false)
+                            ->afterStateHydrated(function (Select $component, Get $get): void {
+                                if (blank($component->getState()) && filled($get('rfp_subcategory_id'))) {
+                                    $component->state(Subcategory::query()->whereKey($get('rfp_subcategory_id'))->value('rfp_category_id'));
+                                }
+                            })
+                            ->live()
+                            ->afterStateUpdated(fn (Get $get, Set $set) => static::clearSubcategoryIfNotAllowed($get, $set))
+                            ->columnSpan(['sm' => 12, 'md' => 3]),
+
+                        Select::make('rfp_subcategory_id')
+                            ->label('Sub Category')
+                            ->default(fn (): ?int => Subcategory::query()->where('is_default', true)->where('is_active', true)->value('id'))
+                            // The category's sub categories that fit the cost center or PO ("charging first")
+                            ->options(fn (Get $get): array => blank($get('rfp_category_id')) ? [] : static::subcategoryOptions($get('cost_center_id'), $get('po_number'), $get('rfp_category_id')))
+                            ->in(fn (Get $get): array => static::allowedSubcategoryIds($get('cost_center_id'), $get('po_number')))
+                            ->validationMessages(['in' => 'This sub category is not allowed for the cost center or PO.'])
+                            ->searchable()
+                            ->placeholder(fn (Get $get): string => match (true) {
+                                blank($get('rfp_category_id')) => 'Choose a category first',
+                                static::subcategoryOptions($get('cost_center_id'), $get('po_number'), $get('rfp_category_id')) === [] => 'None fit this cost center or PO',
+                                default => 'Select an option',
+                            })
+                            ->required()
+                            ->live()
+                            ->afterStateUpdated(fn (Get $get, Set $set) => filled($get('rfp_subcategory_id'))
+                                ? $set('rfp_category_id', Subcategory::query()->whereKey($get('rfp_subcategory_id'))->value('rfp_category_id'))
+                                : null)
+                            ->columnSpan(['sm' => 12, 'md' => 3]),
+
+                        Select::make('cost_center_id')
+                            ->label('Cost Center')
+                            ->options(fn (Get $get): array => static::costCenterOptions($get('../../company_id')))
+                            ->searchable()
+                            ->placeholder(fn (Get $get): string => filled($get('po_number')) ? 'n/a' : 'Select')
+                            ->disabled(fn (Get $get): bool => filled($get('po_number')))
+                            ->dehydrated()
+                            ->required(fn (Get $get): bool => blank($get('po_number')))
+                            ->validationMessages(['required' => 'Choose a cost center or enter a PO number.'])
+                            ->live()
+                            ->afterStateUpdated(fn (Get $get, Set $set) => static::clearSubcategoryIfNotAllowed($get, $set))
+                            ->columnSpan(['sm' => 12, 'md' => 3]),
+
+                        TextInput::make('po_number')
+                            ->label('PO Number')
+                            ->maxLength(15)
+                            ->placeholder(fn (Get $get): string => filled($get('cost_center_id')) ? 'n/a' : 'Or enter a PO number')
+                            ->disabled(fn (Get $get): bool => filled($get('cost_center_id')))
+                            ->dehydrated()
+                            ->live(onBlur: true)
+                            ->afterStateUpdated(fn (Get $get, Set $set) => static::clearSubcategoryIfNotAllowed($get, $set))
+                            ->columnSpan(['sm' => 12, 'md' => 3]),
+
+                        Select::make('currency_id')
+                            ->label('Currency')
+                            ->options(fn (): array => static::currencyOptions())
+                            ->default(fn (): ?int => array_search('PHP', static::currencyOptions(), true) ?: null)
+                            ->searchable()
+                            ->required()
+                            ->live()
+                            ->columnSpan(['sm' => 12, 'md' => 6]),
+
+                        // Legacy: "Amount in PHP" for PHP; "Amount" with the rate for a foreign currency
+                        TextInput::make('amount')
+                            ->label(fn (Get $get): string => static::isForeign($get('currency_id')) ? 'Amount' : 'Amount in PHP')
+                            ->numeric()
+                            ->minValue(0.01)
+                            ->maxValue(999_999_999)
+                            ->step(0.01)
+                            ->inputMode('decimal')
+                            ->required()
+                            ->suffix(fn (Get $get): ?string => static::rateHint($get('currency_id')))
+                            ->belowContent(fn (Get $get): ?string => static::isForeign($get('currency_id')) && filled($php = static::linePhpAmount($get('currency_id'), $get('amount')))
+                                ? "Amount in PHP: {$php}"
+                                : null)
+                            ->live(onBlur: true)
+                            ->columnSpan(['sm' => 12, 'md' => 6]),
+
+                        // What Read receipt extracted, kept for audit
+                        Hidden::make('receipt_scan'),
                     ])
                     ->defaultItems(1)
                     ->minItems(1)
@@ -485,6 +566,13 @@ class RfpForm
         return number_format((float) bcadd(bcmul((string) $amount, $rate, 6), '0.005', 2), 2);
     }
 
+    protected static function isForeign(mixed $currencyId): bool
+    {
+        $code = static::currencyOptions()[$currencyId] ?? null;
+
+        return $code !== null && $code !== 'PHP';
+    }
+
     protected static function rateHint(mixed $currencyId): ?string
     {
         $code = static::currencyOptions()[$currencyId] ?? null;
@@ -499,41 +587,74 @@ class RfpForm
     }
 
     /**
-     * Sub categories the line may be charged to, grouped by category ("charging first"):
-     * - with a cost center: G/L accounts mapped to it that match its OPEX/MFG type;
-     * - with a PO no.: sub categories that take a PO (e.g. Supplier Down Payment).
+     * Active sub categories of active categories.
      *
-     * @return array<string, array<int, string>>
+     * @return Collection<int, Subcategory>
      */
-    public static function subcategoryOptions(mixed $costCenterId, mixed $poNumber = null): array
+    public static function activeSubcategories(): Collection
+    {
+        return once(fn (): Collection => Subcategory::query()
+            ->with(['category', 'glAccount'])
+            ->where('is_active', true)
+            ->whereHas('category', fn ($query) => $query->where('is_active', true))
+            ->get()
+            ->sortBy(['category.name', 'name'])
+            ->values());
+    }
+
+    /**
+     * Sub categories the line may be charged to ("charging first"):
+     * - with a cost center: G/L accounts mapped to it that match its OPEX/MFG type;
+     * - with a PO no.: sub categories that take a PO (e.g. Supplier Down Payment);
+     * - with neither yet: all of them (the cost center / PO is required on save).
+     *
+     * @return Collection<int, Subcategory>
+     */
+    public static function allowedSubcategories(mixed $costCenterId, mixed $poNumber = null): Collection
     {
         if (blank($costCenterId) && blank($poNumber)) {
-            return [];
+            return static::activeSubcategories();
         }
 
-        return once(function () use ($costCenterId): array {
-            $costCenter = filled($costCenterId) ? CostCenter::find($costCenterId) : null;
+        if (blank($costCenterId)) {
+            return static::activeSubcategories()->where('requires_po_number', true)->values();
+        }
 
-            return Subcategory::query()
-                ->with(['category', 'glAccount'])
-                ->where('is_active', true)
-                ->whereHas('category', fn ($query) => $query->where('is_active', true))
-                ->when(
-                    $costCenter,
-                    fn ($query) => $query->where('requires_po_number', false)->whereHas('glAccount.costCenters', fn ($query) => $query
-                        ->whereKey($costCenter->id)
-                        ->where('cost_center_gl_account.is_active', true)),
-                    fn ($query) => $query->where('requires_po_number', true),
-                )
-                ->get()
-                ->filter(fn (Subcategory $subcategory): bool => $costCenter?->allowsGlCode($subcategory->glAccount->code) ?? true)
-                ->sortBy(['category.name', 'name'])
-                ->groupBy('category.name')
-                ->map(fn ($subcategories) => $subcategories->mapWithKeys(fn (Subcategory $subcategory): array => [
-                    $subcategory->id => "{$subcategory->name} · {$subcategory->glAccount->code}",
-                ])->all())
-                ->all();
+        return once(function () use ($costCenterId): Collection {
+            $costCenter = CostCenter::find($costCenterId);
+            $mappedGlAccountIds = $costCenter?->glAccounts()->wherePivot('is_active', true)->pluck('gl_accounts.id')->all() ?? [];
+
+            return static::activeSubcategories()
+                ->filter(fn (Subcategory $subcategory): bool => ! $subcategory->requires_po_number
+                    && in_array($subcategory->gl_account_id, $mappedGlAccountIds, true)
+                    && $costCenter->allowsGlCode($subcategory->glAccount->code))
+                ->values();
         });
+    }
+
+    /**
+     * Every active category that has an active sub category.
+     *
+     * @return array<int, string>
+     */
+    public static function categoryOptions(): array
+    {
+        return static::activeSubcategories()
+            ->mapWithKeys(fn (Subcategory $subcategory): array => [$subcategory->rfp_category_id => $subcategory->category->name])
+            ->all();
+    }
+
+    /**
+     * Allowed sub categories, optionally of one category, labelled with their G/L account.
+     *
+     * @return array<int, string>
+     */
+    public static function subcategoryOptions(mixed $costCenterId, mixed $poNumber = null, mixed $categoryId = null): array
+    {
+        return static::allowedSubcategories($costCenterId, $poNumber)
+            ->when(filled($categoryId), fn (Collection $subcategories) => $subcategories->where('rfp_category_id', (int) $categoryId))
+            ->mapWithKeys(fn (Subcategory $subcategory): array => [$subcategory->id => "{$subcategory->name} · {$subcategory->glAccount->code}"])
+            ->all();
     }
 
     /**
@@ -541,17 +662,21 @@ class RfpForm
      */
     public static function allowedSubcategoryIds(mixed $costCenterId, mixed $poNumber = null): array
     {
-        return collect(static::subcategoryOptions($costCenterId, $poNumber))->flatMap(fn (array $group): array => array_keys($group))->all();
+        return static::allowedSubcategories($costCenterId, $poNumber)->pluck('id')->all();
     }
 
+    /**
+     * Clear the sub category when it no longer fits the category, cost center or PO.
+     */
     protected static function clearSubcategoryIfNotAllowed(Get $get, Set $set): void
     {
-        // Nothing to charge to yet: keep the choice; validation flags it if it stays that way
-        if (blank($get('cost_center_id')) && blank($get('po_number'))) {
+        if (blank($get('rfp_subcategory_id'))) {
             return;
         }
 
-        if (! in_array((int) $get('rfp_subcategory_id'), static::allowedSubcategoryIds($get('cost_center_id'), $get('po_number')), true)) {
+        $subcategory = static::allowedSubcategories($get('cost_center_id'), $get('po_number'))->firstWhere('id', (int) $get('rfp_subcategory_id'));
+
+        if ($subcategory === null || (filled($get('rfp_category_id')) && $subcategory->rfp_category_id !== (int) $get('rfp_category_id'))) {
             $set('rfp_subcategory_id', null);
         }
     }

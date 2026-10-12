@@ -13,6 +13,7 @@ use App\Models\Company;
 use App\Models\CostCenter;
 use App\Models\Currency;
 use App\Models\PaymentMethod;
+use App\Models\Rfp\Category;
 use App\Models\Rfp\DueType;
 use App\Models\Rfp\Rfp;
 use App\Models\Rfp\Subcategory;
@@ -172,7 +173,7 @@ it('labels cost centers OPEX or MFG from the third digit', function () {
 
 it('offers only sub categories that fit the cost center or PO', function () {
     $plant = CostCenter::query()->where('company_id', $this->company->id)->where('description', 'Plant Operations')->first();
-    $names = fn (array $options): array => collect($options)->flatMap(fn (array $group): array => array_values($group))->all();
+    $names = fn (array $options): array => array_values($options);
 
     expect($names(RfpForm::subcategoryOptions($this->financeCostCenter->id)))
         ->toContain('Office Supplies · 6021010')
@@ -181,8 +182,26 @@ it('offers only sub categories that fit the cost center or PO', function () {
         ->and($names(RfpForm::subcategoryOptions($plant->id)))
         ->toContain('Factory Supplies · 5021010')
         ->not->toContain('Office Supplies · 6021010')
-        ->and($names(RfpForm::subcategoryOptions(null, '4500001234')))->toBe(['Supplier Down Payment · 1151010'])
-        ->and(RfpForm::subcategoryOptions(null))->toBe([]);
+        ->and($names(RfpForm::subcategoryOptions(null, '4500001234')))->toBe(['Supplier Down Payment · 1151010']);
+});
+
+it('lists every category and chains sub categories to the category and cost center', function () {
+    $supplies = $this->officeSupplies->category;
+
+    expect(RfpForm::categoryOptions())
+        ->toHaveCount(Category::query()->where('is_active', true)->count())
+        ->toContain('Supplies', 'Advances to Supplier')
+        ->and(array_values(RfpForm::subcategoryOptions($this->financeCostCenter->id, null, $supplies->id)))->toBe(['Office Supplies · 6021010'])
+        ->and(array_values(RfpForm::subcategoryOptions(null, null, $supplies->id)))->toBe(['Factory Supplies · 5021010', 'Office Supplies · 6021010'])
+        ->and(RfpForm::subcategoryOptions(null, '4500001234', $supplies->id))->toBe([]);
+});
+
+it('shows the saved category when editing a draft', function () {
+    $rfp = Rfp::factory()->for($this->requestor, 'requestor')->for($this->company)->create();
+    $rfp->items()->create(rfpItem());
+
+    Livewire::test(EditRfp::class, ['record' => $rfp->getKey()])
+        ->assertSchemaStateSet(fn (array $state): bool => collect($state['items'])->first()['rfp_category_id'] === $this->officeSupplies->rfp_category_id);
 });
 
 it('rejects a manufacturing G/L on an OPEX cost center', function () {
@@ -340,12 +359,11 @@ it('requires proof of approval when pre-approved and skips the matrix', function
         ->toBe('AP Processor → Pre-approved (no matrix) → AP Processor → AP Supervisor → AP Manager → Treasury');
 });
 
-it('shows the reimbursement columns only on a reimbursement', function () {
+it('shows the reimbursement fields only on a reimbursement', function () {
     Livewire::test(CreateRfp::class)
-        ->assertSeeHtml('Documents')
-        ->assertDontSeeHtml('Vendor company')
+        ->assertFormFieldHidden('items.0.vendor_type')
         ->fillForm(['request_type' => RfpRequestType::Reimbursement->value])
-        ->assertSeeHtml('Vendor company');
+        ->assertFormFieldVisible('items.0.vendor_type');
 });
 
 it('drops who was paid when a reimbursement becomes standard', function () {
@@ -380,3 +398,57 @@ it('sorts by RFP number, created date and last update', function (string $column
         ->sortTable($column, 'desc')
         ->assertCanSeeTableRecords([$newer, $older], inOrder: true);
 })->with(['rfp_number', 'created_at', 'updated_at']);
+
+it('labels the amount like the legacy form: in PHP, or foreign with the rate', function () {
+    Livewire::test(CreateRfp::class)
+        ->assertFormFieldExists('items.0.amount', fn ($field): bool => $field->getLabel() === 'Amount in PHP' && $field->getSuffixLabel() === null)
+        ->fillForm(['items' => [rfpItem(['currency_id' => Currency::firstWhere('code', 'USD')->id])]])
+        ->assertFormFieldExists('items.0.amount', fn ($field): bool => $field->getLabel() === 'Amount' && $field->getSuffixLabel() === '1 USD = 58.25 PHP');
+});
+
+it('pre-selects the default category on a new line', function () {
+    $travel = Category::firstWhere('name', 'Travel Expense');
+    $travel->update(['is_default' => true]);
+
+    Livewire::test(CreateRfp::class)
+        ->assertSchemaStateSet(fn (array $state): bool => collect($state['items'])->first()['rfp_category_id'] === $travel->id);
+
+    Category::firstWhere('name', 'Supplies')->update(['is_default' => true]);
+
+    expect(Category::query()->where('is_default', true)->pluck('name')->all())->toBe(['Supplies']);
+});
+
+it('pre-selects the default sub category on a new line', function () {
+    $this->officeSupplies->update(['is_default' => true]);
+
+    Livewire::test(CreateRfp::class)
+        ->assertSchemaStateSet(fn (array $state): bool => collect($state['items'])->first()['rfp_subcategory_id'] === $this->officeSupplies->id);
+
+    Subcategory::firstWhere('name', 'Factory Supplies')->update(['is_default' => true]);
+
+    expect(Subcategory::query()->where('is_default', true)->pluck('name')->all())->toBe(['Factory Supplies']);
+});
+
+it('defaults the invoice date of a new line to today', function () {
+    Livewire::test(CreateRfp::class)
+        ->assertSchemaStateSet(fn (array $state): bool => collect($state['items'])->first()['invoice_date'] === today()->toDateString());
+});
+
+it('accepts PDF, Excel and Word supporting documents', function (string $name, string $mime) {
+    Livewire::test(CreateRfp::class)
+        ->fillForm(rfpFormData(['items' => [rfpItem(['attachments' => [UploadedFile::fake()->create($name, 50, $mime)]])]]))
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    expect(Rfp::sole()->items->first()->attachments)->toHaveCount(1);
+})->with([
+    'PDF' => ['invoice.pdf', 'application/pdf'],
+    'Excel' => ['breakdown.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+    'Word' => ['letter.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    'Word 97-2003' => ['letter.doc', 'application/msword'],
+]);
+
+it('shows the accepted file types under Supporting Document', function () {
+    Livewire::test(CreateRfp::class)
+        ->assertSee('Accepted files: PDF, JPG/PNG, Excel (.xls, .xlsx), Word (.doc, .docx) or CSV, up to 10 MB.');
+});

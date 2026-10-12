@@ -125,14 +125,71 @@ class Rfp extends Model
     }
 
     /**
-     * RFPs a user may see: Admins see all, everyone else their own.
+     * The person who must act next, when one is assigned (otherwise anyone with current_approver_role).
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function currentApprover(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'current_approver_id');
+    }
+
+    /**
+     * My Requests: only the user's own RFPs (as legacy "My RFPs", even for Admins).
      */
     #[Scope]
-    protected function visibleTo(Builder $query, User $user): void
+    protected function ownedBy(Builder $query, User $user): void
     {
-        if (! $user->hasRole(RoleName::Admin)) {
-            $query->where('requestor_id', $user->id);
+        $query->where('requestor_id', $user->id);
+    }
+
+    /**
+     * RFPs waiting for the user: assigned to them, or unassigned and waiting for one of their roles.
+     */
+    #[Scope]
+    protected function awaiting(Builder $query, User $user): void
+    {
+        $query->whereNotIn('status', [RfpStatus::Draft, RfpStatus::ForRevision, ...RfpStatus::final()])
+            ->where(fn (Builder $query) => $query
+                ->where('current_approver_id', $user->id)
+                ->orWhere(fn (Builder $query) => $query
+                    ->whereNull('current_approver_id')
+                    ->whereIn('current_approver_role', $user->getRoleNames())));
+    }
+
+    /**
+     * RFP Approvals: Admins and Accounting see every submitted RFP; business approvers
+     * see what waits for them and what they have acted on.
+     */
+    #[Scope]
+    protected function inApprovalsOf(Builder $query, User $user): void
+    {
+        $query->where('status', '!=', RfpStatus::Draft);
+
+        if ($user->hasAnyRole([RoleName::Admin, ...RoleName::rfpAccounting()])) {
+            return;
         }
+
+        $query->where(fn (Builder $query) => $query
+            ->awaiting($user)
+            ->orWhere('current_approver_id', $user->id)
+            ->orWhereHas('histories', fn (Builder $query) => $query->where('user_id', $user->id)));
+    }
+
+    /**
+     * Who the RFP is with now, for the queue: a person, a role, or the requestor.
+     */
+    public function currentApproverLabel(): ?string
+    {
+        if ($this->status === RfpStatus::ForRevision) {
+            return 'Requestor';
+        }
+
+        if (! $this->status?->isAwaitingApproval()) {
+            return null;
+        }
+
+        return $this->currentApprover?->name ?? $this->current_approver_role?->value;
     }
 
     /**
@@ -198,6 +255,7 @@ class Rfp extends Model
             }
 
             $rfp->submitted_at = now();
+            $rfp->current_approver_role = RoleName::ApProcessor; // Step 2: AP first review
             $rfp->due_date = $rfp->dueType->dueDateFrom($rfp->submitted_at); // counts from submission, not from the draft
             $rfp->transitionTo(RfpStatus::ForApReview, $by);
 
@@ -231,6 +289,7 @@ class Rfp extends Model
         return [
             'request_type' => RfpRequestType::class,
             'status' => RfpStatus::class,
+            'current_approver_role' => RoleName::class,
             'total_php_amount' => 'decimal:2',
             'due_date' => 'date',
             'is_direct_to_vp' => 'boolean',

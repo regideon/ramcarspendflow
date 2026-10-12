@@ -357,3 +357,8 @@ button.fi-icon-btn.fi-size-md.fi-topbar-open-sidebar-btn {
     color: #f5c38a !important;
 }
 
+
+
+.fi-section-content.fi-grid.sm\:fi-grid-cols.xl\:fi-grid-cols.fi-sc.fi-sc-has-gap {
+    margin: 16px 0;
+}

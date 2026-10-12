@@ -19,6 +19,7 @@ The two modules share users, roles, companies, vendors and SAP master data. Thei
 | 6 | [Development guide](06-development-guide.md) | Setup, conventions, seeding, testing, definition of done |
 | 7 | [Decision log](07-decisions.md) | Decisions already made, and why |
 | 8 | [Open questions](08-open-questions.md) | Questions still waiting for an answer |
+| 9 | [Legacy RFP import](09-legacy-rfp-import.md) | How `rfp:import-legacy` brings over real RFP Portal data, and how legacy codes map to our tables |
 
 Also see [TECH_STACK.md](../TECH_STACK.md) for the installed packages and versions.
 

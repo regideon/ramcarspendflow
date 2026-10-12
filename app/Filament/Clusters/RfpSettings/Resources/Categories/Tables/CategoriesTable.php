@@ -21,6 +21,9 @@ class CategoriesTable
                     ->label('Subcategories')
                     ->counts('subcategories')
                     ->numeric(),
+                IconColumn::make('is_default')
+                    ->label('Default')
+                    ->boolean(),
                 IconColumn::make('is_active')
                     ->label('Active')
                     ->boolean(),

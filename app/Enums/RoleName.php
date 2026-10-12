@@ -42,6 +42,26 @@ enum RoleName: string
     case WarehouseSpareParts = 'Warehouse - Spare Parts';
 
     /**
+     * Accounting roles that work the RFP after (and before) the business approvers.
+     *
+     * @return list<self>
+     */
+    public static function rfpAccounting(): array
+    {
+        return [self::ApProcessor, self::ApSupervisor, self::ApManager, self::Treasury];
+    }
+
+    /**
+     * Roles that use the RFP Approvals page.
+     *
+     * @return list<self>
+     */
+    public static function rfpApprovalsUsers(): array
+    {
+        return [self::Admin, ...self::rfpAccounting(), ...self::rfpApprovers()];
+    }
+
+    /**
      * Roles that may appear as a step in the RFP approval matrix.
      *
      * @return list<self>
