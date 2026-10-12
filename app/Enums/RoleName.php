@@ -52,13 +52,13 @@ enum RoleName: string
     }
 
     /**
-     * Roles that use the RFP Approvals page.
+     * Roles that use the RFP Approvals page (decided 2026-10-12: Admin and AP only).
      *
      * @return list<self>
      */
     public static function rfpApprovalsUsers(): array
     {
-        return [self::Admin, ...self::rfpAccounting(), ...self::rfpApprovers()];
+        return [self::Admin, self::ApProcessor, self::ApSupervisor, self::ApManager];
     }
 
     /**

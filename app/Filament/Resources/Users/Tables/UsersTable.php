@@ -7,6 +7,7 @@ use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreBulkAction;
+use Filament\Facades\Filament;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -50,7 +51,8 @@ class UsersTable
             ])
             ->recordActions([
                 EditAction::make(),
-                Impersonate::make(),
+                Impersonate::make()
+                    ->redirectTo(fn (): string => Filament::getPanel('hub')->getUrl()),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

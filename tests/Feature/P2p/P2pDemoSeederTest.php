@@ -8,6 +8,7 @@ use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\Invoice;
 use App\Models\P2p\Item;
 use App\Models\P2p\MaterialClassification;
+use App\Models\P2p\SapGoodReceiptItem;
 use App\Models\P2p\SapPurchaseOrder;
 use Database\Seeders\CompanySeeder;
 use Database\Seeders\P2p\P2pCompanySeeder;
@@ -63,10 +64,15 @@ it('seeds demo transactions across the P2P statuses', function () {
     $this->seed(P2pDemoMasterDataSeeder::class);
     $this->seed(P2pDemoTransactionSeeder::class);
 
-    expect(SapPurchaseOrder::count())->toBe(11)
+    $impeller = SapGoodReceiptItem::query()->with('item')->where('purchase_order', '4100382699')->firstOrFail();
+
+    expect(SapPurchaseOrder::count())->toBe(16) // 11 status scenarios + 5 shaped like sample vendor invoices
         ->and(Invoice::count())->toBe(6)
         ->and(GoodReceiptState::query()->where('status', P2pStatus::Reversed->value)->exists())->toBeTrue()
-        ->and(Invoice::query()->where('status', P2pStatus::SubmittedToAp->value)->exists())->toBeTrue();
+        ->and(Invoice::query()->where('status', P2pStatus::SubmittedToAp->value)->exists())->toBeTrue()
+        ->and($impeller->item->code)->toBe('E7877051')
+        ->and($impeller->currency)->toBe('EUR')
+        ->and($impeller->poUnitPrice())->toBe('580.2800');
 });
 
 it('re-runs P2P transaction seeding without duplicating rows', function () {
@@ -74,6 +80,6 @@ it('re-runs P2P transaction seeding without duplicating rows', function () {
     $this->seed(P2pDemoTransactionSeeder::class);
     $this->seed(P2pDemoTransactionSeeder::class);
 
-    expect(SapPurchaseOrder::count())->toBe(11)
+    expect(SapPurchaseOrder::count())->toBe(16)
         ->and(Invoice::count())->toBe(6);
 });

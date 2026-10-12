@@ -8,6 +8,7 @@ use App\Models\P2p\Invoice;
 use App\Services\P2p\P2pThreeWayMatchService;
 use Filament\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -67,6 +68,22 @@ class ApprovalsTable
                     ->color(fn (Invoice $record): string => self::threeWay($record)['color'])
                     ->tooltip(fn (Invoice $record): string => self::threeWay($record)['reason']),
 
+                // Read invoice with AI: lines the vendor submitted that don't match their invoice
+                TextColumn::make('match_flag_count')
+                    ->label('Invoice Check')
+                    ->badge()
+                    ->state(fn (Invoice $record): string => match (true) {
+                        $record->match_flag_count > 0 => "⚠ {$record->match_flag_count} to check",
+                        $record->invoice_match !== null => 'Checked',
+                        default => '—',
+                    })
+                    ->color(fn (Invoice $record): string => match (true) {
+                        $record->match_flag_count > 0 => 'warning',
+                        $record->invoice_match !== null => 'success',
+                        default => 'gray',
+                    })
+                    ->sortable(),
+
                 TextColumn::make('status')
                     ->badge()
                     ->sortable(),
@@ -86,6 +103,10 @@ class ApprovalsTable
                         P2pStatus::ReturnedToApProcessor->value => P2pStatus::ReturnedToApProcessor->getLabel(),
                     ])
                     ->multiple(),
+                Filter::make('needs_invoice_review')
+                    ->label('Needs invoice review')
+                    ->query(fn (Builder $query): Builder => $query->where('match_flag_count', '>', 0))
+                    ->toggle(),
             ])
             ->recordActions([
                 Action::make('process')

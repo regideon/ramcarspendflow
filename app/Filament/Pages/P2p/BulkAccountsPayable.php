@@ -28,12 +28,14 @@ use Filament\Forms\Contracts\HasForms;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Actions;
+use Filament\Schemas\Components\Callout;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\HtmlString;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Url;
 
@@ -171,9 +173,57 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
         $this->syncSummaryFromInvoice($invoice);
     }
 
+    /**
+     * What the AP Processor should check from Read invoice with AI: flagged lines, the vendor's
+     * remarks, warnings about the invoice, invoice lines not billed and extra charges.
+     */
+    protected function invoiceMatchSummary(): HtmlString
+    {
+        $match = $this->invoiceModel()?->invoice_match ?? [];
+        $list = fn (iterable $items): string => '<ul style="margin:.25rem 0 .5rem;padding-left:1.125rem;list-style:disc;">'
+            .collect($items)->map(fn (string $item): string => '<li>'.e($item).'</li>')->implode('').'</ul>';
+
+        $sections = array_filter([
+            filled($match['flags'] ?? []) ? '<strong>Lines</strong>'.$list(collect($match['flags'])->map(fn (array $flag): string => sprintf(
+                'GR %s · %s (PO %s/%s): %s',
+                $flag['gr_number'] ?? '—',
+                $flag['item_name'] ?? '—',
+                $flag['purchase_order'] ?? '—',
+                $flag['purchase_order_item'] ?? '—',
+                implode(' ', $flag['reasons'] ?? []),
+            ))) : null,
+            filled($match['vendor_remarks'] ?? null) ? '<strong>Vendor\'s remarks</strong>'.$list([$match['vendor_remarks']]) : null,
+            filled($match['warnings'] ?? []) ? '<strong>Invoice</strong>'.$list($match['warnings']) : null,
+            filled($match['unmatched_lines'] ?? []) ? '<strong>On the invoice but not billed here</strong>'.$list(collect($match['unmatched_lines'])->map(fn (array $line): string => sprintf(
+                '%s: %s · qty %s @ %s',
+                $line['invoice_number'] ?? '—',
+                $line['description'] ?? '—',
+                $line['quantity'] ?? '—',
+                is_numeric($line['unit_price'] ?? null) ? number_format((float) $line['unit_price'], 2) : '—',
+            ))) : null,
+            filled($match['charges'] ?? []) ? '<strong>Charges not on any PO</strong>'.$list(collect($match['charges'])->map(fn (array $charge): string => sprintf(
+                '%s: %s · %s',
+                $charge['invoice_number'] ?? '—',
+                $charge['description'] ?? 'Charge',
+                number_format((float) $charge['amount'], 2),
+            ))) : null,
+        ]);
+
+        return new HtmlString(implode('', $sections));
+    }
+
     public function content(Schema $schema): Schema
     {
         return $schema->components([
+            // The vendor submitted lines that don't match their invoice (Read invoice with AI)
+            Callout::make(fn (): string => ($count = $this->invoiceModel()?->match_flag_count ?? 0) > 0
+                ? "{$count} ".str('line')->plural($count).' to check against the vendor\'s invoice'
+                : 'Check the vendor\'s invoice')
+                ->description(fn (): HtmlString => $this->invoiceMatchSummary())
+                ->warning()
+                ->visible(fn (): bool => $this->invoiceMatchSummary()->toHtml() !== '')
+                ->columnSpanFull(),
+
             Section::make('Submission')
                 ->description('Submitted by the vendor; compare against the PO and goods receipts before submitting.')
                 ->icon(Heroicon::OutlinedInformationCircle)

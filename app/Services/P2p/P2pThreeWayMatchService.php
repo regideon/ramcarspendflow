@@ -32,6 +32,12 @@ class P2pThreeWayMatchService
      */
     public function statusFor(int $ordered, int $received, int $invoiced): P2pThreeWayMatchStatus
     {
+        // Nothing invoiced yet: the vendor has not linked an invoice to this line, so there is
+        // nothing to match. It becomes Matched / Open PO / No Match once they select it.
+        if ($invoiced <= 0) {
+            return P2pThreeWayMatchStatus::ForVerification;
+        }
+
         // Invoiced more than received — a real mismatch (over-delivery, wrong qty).
         if ($invoiced > $received) {
             return P2pThreeWayMatchStatus::NoMatch;

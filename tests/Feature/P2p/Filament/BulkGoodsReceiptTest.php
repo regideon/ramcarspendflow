@@ -82,6 +82,8 @@ it('processes multiple GRs across POs into one submission', function () {
     $this->actingAs($c['user']);
 
     Livewire::test(BulkGoodsReceipt::class, ['ids' => array_map(fn ($s) => $s->id, $c['states'])])
+        ->set('goods_receipts.0.goodReceiptItems.0.include', true)
+        ->set('goods_receipts.1.goodReceiptItems.0.include', true)
         ->set('invoiceAt', now()->toDateString())
         ->set('reference_number', ['DR-1', 'DR-2'])
         ->set('attachments', ['attachments-pdf/invoice.pdf'])
@@ -219,7 +221,8 @@ it('recomputes the overall total and keeps the 3-way badge after an update', fun
     $c = bulkContext();
     $this->actingAs($c['user']);
 
-    $component = Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]]);
+    $component = Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->set('goods_receipts.0.goodReceiptItems.0.include', true);
 
     expect($component->instance()->overall_invoice_total)->toBe('1,000.00')
         ->and($component->instance()->matchBase)->not->toBe([])
@@ -257,4 +260,32 @@ it('shows per-line pricing and the total amount to non-vendors', function () {
         ->assertSee('Unit Cost')
         ->assertSee('Amount')
         ->assertSee('Total Amount');
+});
+
+it('shows For Verification until the vendor selects the line for their invoice', function () {
+    $c = bulkContext();
+    $this->actingAs($c['user']);
+
+    $component = Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]]);
+
+    expect($component->get('goods_receipts.0.goodReceiptItems.0.include'))->toBeFalse()
+        ->and($component->instance()->overall_invoice_total)->toBe('0.00')
+        ->and($component->html())->toContain('For Verification')->not->toContain('>Matched<');
+
+    $component->set('goods_receipts.0.goodReceiptItems.0.include', true);
+
+    expect($component->html())->toContain('Matched')->not->toContain('For Verification');
+});
+
+it('blocks submitting when no line is selected', function () {
+    $c = bulkContext();
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->set('reference_number', ['DR-1'])
+        ->set('attachments', ['attachments-pdf/invoice.pdf'])
+        ->call('submit')
+        ->assertNotified('Select at least one line with a quantity.');
+
+    expect(Invoice::query()->where('status', P2pStatus::SubmittedToAp)->exists())->toBeFalse();
 });

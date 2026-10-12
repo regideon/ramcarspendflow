@@ -8,6 +8,7 @@ use App\Models\P2p\ApprovalHistory;
 use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
+use App\Models\P2p\Item;
 use App\Models\P2p\SapGoodReceipt;
 use App\Models\P2p\SapGoodReceiptItem;
 use App\Models\P2p\SapPurchaseOrder;
@@ -60,8 +61,51 @@ class P2pDemoTransactionSeeder extends Seeder
             foreach ($scenarios as $index => [$po, $gr, $stateStatus, $invoiceStatus]) {
                 $this->seedScenario($vendor, $company, $submitter, $po, $gr, $stateStatus, $invoiceStatus, $index);
             }
+
+            // Pending GRs shaped like real vendor invoices, to try "Read invoice with AI" end to end
+            // (see docs/p2p: JMA, United Bearing, Kallstrom in EUR, Sorfin in USD over two POs).
+            foreach (self::INVOICE_SAMPLES as $index => [$po, $gr, $currency, $items]) {
+                $this->seedScenario($vendor, $company, $submitter, $po, $gr, P2pStatus::Pending, null, 20 + $index, $items, $currency);
+            }
         });
     }
+
+    /**
+     * Default lines: [material, short text, uom, sloc, PO qty, GR qty, net price].
+     */
+    public const array DEFAULT_ITEMS = [
+        ['RM-0001', 'Lead Ingot', 'KG', 'B001', 100, 100, 85.00],
+        ['SP-0001', 'Conveyor Belt', 'M', 'B002', 20, 20, 1250.00],
+    ];
+
+    /**
+     * [PO, GR, currency, lines] for the sample vendor invoices.
+     */
+    public const array INVOICE_SAMPLES = [
+        ['4100386223', '5002259559', 'PHP', [
+            ['E9683647', 'FUSE,7A 600VAC BUSSMAN KTK-R-7 LIMITRON#', 'PC', 'B003', 6, 6, 503.50],
+        ]],
+        ['4100387372', '5002261102', 'PHP', [
+            ['E9263012', 'ROLLER CHAIN 40-1R DONGHUA', 'FT', 'B003', 20, 10, 39.80],
+        ]],
+        ['4100382699', '5002258944', 'EUR', [
+            ['E7877051', 'IMPELLER POS.90 700617-0090', 'EA', 'B004', 1, 1, 580.28],
+        ]],
+        ['4100385065', '5002258048', 'USD', [
+            ['E1112099', 'HEAD CYLINDER NASON CE-02189', 'EA', 'B004', 1, 1, 630.00],
+            ['E9182014', 'OXYGEN GAUGE PANEL MOUNT 1320', 'EA', 'B004', 1, 1, 110.00],
+            ['E9430100', 'EZ CLEAN SPROCKET 40MM SQ BORE', 'EA', 'B004', 5, 5, 65.00],
+        ]],
+        ['4100385620', '5002258099', 'USD', [
+            ['E9172096', 'V-BELT PULLEY UHMW E-10924', 'EA', 'B004', 8, 8, 70.00],
+            ['E9172067', 'FLEX HEAD STANDARD E-949', 'EA', 'B004', 6, 6, 15.50],
+        ]],
+    ];
+
+    /**
+     * Demo pesos per unit of foreign currency, for the GR value (unit_cost) of foreign POs.
+     */
+    public const array DEMO_RATES = ['USD' => 58.25, 'EUR' => 63.10];
 
     protected function seedScenario(
         Vendor $vendor,
@@ -72,13 +116,11 @@ class P2pDemoTransactionSeeder extends Seeder
         P2pStatus $stateStatus,
         ?P2pStatus $invoiceStatus,
         int $index,
+        array $items = self::DEFAULT_ITEMS,
+        string $currency = 'PHP',
     ): void {
-        $items = [
-            ['RM-0001', 'Lead Ingot', 'KG', 'B001', 100, 85.00],
-            ['SP-0001', 'Conveyor Belt', 'M', 'B002', 20, 1250.00],
-        ];
-
         $total = 0.0;
+        $grQuantity = array_sum(array_column($items, 5));
 
         $purchaseOrder = SapPurchaseOrder::create([
             'company_code' => $company->code,
@@ -88,7 +130,7 @@ class P2pDemoTransactionSeeder extends Seeder
             'purchase_order_type' => 'NB',
             'changed_on' => now()->subDays(3)->toDateString(),
             'created_by' => 'DEMO',
-            'currency_key' => 'PHP',
+            'currency_key' => $currency,
             'gr_numbers' => [$grNumber],
         ]);
 
@@ -102,10 +144,14 @@ class P2pDemoTransactionSeeder extends Seeder
             'upload_at' => now()->subDays(4)->toDateString(),
         ]);
 
-        $sapItems = collect($items)->map(function (array $item, int $i) use ($receipt, $poNumber, &$total): SapGoodReceiptItem {
-            [$code, $name, $uom, $sloc, $qty, $unitCost] = $item;
+        $sapItems = collect($items)->map(function (array $item, int $i) use ($receipt, $poNumber, $currency, &$total): SapGoodReceiptItem {
+            [$code, $name, $uom, $sloc, $poQty, $qty, $netPrice] = $item;
+            $unitCost = $currency === 'PHP' ? $netPrice : round($netPrice * self::DEMO_RATES[$currency], 4); // GR value is in pesos
             $amount = round($qty * $unitCost, 2);
             $total += $amount;
+
+            // The material (SAP MATNR) is in the P2P item master
+            $material = Item::query()->firstOrCreate(['code' => $code], ['name' => $name, 'uom' => $uom, 'unit_cost' => $unitCost, 'is_active' => true]);
 
             return SapGoodReceiptItem::create([
                 'p2p_sap_good_receipt_id' => $receipt->id,
@@ -115,16 +161,23 @@ class P2pDemoTransactionSeeder extends Seeder
                 'material_doc_year' => (int) now()->format('Y'),
                 'material_doc_item' => '0001',
                 'storage_location' => $sloc,
+                'item_id' => $material->id,
                 'item_name' => $name,
-                'quantity_po' => $qty,
+                'quantity_po' => $poQty,
                 'quantity_served' => $qty,
                 'uom' => $uom,
                 'unit_cost' => $unitCost,
+                'net_price' => $netPrice,
+                'price_unit' => 1,
+                'currency' => $currency,
                 'amount' => $amount,
             ]);
         });
 
-        $purchaseOrder->update(['total_amount' => $total, 'quantity_po_balance' => 0]);
+        $purchaseOrder->update([
+            'total_amount' => $total,
+            'quantity_po_balance' => array_sum(array_column($items, 4)) - $grQuantity, // open qty (e.g. a partial delivery)
+        ]);
         $receipt->update(['amount_total' => $total]);
 
         $state = GoodReceiptState::create([
@@ -134,8 +187,8 @@ class P2pDemoTransactionSeeder extends Seeder
             'company_id' => $company->id,
             'vendor_id' => $vendor->id,
             'status' => $stateStatus,
-            'quantity_total' => $items[0][4] + $items[1][4],
-            'quantity_served' => $invoiceStatus === null ? 0 : $items[0][4] + $items[1][4],
+            'quantity_total' => $grQuantity,
+            'quantity_served' => $invoiceStatus === null ? 0 : $grQuantity,
             'amount_total' => $total,
             'is_fully_processed' => false,
         ]);
@@ -163,7 +216,7 @@ class P2pDemoTransactionSeeder extends Seeder
             'invoice_number' => 'INV-'.$grNumber,
             'invoice_at' => now()->subDays(4),
             'submitted_at' => now()->subDays(3),
-            'quantity_submitted' => $items[0][4] + $items[1][4],
+            'quantity_submitted' => $grQuantity,
             'amount_submitted' => $total,
             'vatable_sales' => $total,
             'total' => $total,

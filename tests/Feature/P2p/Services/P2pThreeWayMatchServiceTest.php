@@ -100,3 +100,13 @@ it('aggregates a PO line across several goods receipts', function () {
         ->and($withPending['adjustment'])->toBe(6)
         ->and($withPending['status'])->toBe(P2pThreeWayMatchStatus::Matched->value);
 });
+
+it('is For Verification until an invoice quantity is linked to the line', function (int $ordered, int $received, int $invoiced, P2pThreeWayMatchStatus $status) {
+    expect(app(P2pThreeWayMatchService::class)->statusFor($ordered, $received, $invoiced))->toBe($status);
+})->with([
+    'nothing invoiced yet' => [10, 10, 0, P2pThreeWayMatchStatus::ForVerification],
+    'nothing invoiced, PO still open' => [10, 4, 0, P2pThreeWayMatchStatus::ForVerification],
+    'invoice selected and agrees' => [10, 10, 10, P2pThreeWayMatchStatus::Matched],
+    'invoice selected, PO still open' => [10, 4, 4, P2pThreeWayMatchStatus::OpenPo],
+    'invoiced more than received' => [10, 4, 6, P2pThreeWayMatchStatus::NoMatch],
+]);

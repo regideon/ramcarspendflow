@@ -42,4 +42,11 @@ return [
         'per_hour' => (int) env('RECEIPT_READER_PER_HOUR', 30), // reads per user, to cap cost
     ],
 
+    // Read invoice with AI on P2P goods receipts (App\Ai\Agents\VendorInvoiceReader)
+    'invoice_reader' => [
+        'enabled' => env('INVOICE_READER_ENABLED', true),
+        'model' => env('INVOICE_READER_MODEL'), // empty: the provider's default text model
+        'per_hour' => (int) env('INVOICE_READER_PER_HOUR', 30), // new reads per user, to cap cost
+    ],
+
 ];
