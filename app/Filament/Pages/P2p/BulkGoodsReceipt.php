@@ -5,6 +5,8 @@ namespace App\Filament\Pages\P2p;
 use App\Enums\P2pStatus;
 use App\Enums\RoleName;
 use App\Filament\Resources\P2p\Invoices\InvoiceResource;
+use App\Models\P2p\ApprovalHistory;
+use App\Models\P2p\Escalation;
 use App\Models\P2p\EscalationReason;
 use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\Invoice;
@@ -37,6 +39,7 @@ use Filament\Schemas\Components\Actions;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Builder;
@@ -172,6 +175,10 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         $hidePricing = $this->hidePricing();
 
         return $schema->components([
+            View::make('filament.components.p2p-status-stepper')
+                ->viewData(fn (): array => $this->stepperData())
+                ->columnSpanFull(),
+
             Section::make('Goods Receipt Information')
                 ->description('View vendor and company details for this receipt')
                 ->icon(Heroicon::OutlinedInformationCircle)
@@ -342,6 +349,39 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         }
 
         return $query->get();
+    }
+
+    /**
+     * Data for the workflow stepper shown on an existing invoice: its status, the
+     * approval history (so visited steps light up even after a return), and any open
+     * escalations (rendered one stepper per GR/batch).
+     *
+     * @return array{status: P2pStatus|null, histories: Collection<int, ApprovalHistory>, escalations: Collection<int, Escalation>}
+     */
+    protected function stepperData(): array
+    {
+        $invoice = $this->invoiceModel();
+
+        if ($invoice === null) {
+            return [
+                'status' => null,
+                'histories' => collect(),
+                'escalations' => collect(),
+            ];
+        }
+
+        return [
+            'status' => $invoice->status,
+            'histories' => $invoice->histories()
+                ->with('actionedBy')
+                ->orderBy('created_at')
+                ->get(),
+            'escalations' => $invoice->escalations()
+                ->with('reason.steps')
+                ->where('status', Escalation::STATUS_OPEN)
+                ->orderBy('batch_number')
+                ->get(),
+        ];
     }
 
     public function submit(): void

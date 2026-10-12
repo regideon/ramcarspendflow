@@ -40,6 +40,8 @@ class ApprovalResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'grc_number';
 
+    protected static bool $shouldRegisterNavigation = false;
+
     public static function table(Table $table): Table
     {
         return ApprovalsTable::configure($table);
