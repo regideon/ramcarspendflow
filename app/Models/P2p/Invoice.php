@@ -29,7 +29,7 @@ use Illuminate\Support\Str;
     'quantity_submitted', 'amount_submitted', 'processed', 'completed_at', 'withholding_tax_code',
     'withholding_tax_base', 'tax_code', 'remarks_ap', 'remarks_checker', 'invoice_at', 'fiscal_year',
     'attachments', 'submitted_at', 'escalated_at', 'warning_sent_at', 'upload_at', 'updated_by',
-    'vatable_sales', 'vat_exempt', 'vat_zero_rated', 'vat', 'total', 'ewt', 'net',
+    'vatable_sales', 'vat_exempt', 'vat_zero_rated', 'vat', 'total', 'ewt', 'net', 'invoice_match', 'match_flag_count',
 ])]
 class Invoice extends Model
 {
@@ -181,6 +181,8 @@ class Invoice extends Model
             'gr_numbers' => 'array',
             'reference_number' => 'array',
             'attachments' => 'array',
+            'invoice_match' => 'array',
+            'match_flag_count' => 'integer',
             'quantity_submitted' => 'decimal:2',
             'amount_submitted' => 'decimal:2',
             'withholding_tax_base' => 'decimal:2',

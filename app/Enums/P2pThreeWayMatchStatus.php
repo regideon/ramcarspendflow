@@ -10,6 +10,7 @@ use Filament\Support\Contracts\HasLabel;
  */
 enum P2pThreeWayMatchStatus: string implements HasColor, HasLabel
 {
+    case ForVerification = 'for_verification';
     case Matched = 'matched';
     case OpenPo = 'open_po';
     case NoMatch = 'no_match';
@@ -17,6 +18,7 @@ enum P2pThreeWayMatchStatus: string implements HasColor, HasLabel
     public function getLabel(): string
     {
         return match ($this) {
+            self::ForVerification => 'For Verification',
             self::Matched => 'Matched',
             self::OpenPo => 'Open PO',
             self::NoMatch => 'No Match',
@@ -26,6 +28,7 @@ enum P2pThreeWayMatchStatus: string implements HasColor, HasLabel
     public function getColor(): string
     {
         return match ($this) {
+            self::ForVerification => 'warning',
             self::Matched => 'success',
             // Blue (info): the invoice matches what was received, but the PO
             // still has an open quantity. Not an error.
@@ -37,6 +40,7 @@ enum P2pThreeWayMatchStatus: string implements HasColor, HasLabel
     public function description(): string
     {
         return match ($this) {
+            self::ForVerification => 'No invoice quantity is linked to this line yet. Select the line to match it against your invoice.',
             self::Matched => 'PO, GR and invoice quantities agree.',
             self::OpenPo => 'The invoice matches what was received; the PO still has an open quantity.',
             self::NoMatch => 'Quantities or amounts do not reconcile (over-delivery, invoiced > received, or amount mismatch).',

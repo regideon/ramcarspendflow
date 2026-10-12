@@ -3,7 +3,9 @@
 namespace App\Filament\Pages\P2p;
 
 use App\Enums\P2pStatus;
+use App\Enums\P2pThreeWayMatchStatus;
 use App\Enums\RoleName;
+use App\Filament\Pages\P2p\Actions\ReadInvoiceAction;
 use App\Filament\Resources\P2p\Invoices\InvoiceResource;
 use App\Models\P2p\ApprovalHistory;
 use App\Models\P2p\Escalation;
@@ -15,6 +17,7 @@ use App\Models\P2p\SapGoodReceiptItem;
 use App\Services\P2p\P2pEscalationRoutingService;
 use App\Services\P2p\P2pGoodReceiptReturnService;
 use App\Services\P2p\P2pGoodReceiptSubmissionService;
+use App\Services\P2p\P2pInvoiceMatcher;
 use App\Services\P2p\P2pThreeWayMatchService;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -28,6 +31,7 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Repeater\TableColumn;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TagsInput;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\ViewField;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -39,6 +43,7 @@ use Filament\Schemas\Components\Actions;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
@@ -117,6 +122,13 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
     public ?string $escalationReason = null;
 
+    /**
+     * Read invoice with AI: invoices read, warnings, unmatched lines and charges (P2pInvoiceMatcher).
+     *
+     * @var array<string, mixed>
+     */
+    public array $invoiceMatch = [];
+
     public string $escalationRemarks = '';
 
     /**
@@ -186,6 +198,24 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                     Grid::make()
                         ->columns(['default' => 1, 'sm' => 2, 'lg' => 3])
                         ->schema([
+                            FileUpload::make('attachments')
+                                ->label('Upload Attachments (PDF)')
+                                ->disk('public')
+                                ->directory('attachments-pdf')
+                                ->acceptedFileTypes(['application/pdf'])
+                                ->maxSize(5024)
+                                ->multiple()
+                                ->previewable()
+                                ->openable()
+                                ->downloadable()
+                                ->visibility('public')
+                                ->markAsRequired()
+                                ->disabled($this->isViewOnly)
+                                ->helperText($this->isViewOnly ? null : 'Upload your invoice (PDF). Read invoice with AI fills Inv Qty and checks each line against the PO and GR.')
+                                ->live()
+                                ->belowContent(ReadInvoiceAction::make())
+                                ->columnSpanFull(),
+
                             TextInput::make('vendor_name')
                                 ->label('Vendor')
                                 ->readOnly()
@@ -220,20 +250,6 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                                 ->disabled()
                                 ->dehydrated(false),
 
-                            FileUpload::make('attachments')
-                                ->label('Upload Attachments (PDF)')
-                                ->disk('public')
-                                ->directory('attachments-pdf')
-                                ->acceptedFileTypes(['application/pdf'])
-                                ->maxSize(5024)
-                                ->multiple()
-                                ->previewable()
-                                ->openable()
-                                ->downloadable()
-                                ->visibility('public')
-                                ->markAsRequired()
-                                ->disabled($this->isViewOnly)
-                                ->columnSpanFull(),
                         ]),
                 ]),
 
@@ -263,23 +279,34 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                                     Hidden::make('p2p_sap_good_receipt_item_id'),
                                     Hidden::make('purchase_order_item'),
                                     Hidden::make('unit_cost'),
+                                    Hidden::make('quantity_remaining'),
+                                    Hidden::make('ai'), // the invoice line it was matched to (Read invoice with AI)
+                                    Hidden::make('quantity_edited'),
 
                                     TextEntry::make('purchase_order')->hiddenLabel(),
                                     TextEntry::make('gr_number')->hiddenLabel(),
-                                    TextEntry::make('material_doc_item')->hiddenLabel(),
+                                    TextEntry::make('purchase_order_item')->hiddenLabel(),
                                     TextEntry::make('item_name')->hiddenLabel(),
                                     TextEntry::make('quantity_po')->hiddenLabel(),
                                     TextEntry::make('uom')->hiddenLabel(),
                                     TextEntry::make('quantity_served')->hiddenLabel(),
 
+                                    // Inv Qty comes from the vendor's invoice (Read invoice with AI); the
+                                    // vendor may correct it, and AP sees that it was changed.
                                     TextInput::make('quantity')
                                         ->hiddenLabel()
                                         ->numeric()
-                                        // Inv Qty is read-only: it mirrors the pending GR qty
-                                        // and the row is included by ticking Select.
-                                        ->disabled()
+                                        ->minValue(0)
+                                        ->disabled($this->isViewOnly)
                                         ->dehydrated()
-                                        ->required(),
+                                        ->live(onBlur: true)
+                                        ->afterStateUpdated(function (Get $get, Set $set, mixed $state): void {
+                                            $ai = $get('ai');
+
+                                            $set('quantity_edited', is_array($ai) && (float) $state !== (float) ($ai['quantity'] ?? 0));
+                                            $set('include', (float) $state > 0);
+                                            $this->recalculateTotal();
+                                        }),
 
                                     ...($hidePricing ? [] : [
                                         TextEntry::make('unit_cost_display')
@@ -319,12 +346,25 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                     ->label('Submit to AP')
                     ->icon(Heroicon::OutlinedPaperAirplane)
                     ->visible(! $this->isViewOnly)
-                    ->action('submit'),
+                    // Lines that don't match the invoice can still be submitted; AP is warned
+                    ->requiresConfirmation(fn (): bool => $this->matchFlags() !== [])
+                    ->modalHeading('Some lines need AP\'s attention')
+                    ->modalDescription(fn (): HtmlString => $this->flagsSummary())
+                    ->modalIcon(Heroicon::OutlinedExclamationTriangle)
+                    ->modalIconColor('warning')
+                    ->modalSubmitActionLabel('Submit anyway')
+                    ->schema(fn (): array => $this->matchFlags() === [] ? [] : [
+                        Textarea::make('match_remarks')
+                            ->label('Remarks for AP (optional)')
+                            ->placeholder('e.g. Price increase approved by Purchasing')
+                            ->rows(2),
+                    ])
+                    ->action(fn (array $data) => $this->submit($data['match_remarks'] ?? null)),
 
                 $this->escalateAction(),
 
                 $this->cancelRequestAction(),
-            ]),
+            ])->key('formActions'),
         ]);
     }
 
@@ -385,7 +425,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         ];
     }
 
-    public function submit(): void
+    public function submit(?string $matchRemarks = null): void
     {
         if ($this->isViewOnly) {
             return;
@@ -410,10 +450,18 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
         $invoice = $this->invoiceModel() ?? $service->start($user, array_map('intval', $this->ids));
 
+        $flags = $this->matchFlags();
+
         $service->submit($invoice, $lines, $user, [
             'invoice_at' => $this->invoiceAt,
             'reference_number' => array_values(array_filter($this->reference_number)),
             'attachments' => $this->persistedAttachments(),
+            'invoice_match' => [
+                ...$this->invoiceMatch,
+                'flags' => $flags,
+                'vendor_remarks' => filled($matchRemarks) ? $matchRemarks : null,
+            ],
+            'match_flag_count' => count($flags),
         ]);
 
         Notification::make()->title('Invoice submitted to AP')->success()->send();
@@ -513,7 +561,12 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             Checkbox::make('include')
                 ->hiddenLabel()
                 ->live()
-                ->afterStateUpdated(function (): void {
+                ->afterStateUpdated(function (Get $get, Set $set, mixed $state): void {
+                    // Selected by hand (no invoice read): bill what is left, flagged for AP as not checked
+                    if ($state && blank($get('quantity'))) {
+                        $set('quantity', $get('quantity_remaining'));
+                    }
+
                     $this->recalculateTotal();
                 })
                 // .fi-fo-field is a CSS grid, so centre the shrink-wrapped label
@@ -560,6 +613,9 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
         $remaining = app(P2pGoodReceiptSubmissionService::class)->remainingQuantitiesFor($items, $invoice);
 
+        // A returned invoice keeps the lines the vendor had chosen (and what they matched on the invoice)
+        $chosen = $invoice?->lines()->get()->keyBy('p2p_sap_good_receipt_item_id')->all() ?? [];
+
         return $receipts
             ->map(fn (GoodReceiptState $state): array => [
                 'good_receipt_id' => $state->id,
@@ -577,8 +633,14 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                         'quantity_po' => (int) $item->quantity_po,
                         'quantity_served' => (int) ($item->quantity_served ?? $item->quantity_po),
                         'unit_cost' => (float) $item->unit_cost,
-                        'include' => true,
-                        'quantity' => $remaining[$item->id] ?? 0,
+                        // New invoice: nothing selected; the vendor picks the PO/GR lines on their
+                        // invoice, and the 3-way badge stays "For Verification" until they do
+                        'include' => isset($chosen[$item->id]),
+                        // Inv Qty is empty until it is read from the invoice (or the line is selected)
+                        'quantity' => isset($chosen[$item->id]) ? ($remaining[$item->id] ?? 0) : null,
+                        'quantity_remaining' => $remaining[$item->id] ?? 0,
+                        'ai' => isset($chosen[$item->id]) ? $this->savedMatch($chosen[$item->id]) : null,
+                        'quantity_edited' => (bool) ($chosen[$item->id]->is_quantity_edited ?? false),
                     ])
                     ->values()
                     ->all(),
@@ -618,6 +680,9 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                         'unit_cost' => (float) $line->unit_cost,
                         'include' => true,
                         'quantity' => (int) $line->quantity_billed,
+                        'quantity_remaining' => (int) $line->quantity_billed,
+                        'ai' => $this->savedMatch($line),
+                        'quantity_edited' => (bool) $line->is_quantity_edited,
                     ])->values()->all(),
                 ];
             })
@@ -694,17 +759,276 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             $invoiced,
         );
 
+        $row = $this->rowMatch([
+            'include' => $get('include'),
+            'quantity' => $get('quantity'),
+            'quantity_remaining' => $get('quantity_remaining'),
+            'ai' => $get('ai'),
+            'quantity_edited' => $get('quantity_edited'),
+        ], $status);
+        $status = $row['status'];
+
         return [
             'status' => $status->value,
             'label' => $status->getLabel(),
             'color' => $status->getColor(),
             'reason' => $status->description(),
+            'notes' => $row['notes'],
             'ordered' => (int) $base['ordered'],
             'received' => (int) $base['received'],
             'invoiced' => $invoiced,
             'adjustment' => $pending,
             'rows' => $base['rows'] ?? [],
         ];
+    }
+
+    /**
+     * A row's 3-way status with what the vendor's invoice said: the quantity status from the
+     * PO/GR/invoice quantities, No Match when the invoice price or currency is off, and the
+     * notes shown in the badge. "flags" are what the AP Processor is warned about.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array{status: P2pThreeWayMatchStatus, notes: list<string>, flags: list<string>}
+     */
+    public function rowMatch(array $row, ?P2pThreeWayMatchStatus $quantityStatus = null): array
+    {
+        $quantityStatus ??= $this->quantityStatusFor($row);
+        $ai = is_array($row['ai'] ?? null) ? $row['ai'] : null;
+        $quantity = (float) ($row['quantity'] ?? 0);
+
+        if (empty($row['include']) || $quantity <= 0) {
+            return ['status' => $quantityStatus, 'notes' => [], 'flags' => []];
+        }
+
+        // Submitted lines show what was recorded at submission
+        if ($this->isViewOnly) {
+            return [
+                'status' => P2pThreeWayMatchStatus::tryFrom((string) ($ai['saved']['status'] ?? '')) ?? $quantityStatus,
+                'notes' => $ai['saved']['reasons'] ?? [],
+                'flags' => [],
+            ];
+        }
+
+        if ($ai === null) {
+            $note = 'Not checked against an invoice: selected by hand.';
+
+            return ['status' => $quantityStatus, 'notes' => [$note], 'flags' => [$note]];
+        }
+
+        $remaining = (int) ($row['quantity_remaining'] ?? 0);
+        $quantityReasons = app(P2pInvoiceMatcher::class)->quantityReasons($quantity, $remaining);
+        $priceReasons = $ai['price_reasons'] ?? [];
+
+        $status = ($ai['price_ok'] ?? null) === false ? P2pThreeWayMatchStatus::NoMatch : $quantityStatus;
+
+        $notes = array_values(array_filter([
+            sprintf(
+                'Invoice %s: %s%s',
+                $ai['invoice_number'] ?? '—',
+                rtrim(rtrim(number_format((float) ($ai['quantity'] ?? 0), 4, '.', ''), '0'), '.'),
+                isset($ai['unit_price']) ? sprintf(' @ %s %s', $ai['currency'] ?? '', number_format((float) $ai['unit_price'], 2)) : '',
+            ),
+            ...$quantityReasons,
+            ...$priceReasons,
+            ...($ai['notes'] ?? []),
+        ]));
+
+        $flags = $status === P2pThreeWayMatchStatus::NoMatch
+            ? [...($quantity > $remaining ? $quantityReasons : []), ...$priceReasons]
+            : [];
+
+        if (! empty($row['quantity_edited'])) {
+            $edited = sprintf('Inv Qty changed by the vendor (the invoice says %s).', rtrim(rtrim(number_format((float) ($ai['quantity'] ?? 0), 4, '.', ''), '0'), '.'));
+            $notes[] = $edited;
+            $flags[] = $edited;
+        }
+
+        return ['status' => $status, 'notes' => $notes, 'flags' => array_values(array_unique($flags))];
+    }
+
+    /**
+     * Selected lines the AP Processor should check, with why.
+     *
+     * @return list<array{gr_number: ?string, purchase_order: ?string, purchase_order_item: ?string, item_name: ?string, reasons: list<string>}>
+     */
+    public function matchFlags(): array
+    {
+        $flags = [];
+
+        foreach ($this->goods_receipts as $goodsReceipt) {
+            foreach ($goodsReceipt['goodReceiptItems'] ?? [] as $item) {
+                $reasons = $this->rowMatch($item)['flags'];
+
+                if ($reasons !== []) {
+                    $flags[] = [
+                        'gr_number' => $item['gr_number'] ?? null,
+                        'purchase_order' => $item['purchase_order'] ?? null,
+                        'purchase_order_item' => $item['purchase_order_item'] ?? null,
+                        'item_name' => $item['item_name'] ?? null,
+                        'reasons' => $reasons,
+                    ];
+                }
+            }
+        }
+
+        return $flags;
+    }
+
+    protected function flagsSummary(): HtmlString
+    {
+        $items = collect($this->matchFlags())
+            ->map(fn (array $flag): string => sprintf(
+                '<li><strong>GR %s · %s</strong>: %s</li>',
+                e($flag['gr_number']),
+                e($flag['item_name']),
+                e(implode(' ', $flag['reasons'])),
+            ))
+            ->implode('');
+
+        return new HtmlString(
+            '<p>You can still submit. The AP Processor will see these lines flagged, with your remarks.</p>'
+            ."<ul style=\"margin-top:8px;padding-left:18px;list-style:disc;text-align:left;\">{$items}</ul>",
+        );
+    }
+
+    /**
+     * The quantity-only 3-way status of a row (PO line totals plus what is pending on screen).
+     *
+     * @param  array<string, mixed>  $row
+     */
+    protected function quantityStatusFor(array $row): P2pThreeWayMatchStatus
+    {
+        $key = $this->lineKey($row['purchase_order'] ?? null, $row['purchase_order_item'] ?? null);
+        $base = $this->matchBase[$key] ?? null;
+
+        if ($base === null) {
+            return P2pThreeWayMatchStatus::ForVerification;
+        }
+
+        $pending = $this->isViewOnly ? 0 : $this->pendingForLine($key);
+
+        return app(P2pThreeWayMatchService::class)->statusFor((int) $base['ordered'], (int) $base['received'], (int) $base['invoiced'] + $pending);
+    }
+
+    /**
+     * What a submitted line recorded about the invoice, for the badge.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function savedMatch(InvoiceLine $line): ?array
+    {
+        if ($line->match_status === null) {
+            return null;
+        }
+
+        return [
+            'invoice_number' => $line->invoice_reference,
+            'quantity' => (float) $line->quantity_billed,
+            'unit_price' => $line->invoice_unit_price !== null ? (float) $line->invoice_unit_price : null,
+            'currency' => $line->invoice_currency,
+            'price_ok' => null,
+            'price_reasons' => [],
+            'notes' => $line->is_invoice_verified ? ($line->match_reasons ?? []) : [],
+            'saved' => ['status' => $line->match_status->value, 'reasons' => $line->match_reasons ?? []],
+            'verified' => $line->is_invoice_verified,
+        ];
+    }
+
+    /**
+     * The returned invoice being edited, if any (excluded from billed quantities when matching).
+     */
+    public function currentInvoice(): ?Invoice
+    {
+        return $this->invoiceModel();
+    }
+
+    /**
+     * GR lines on screen keyed by mirror item id, for the review.
+     *
+     * @return array<int, array{gr_number: ?string, purchase_order: ?string, purchase_order_item: ?string, item_name: ?string, uom: ?string, quantity_served: int, quantity_remaining: int}>
+     */
+    public function rowLabels(): array
+    {
+        return collect($this->goods_receipts)
+            ->flatMap(fn (array $goodsReceipt): array => $goodsReceipt['goodReceiptItems'] ?? [])
+            ->mapWithKeys(fn (array $item): array => [(int) $item['p2p_sap_good_receipt_item_id'] => [
+                'gr_number' => $item['gr_number'] ?? null,
+                'purchase_order' => $item['purchase_order'] ?? null,
+                'purchase_order_item' => $item['purchase_order_item'] ?? null,
+                'item_name' => $item['item_name'] ?? null,
+                'uom' => $item['uom'] ?? null,
+                'quantity_served' => (int) ($item['quantity_served'] ?? 0),
+                'quantity_remaining' => (int) ($item['quantity_remaining'] ?? 0),
+            ]])
+            ->all();
+    }
+
+    /**
+     * GR items on screen, for matching the vendor's invoice.
+     *
+     * @return Collection<int, SapGoodReceiptItem>
+     */
+    public function itemsOnScreen(): Collection
+    {
+        $ids = collect($this->goods_receipts)
+            ->flatMap(fn (array $goodsReceipt): array => $goodsReceipt['goodReceiptItems'] ?? [])
+            ->pluck('p2p_sap_good_receipt_item_id')
+            ->filter()
+            ->all();
+
+        return SapGoodReceiptItem::query()->with(['item', 'goodReceipt'])->whereKey($ids)->get();
+    }
+
+    /**
+     * Apply a reviewed invoice match: select the matched rows, fill Inv Qty, keep what the invoice
+     * said for the badge, and add the invoice numbers and date.
+     *
+     * @param  array<string, mixed>  $match  P2pInvoiceMatcher::match() result
+     */
+    public function applyInvoiceMatch(array $match): void
+    {
+        $rows = $match['rows'] ?? [];
+
+        foreach ($this->goods_receipts as $g => $goodsReceipt) {
+            foreach ($goodsReceipt['goodReceiptItems'] ?? [] as $i => $item) {
+                $row = $rows[$item['p2p_sap_good_receipt_item_id']] ?? null;
+
+                if ($row === null) {
+                    // Not on the invoice: no longer linked to an invoice line
+                    $this->goods_receipts[$g]['goodReceiptItems'][$i]['ai'] = null;
+                    $this->goods_receipts[$g]['goodReceiptItems'][$i]['quantity_edited'] = false;
+
+                    continue;
+                }
+
+                $quantity = (float) $row['quantity'];
+
+                $this->goods_receipts[$g]['goodReceiptItems'][$i] = [
+                    ...$item,
+                    'include' => $quantity > 0,
+                    'quantity' => floor($quantity) === $quantity ? (int) $quantity : $quantity,
+                    'quantity_edited' => false,
+                    'ai' => collect($row)->only(['invoice_number', 'invoice_date', 'description', 'quantity', 'unit_price', 'currency', 'price_ok', 'price_reasons', 'notes'])->all(),
+                ];
+            }
+        }
+
+        $numbers = collect($match['invoices'] ?? [])->pluck('invoice_number')->filter()->all();
+        $this->reference_number = array_values(array_unique([...array_filter($this->reference_number), ...$numbers]));
+
+        $date = collect($match['invoices'] ?? [])->pluck('invoice_date')->first(fn (?string $date): bool => filled($date) && strtotime($date) !== false);
+
+        if ($date !== null) {
+            $this->invoiceAt = $date;
+        }
+
+        $this->invoiceMatch = [
+            'read_at' => now()->toIso8601String(),
+            ...collect($match)->only(['invoices', 'warnings', 'unmatched_lines', 'charges', 'files'])->all(),
+        ];
+
+        unset($this->matchBase);
+        $this->recalculateTotal();
     }
 
     protected function lineKey(mixed $purchaseOrder, mixed $purchaseOrderItem): string
@@ -749,9 +1073,19 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                     continue;
                 }
 
+                $match = $this->rowMatch($item);
+                $ai = is_array($item['ai'] ?? null) ? $item['ai'] : null;
+
                 $lines[] = [
                     'p2p_sap_good_receipt_item_id' => (int) $item['p2p_sap_good_receipt_item_id'],
                     'quantity_billed' => (string) $item['quantity'],
+                    'invoice_reference' => $ai['invoice_number'] ?? null,
+                    'invoice_unit_price' => $ai['unit_price'] ?? null,
+                    'invoice_currency' => $ai['currency'] ?? null,
+                    'match_status' => $match['status']->value,
+                    'match_reasons' => $match['notes'],
+                    'is_invoice_verified' => $ai !== null,
+                    'is_quantity_edited' => (bool) ($item['quantity_edited'] ?? false),
                 ];
             }
         }

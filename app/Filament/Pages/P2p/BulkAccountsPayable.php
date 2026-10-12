@@ -2,75 +2,63 @@
 
 namespace App\Filament\Pages\P2p;
 
-use App\Enums\P2pInvoiceActionLabel;
 use App\Enums\P2pStatus;
 use App\Enums\RoleName;
 use App\Filament\Resources\P2p\Approvals\ApprovalResource;
-use App\Models\P2p\Escalation;
 use App\Models\P2p\EscalationReason;
+use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
-use App\Models\P2p\SapGoodReceiptItem;
 use App\Models\TaxCode;
-use App\Models\User;
 use App\Models\WithholdingTaxCode;
 use App\Services\P2p\P2pEscalationRoutingService;
 use App\Services\P2p\P2pGoodReceiptReturnService;
-use App\Services\P2p\P2pInvoiceParkingService;
 use App\Services\P2p\P2pTaxSummaryService;
 use App\Services\P2p\P2pThreeWayMatchService;
+use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
-use Filament\Forms\Components\Checkbox;
-use Filament\Forms\Components\Hidden;
-use Filament\Forms\Components\Repeater;
-use Filament\Forms\Components\Repeater\TableColumn;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\ViewField;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
-use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Actions;
+use Filament\Schemas\Components\Callout;
 use Filament\Schemas\Components\Grid;
-use Filament\Schemas\Components\Group;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
-use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\Url;
 
 /**
- * The AP processing screen, ported from the legacy BulkAccountsPayable page.
+ * The AP processor's processing screen for one submission. Review the vendor's
+ * lines and attachments side by side with the PO/GR mirror, assign the tax and
+ * withholding tax, then submit to the checker, escalate selected lines, or return
+ * the submission to the vendor.
  *
- * One submission at a time, opened from the Approvals queue. The screen is a
- * single form (statePath `data`) laid out as
- *   [ Attachment ]  [ Header              ]
- *    ^ sticky at xl [ Items               ]
- *                   [ Tax   ] [ Summary   ]
- *                   [ Approval History    ]
- * with the role-appropriate actions in a sticky footer.
- *
- * Roles: AP Processor (tax + submit/escalate/return to vendor) and AP Supervisor
- * (the legacy "checker" — approve/park in SAP, or return to the processor).
+ * The checker branch is out of scope (blocked on B1: which role is "AP Checker").
  */
 class BulkAccountsPayable extends Page implements HasActions, HasForms
 {
     use InteractsWithActions;
     use InteractsWithForms;
 
-    protected string $view = 'filament.pages.p2p.bulk-accounts-payable';
-
     protected static bool $shouldRegisterNavigation = false;
 
     protected static ?string $slug = 'p2p/bulk-accounts-payable';
+
+    protected static ?string $title = 'Process Accounts Payable';
+
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedDocumentCheck;
 
     /**
      * The submission being processed.
@@ -78,115 +66,77 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
     #[Url]
     public ?int $invoice = null;
 
-    /**
-     * Read-only mode: opened by a role that may review but not act.
-     */
-    public ?bool $isViewOnly = false;
+    public ?string $vendor_name = null;
+
+    public ?string $company_name = null;
+
+    public ?string $grc_number = null;
 
     /**
-     * @var array<string, mixed>
+     * @var array<int, string>
      */
-    public array $data = [];
+    public array $reference_number = [];
 
     /**
-     * True when the submission has open escalations, which adds the Scope column
-     * to the Items table (so a partially escalated request shows which lines are
-     * out on an escalation).
+     * @var array<int, string>
      */
-    public bool $showEscalationColumn = false;
+    public array $attachments = [];
+
+    public ?string $invoiceAt = null;
+
+    public ?string $invoice_number = null;
 
     /**
-     * Our normalized schema keeps submitted amounts in PHP, so the screen uses a
-     * fixed symbol rather than the legacy's per-GR currency.
+     * The vendor's submitted total, shown for reference beside the computed summary.
      */
-    public string $currencyKey = 'PHP';
+    public string $invoice_total = '0.00';
 
-    public string $currencySymbol = '₱';
+    public bool $isViewOnly = false;
 
     /**
-     * Request-scoped cache; rebuilt on the next request.
+     * Tax section state.
      */
+    public ?string $withholding_tax_code = null;
+
+    public ?string $withholding_tax_base = null;
+
+    public ?string $tax_code = null;
+
+    public ?string $remarks_ap = null;
+
+    /**
+     * Computed tax summary, mirrored into disabled inputs.
+     */
+    public string $vatable_sales = '0.00';
+
+    public string $vat_exempt = '0.00';
+
+    public string $vat_zero_rated = '0.00';
+
+    public string $vat = '0.00';
+
+    public string $total = '0.00';
+
+    public string $ewt = '0.00';
+
+    public string $net = '0.00';
+
+    /**
+     * One entry per GR, each with its line rows (the Medius comparison table).
+     *
+     * @var array<int, array<string, mixed>>
+     */
+    public array $goods_receipts = [];
+
+    public ?string $escalationReason = null;
+
+    public string $escalationRemarks = '';
+
     protected ?Invoice $loadedInvoice = null;
-
-    /**
-     * Whether the escalation lookup for the signed-in user has been resolved, so
-     * the action labels/modals that call {@see self::escalationForUser()} during a
-     * single render do not re-query the invoice's escalations each time.
-     */
-    protected bool $escalationForUserResolved = false;
-
-    /**
-     * The open escalation waiting on the signed-in user, if any. Cached per request.
-     */
-    protected ?Escalation $escalationForUser = null;
-
-    public function getMaxContentWidth(): Width
-    {
-        return Width::Full;
-    }
-
-    public function getTitle(): string
-    {
-        return 'Process Accounts Payable';
-    }
 
     public static function canAccess(): bool
     {
-        return auth()->user()?->hasAnyRole([
-            RoleName::ApProcessor,
-            RoleName::ApSupervisor,
-            RoleName::Admin,
-            // Escalation hop owners open the invoice from their queue to
-            // Advance/Return the escalation (legacy opened this page for them).
-            RoleName::Procurement,
-            RoleName::Warehouse,
-            RoleName::WarehouseRawMaterials,
-            RoleName::WarehouseSpareParts,
-        ]) ?? false;
-    }
-
-    protected function currentUser(): ?User
-    {
-        $user = Auth::user();
-
-        return $user instanceof User ? $user : null;
-    }
-
-    protected function currentUserId(): ?int
-    {
-        return $this->currentUser()?->id;
-    }
-
-    protected function userHasRole(string|array $role): bool
-    {
-        $user = $this->currentUser();
-
-        return $user?->hasRole($role) ?? false;
-    }
-
-    /**
-     * The supervisor ("checker" in the legacy) only approves or returns, so the
-     * Tax section is read-only for them — as it is in view-only mode.
-     */
-    protected function isTaxSectionReadonly(): bool
-    {
-        return $this->isViewOnly || $this->isSupervisor();
-    }
-
-    public function isSupervisor(): bool
-    {
-        return $this->userHasRole(RoleName::ApSupervisor->value);
-    }
-
-    protected function invoiceModel(): ?Invoice
-    {
-        if (blank($this->invoice)) {
-            return null;
-        }
-
-        return $this->loadedInvoice ??= Invoice::query()
-            ->with(['vendor', 'company', 'escalations.reason.steps'])
-            ->find((int) $this->invoice);
+        return auth()->user()?->hasAnyRole([RoleName::ApProcessor, RoleName::Admin]) ?? false;
     }
 
     public function mount(): void
@@ -201,134 +151,250 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
         $this->authorizeAccess($invoice);
 
-        // A role that may only review opens the screen read-only. The queue only
-        // hands out actionable records, but a deep link could point anywhere.
-        $this->isViewOnly = $this->isSupervisor()
-            ? ! in_array($invoice->status, [P2pStatus::SubmittedToChecker, P2pStatus::CheckerReview], true)
-            : ! in_array($invoice->status, [
-                P2pStatus::SubmittedToAp,
-                P2pStatus::ApReview,
-                P2pStatus::ReturnedToApProcessor,
-            ], true);
+        $this->grc_number = $invoice->grc_number;
+        $this->reference_number = array_values($invoice->reference_number ?? []);
+        $this->attachments = array_values($invoice->attachments ?? []);
+        $this->invoiceAt = optional($invoice->invoice_at)->toDateString();
+        $this->invoice_number = $invoice->invoice_number;
+        $this->invoice_total = number_format((float) $invoice->amount_submitted, 2, '.', '');
 
-        if ($this->isSupervisor()) {
-            $this->isViewOnly = false;
-        }
+        $this->vendor_name = $invoice->vendor?->name ?? 'N/A';
+        $this->company_name = $invoice->company?->name ?? 'N/A';
 
-        $this->data['invoice_id'] = $invoice->id;
-        $this->data['vendor_name'] = $invoice->vendor?->name ?? 'N/A';
-        $this->data['company_name'] = $invoice->company?->name ?? 'N/A';
-        $this->data['vendor_code'] = $invoice->vendor?->code ?? 'N/A';
-        $this->data['company_code'] = $invoice->company?->code ?? 'N/A';
-        $this->data['grc_number'] = $invoice->grc_number;
-        $this->data['invoice_at'] = $invoice->invoice_at?->toDateString();
-        $this->data['attachments'] = $invoice->attachments ?? [];
-        $this->data['reference_number'] = $invoice->reference_number ?? [];
-        $this->data['invoice_number'] = $invoice->invoice_number;
-        $this->data['remarks_ap'] = $invoice->remarks_ap;
+        $this->withholding_tax_code = $invoice->withholding_tax_code;
+        $this->withholding_tax_base = $invoice->withholding_tax_base !== null
+            ? (string) $invoice->withholding_tax_base
+            : null;
+        $this->tax_code = $invoice->tax_code;
+        $this->remarks_ap = $invoice->remarks_ap;
 
-        $this->data['tax_code'] = $invoice->tax_code;
-        $this->data['withholding_tax_code'] = $invoice->withholding_tax_code;
-        $this->data['withholding_tax_base'] = $invoice->withholding_tax_base;
+        $this->goods_receipts = $this->buildGoodsReceipts($invoice);
 
-        foreach (['vatable_sales', 'vat_exempt', 'vat_zero_rated', 'vat', 'total', 'ewt', 'net'] as $key) {
-            $this->data[$key] = number_format((float) $invoice->{$key}, 2, '.', ',');
-        }
-
-        $this->data['goods_receipts'] = $this->buildGoodsReceipts($invoice);
-
-        // The overall invoice total is what is being invoiced, not the tax base.
-        $this->data['overall_invoice_total'] = number_format(
-            collect($this->data['goods_receipts'])
-                ->flatMap(fn (array $gr): array => $gr['goodReceiptItems'] ?? [])
-                ->sum(fn (array $item): float => (float) preg_replace('/[^0-9.\-]/', '', (string) ($item['amount'] ?? 0))),
-            2,
-            '.',
-            ',',
-        );
-
-        $this->showEscalationColumn = $invoice->escalations
-            ->where('status', Escalation::STATUS_OPEN)
-            ->isNotEmpty();
+        $this->syncSummaryFromInvoice($invoice);
     }
 
     /**
-     * The submission's lines, grouped per GR for the Items table.
-     *
+     * What the AP Processor should check from Read invoice with AI: flagged lines, the vendor's
+     * remarks, warnings about the invoice, invoice lines not billed and extra charges.
+     */
+    protected function invoiceMatchSummary(): HtmlString
+    {
+        $match = $this->invoiceModel()?->invoice_match ?? [];
+        $list = fn (iterable $items): string => '<ul style="margin:.25rem 0 .5rem;padding-left:1.125rem;list-style:disc;">'
+            .collect($items)->map(fn (string $item): string => '<li>'.e($item).'</li>')->implode('').'</ul>';
+
+        $sections = array_filter([
+            filled($match['flags'] ?? []) ? '<strong>Lines</strong>'.$list(collect($match['flags'])->map(fn (array $flag): string => sprintf(
+                'GR %s · %s (PO %s/%s): %s',
+                $flag['gr_number'] ?? '—',
+                $flag['item_name'] ?? '—',
+                $flag['purchase_order'] ?? '—',
+                $flag['purchase_order_item'] ?? '—',
+                implode(' ', $flag['reasons'] ?? []),
+            ))) : null,
+            filled($match['vendor_remarks'] ?? null) ? '<strong>Vendor\'s remarks</strong>'.$list([$match['vendor_remarks']]) : null,
+            filled($match['warnings'] ?? []) ? '<strong>Invoice</strong>'.$list($match['warnings']) : null,
+            filled($match['unmatched_lines'] ?? []) ? '<strong>On the invoice but not billed here</strong>'.$list(collect($match['unmatched_lines'])->map(fn (array $line): string => sprintf(
+                '%s: %s · qty %s @ %s',
+                $line['invoice_number'] ?? '—',
+                $line['description'] ?? '—',
+                $line['quantity'] ?? '—',
+                is_numeric($line['unit_price'] ?? null) ? number_format((float) $line['unit_price'], 2) : '—',
+            ))) : null,
+            filled($match['charges'] ?? []) ? '<strong>Charges not on any PO</strong>'.$list(collect($match['charges'])->map(fn (array $charge): string => sprintf(
+                '%s: %s · %s',
+                $charge['invoice_number'] ?? '—',
+                $charge['description'] ?? 'Charge',
+                number_format((float) $charge['amount'], 2),
+            ))) : null,
+        ]);
+
+        return new HtmlString(implode('', $sections));
+    }
+
+    public function content(Schema $schema): Schema
+    {
+        return $schema->components([
+            // The vendor submitted lines that don't match their invoice (Read invoice with AI)
+            Callout::make(fn (): string => ($count = $this->invoiceModel()?->match_flag_count ?? 0) > 0
+                ? "{$count} ".str('line')->plural($count).' to check against the vendor\'s invoice'
+                : 'Check the vendor\'s invoice')
+                ->description(fn (): HtmlString => $this->invoiceMatchSummary())
+                ->warning()
+                ->visible(fn (): bool => $this->invoiceMatchSummary()->toHtml() !== '')
+                ->columnSpanFull(),
+
+            Section::make('Submission')
+                ->description('Submitted by the vendor; compare against the PO and goods receipts before submitting.')
+                ->icon(Heroicon::OutlinedInformationCircle)
+                ->schema([
+                    Grid::make()
+                        ->columns(['default' => 1, 'sm' => 2, 'lg' => 3])
+                        ->schema([
+                            TextInput::make('vendor_name')
+                                ->label('Vendor')
+                                ->readOnly()
+                                ->dehydrated(false),
+
+                            TextInput::make('company_name')
+                                ->label('Company')
+                                ->readOnly()
+                                ->dehydrated(false),
+
+                            TextInput::make('grc_number')
+                                ->label('GRC No.')
+                                ->readOnly()
+                                ->dehydrated(false),
+
+                            TextInput::make('invoiceAt')
+                                ->label('Invoice Date')
+                                ->readOnly()
+                                ->dehydrated(false),
+
+                            TextInput::make('reference_number_display')
+                                ->label('Reference No.')
+                                ->readOnly()
+                                ->dehydrated(false)
+                                ->formatStateUsing(fn (): string => implode(', ', $this->reference_number)),
+
+                            ViewField::make('attachments')
+                                ->label('Attached PDF')
+                                ->view('filament.components.open-pdf-link')
+                                ->viewData(fn (): array => ['attachments' => $this->attachments])
+                                ->dehydrated(false),
+
+                            TextInput::make('invoice_number')
+                                ->label('Invoice No.')
+                                ->readOnly()
+                                ->dehydrated(false)
+                                ->placeholder('SAP-populated on posting'),
+                        ]),
+                ]),
+
+            Section::make('Tax')
+                ->description('Applies to the whole submission.')
+                ->icon(Heroicon::OutlinedReceiptPercent)
+                ->schema([
+                    Grid::make()
+                        ->columns(['default' => 1, 'md' => 12])
+                        ->schema([
+                            Select::make('withholding_tax_code')
+                                ->label('Withholding Tax Code')
+                                ->options(fn (): array => self::withholdingTaxOptions())
+                                ->searchable()
+                                ->live(onBlur: true)
+                                ->afterStateUpdated(fn (Set $set) => $this->recalculateTax($set))
+                                ->columnSpan(['default' => 12, 'md' => 6]),
+
+                            TextInput::make('withholding_tax_base')
+                                ->label('Withholding Tax Base')
+                                ->numeric()
+                                ->prefix('₱')
+                                ->live(debounce: 800)
+                                ->afterStateUpdated(fn (Set $set) => $this->recalculateTax($set))
+                                ->columnSpan(['default' => 12, 'md' => 6]),
+
+                            Select::make('tax_code')
+                                ->label('Tax Code')
+                                ->options(fn (): array => self::taxCodeOptions())
+                                ->searchable()
+                                ->required()
+                                ->live()
+                                ->afterStateUpdated(fn (Set $set) => $this->recalculateTax($set))
+                                ->columnSpan(['default' => 12]),
+
+                            Textarea::make('remarks_ap')
+                                ->label('AP Notes')
+                                ->columnSpan(['default' => 12]),
+                        ]),
+                ]),
+
+            Section::make('Summary')
+                ->icon(Heroicon::OutlinedBanknotes)
+                ->schema([
+                    Grid::make()
+                        ->columns(['default' => 1, 'sm' => 2, 'lg' => 4])
+                        ->schema([
+                            $this->moneyEntry('vatable_sales', 'Vatable Sales'),
+                            $this->moneyEntry('vat_exempt', 'VAT Exempt'),
+                            $this->moneyEntry('vat_zero_rated', 'VAT Zero Rated'),
+                            $this->moneyEntry('vat', 'VAT'),
+                            $this->moneyEntry('total', 'Total'),
+
+                            TextInput::make('ewt')
+                                ->label('EWT')
+                                ->prefix('₱')
+                                ->readOnly()
+                                ->dehydrated(false),
+
+                            TextInput::make('net')
+                                ->label('NET')
+                                ->prefix('₱')
+                                ->readOnly()
+                                ->dehydrated(false),
+
+                            TextInput::make('invoice_total')
+                                ->label('Overall Invoice Total')
+                                ->prefix('₱')
+                                ->readOnly()
+                                ->dehydrated(false),
+                        ]),
+                ]),
+
+            // The Medius-style side-by-side comparison.
+            ViewField::make('viewer')
+                ->hiddenLabel()
+                ->view('filament.components.po-gr-viewer')
+                ->viewData(fn (): array => ['receipts' => $this->goods_receipts])
+                ->columnSpanFull()
+                ->dehydrated(false),
+
+            Actions::make([
+                Action::make('submit')
+                    ->label('Submit to Checker')
+                    ->icon(Heroicon::OutlinedPaperAirplane)
+                    ->visible(! $this->isViewOnly)
+                    ->action('submit'),
+
+                $this->escalateAction(),
+
+                $this->returnToVendorAction(),
+            ]),
+        ]);
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     protected function buildGoodsReceipts(Invoice $invoice): array
     {
-        $matchService = app(P2pThreeWayMatchService::class);
-        $matchByLine = [];
-
-        $escalatedGrIds = $invoice->escalations
-            ->where('status', Escalation::STATUS_OPEN)
-            ->whereNotNull('p2p_good_receipt_state_id')
-            ->pluck('p2p_good_receipt_state_id')
-            ->map(fn ($id): int => (int) $id)
-            ->all();
-
-        $lines = $invoice->lines()
+        return $invoice->lines()
             ->with('sapItem.goodReceipt')
-            ->get();
-
-        // One pass for every mirror GR item on the invoice's POs, so the 3-way
-        // breakdown is derived from in-memory data instead of a query per line
-        // (which the query detector reports as an N+1).
-        $matchItems = SapGoodReceiptItem::query()
-            ->whereIn('purchase_order', $lines->pluck('purchase_order')->filter()->unique()->values()->all())
-            ->with('goodReceipt')
-            ->get();
-
-        $reversedGoodReceiptIds = $matchService->reversedGoodReceiptIds($matchItems);
-        $billedByItem = $matchService->billedQuantitiesFor($matchItems->pluck('id'));
-        $itemsByPoLine = $matchItems->groupBy(
-            fn (SapGoodReceiptItem $item): string => $item->purchase_order.'|'.$item->purchase_order_item,
-        );
-
-        return $lines
+            ->get()
             ->groupBy(fn (InvoiceLine $line): string => (string) ($line->sapItem?->goodReceipt?->good_receipt_number ?? $line->purchase_order))
-            ->map(function (Collection $grLines, string $grNumber) use ($matchService, $itemsByPoLine, $reversedGoodReceiptIds, $billedByItem, &$matchByLine, $escalatedGrIds): array {
-                $first = $grLines->first();
-                $stateId = (int) ($first?->sapItem?->goodReceipt?->id ?? 0);
-                $isEscalated = in_array($stateId, $escalatedGrIds, true);
+            ->map(function (Collection $lines, string $grNumber): array {
+                $first = $lines->first();
 
-                $rows = $grLines->map(function (InvoiceLine $line) use ($matchService, $itemsByPoLine, $reversedGoodReceiptIds, $billedByItem, &$matchByLine, $isEscalated): array {
-                    $lineKey = $line->purchase_order.'|'.$line->purchase_order_item;
-
-                    $match = $matchByLine[$lineKey] ??= $matchService->breakdownForItems(
-                        $itemsByPoLine->get($lineKey, collect()),
-                        $reversedGoodReceiptIds,
-                        $billedByItem,
-                    );
-
-                    $unitCost = (float) $line->unit_cost;
-                    $quantity = (int) $line->quantity_billed;
-
-                    return [
-                        'p2p_sap_good_receipt_item_id' => $line->p2p_sap_good_receipt_item_id,
-                        'purchase_order' => $line->purchase_order,
-                        'purchase_order_item' => $line->purchase_order_item,
-                        'material_doc_item' => $line->sapItem?->material_doc_item,
-                        'escalation_status' => $isEscalated ? 'Escalated' : 'Not escalated',
-                        'item_name' => $line->item_name,
-                        'item_description' => $line->item_name,
-                        'quantity_po' => (int) $line->quantity_po,
-                        'uom' => $line->uom,
-                        'quantity_served' => (int) ($line->sapItem?->quantity_served ?? $line->quantity_po),
-                        'unit_cost' => $this->currencySymbol.' '.number_format($unitCost, 2, '.', ','),
-                        'amount' => $this->currencySymbol.' '.number_format($quantity * $unitCost, 2, '.', ','),
-                        'escalate' => false,
-                        'match_detail' => $match,
-                    ];
-                })->values()->all();
+                $rows = $lines->map(fn (InvoiceLine $line): array => [
+                    'p2p_sap_good_receipt_item_id' => $line->p2p_sap_good_receipt_item_id,
+                    'purchase_order' => $line->purchase_order,
+                    'purchase_order_item' => $line->purchase_order_item,
+                    'material_doc_item' => $line->sapItem?->material_doc_item,
+                    'item_name' => $line->item_name,
+                    'uom' => $line->uom,
+                    'quantity_po' => (int) $line->quantity_po,
+                    'quantity_served' => (int) ($line->sapItem?->quantity_served ?? $line->quantity_po),
+                    'quantity_billed' => (int) $line->quantity_billed,
+                    'unit_cost' => (float) $line->unit_cost,
+                    'amount' => round((int) $line->quantity_billed * (float) $line->unit_cost, 2),
+                    'escalate' => false,
+                    'match' => self::matchFor($line),
+                ])->values()->all();
 
                 return [
-                    'p2p_good_receipt_state_id' => $stateId ?: null,
-                    'purchase_order' => $first?->purchase_order,
+                    'good_receipt_id' => $first->sapItem?->goodReceipt?->id,
                     'good_receipt_number' => $grNumber,
-                    'is_escalated' => $isEscalated,
+                    'purchase_order' => $first->purchase_order,
                     'goodReceiptItems' => $rows,
                 ];
             })
@@ -336,372 +402,155 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             ->all();
     }
 
-    public function form(Schema $schema): Schema
-    {
-        // Only the roles that escalate individual lines see the Report tick.
-        $showReportColumn = ! $this->isSupervisor() && ! $this->isViewOnly && $this->userHasRole(RoleName::ApProcessor->value);
-        $showEscalationColumn = $this->showEscalationColumn;
-
-        return $schema
-            ->schema([
-                Group::make()
-                    ->columnSpan(['default' => 12])
-                    ->schema([
-                        Section::make('Accounts Payable')
-                            ->columns(['default' => 1, 'md' => 12])
-                            ->description('Review and validate the submitted Accounts Payable before forwarding them for approval.')
-                            ->icon(Heroicon::OutlinedDocumentText)
-                            ->iconColor('primary')
-                            ->schema($this->getAccountsPayableFields()),
-                    ]),
-
-                Group::make()
-                    ->columnSpan(['default' => 12])
-                    ->columns(['default' => 1, 'lg' => 12])
-                    ->schema([
-                        Group::make()
-                            ->columnSpan(['default' => 12])
-                            ->schema([
-                                Section::make('Items')
-                                    ->description('The items selected for purchase')
-                                    ->icon(Heroicon::OutlinedShoppingBag)
-                                    ->iconColor('primary')
-                                    ->schema([
-                                        Repeater::make('goods_receipts')
-                                            ->hiddenLabel()
-                                            ->default($this->data['goods_receipts'] ?? [])
-                                            ->schema([
-                                                Hidden::make('p2p_good_receipt_state_id'),
-                                                Hidden::make('purchase_order'),
-
-                                                Grid::make()
-                                                    ->columns(2)
-                                                    ->schema([
-                                                        ViewField::make('good_receipt_number')
-                                                            ->label('Goods Receipt Number')
-                                                            ->view('filament.components.label-value')
-                                                            ->dehydrated(),
-
-                                                        ViewField::make('purchase_order')
-                                                            ->label('Purchase Order Number')
-                                                            ->view('filament.components.label-value')
-                                                            ->dehydrated(),
-                                                    ]),
-
-                                                Repeater::make('goodReceiptItems')
-                                                    ->compact()
-                                                    ->hiddenLabel()
-                                                    ->table([
-                                                        ...($showReportColumn ? [TableColumn::make('Report')] : []),
-                                                        ...($showEscalationColumn ? [TableColumn::make('Scope')] : []),
-                                                        TableColumn::make('Short Text'),
-                                                        TableColumn::make('Item No.'),
-                                                        TableColumn::make('PO Qty'),
-                                                        TableColumn::make('Uom'),
-                                                        TableColumn::make('Invoice Qty'),
-                                                        TableColumn::make('UC'),
-                                                        TableColumn::make('Amount'),
-                                                        TableColumn::make('3-Way'),
-                                                    ])
-                                                    ->schema([
-                                                        ...($showReportColumn ? [
-                                                            Checkbox::make('escalate')
-                                                                ->hiddenLabel()
-                                                                ->default(false)
-                                                                ->extraFieldWrapperAttributes(['style' => 'justify-items: center;']),
-                                                        ] : []),
-
-                                                        ...($showEscalationColumn ? [
-                                                            TextEntry::make('escalation_status')
-                                                                ->hiddenLabel()
-                                                                ->badge()
-                                                                ->color(fn ($state): string => $state === 'Escalated' ? 'warning' : 'gray'),
-                                                        ] : []),
-
-                                                        TextEntry::make('item_description')
-                                                            ->hiddenLabel()
-                                                            ->wrap(),
-
-                                                        TextEntry::make('material_doc_item')
-                                                            ->hiddenLabel(),
-
-                                                        TextEntry::make('quantity_po')
-                                                            ->hiddenLabel(),
-
-                                                        TextEntry::make('uom')
-                                                            ->hiddenLabel(),
-
-                                                        TextEntry::make('quantity_served')
-                                                            ->hiddenLabel(),
-
-                                                        TextEntry::make('unit_cost')
-                                                            ->hiddenLabel(),
-
-                                                        TextEntry::make('amount')
-                                                            ->hiddenLabel(),
-
-                                                        ViewField::make('match_detail')
-                                                            ->hiddenLabel()
-                                                            ->view('filament.components.three-way-match-badge')
-                                                            ->viewData(fn ($state): array => is_array($state) ? $state : []),
-                                                    ])
-                                                    ->addable(false)
-                                                    ->deletable(false)
-                                                    ->reorderable(false),
-
-                                                TextEntry::make('totals_row')
-                                                    ->hiddenLabel()
-                                                    ->state(function ($get): HtmlString {
-                                                        $items = $get('goodReceiptItems') ?? [];
-
-                                                        $totalPoQty = collect($items)->sum(fn ($i): float => (float) ($i['quantity_po'] ?? 0));
-                                                        $totalServed = collect($items)->sum(fn ($i): float => (float) ($i['quantity_served'] ?? 0));
-                                                        $totalAmount = collect($items)->sum(
-                                                            fn ($i): float => (float) preg_replace('/[^0-9.\-]/', '', (string) ($i['amount'] ?? 0)),
-                                                        );
-
-                                                        $poQtyFmt = number_format($totalPoQty, 0);
-                                                        $servedFmt = number_format($totalServed, 0);
-                                                        $amountFmt = $this->currencySymbol.' '.number_format($totalAmount, 2, '.', ',');
-
-                                                        return new HtmlString(<<<HTML
-            <div style="margin-top:8px; display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:16px; border-top:2px solid #e5e7eb; padding:12px 16px; font-weight:600;">
-                <span style="color:#6b7280;">Total PO Qty: <span style="color:#111827;">{$poQtyFmt}</span></span>
-                <span style="color:#6b7280;">Total Invoice Qty: <span style="color:#111827;">{$servedFmt}</span></span>
-                <span style="color:#6b7280;">Total Amount: <span style="color:#111827;">{$amountFmt}</span></span>
-            </div>
-        HTML);
-                                                    })
-                                                    ->columnSpanFull(),
-                                            ])
-                                            ->addable(false)
-                                            ->deletable(false)
-                                            ->reorderable(false)
-                                            ->columnSpanFull(),
-                                    ]),
-                            ]),
-
-                        ...$this->getProcessorComponents(),
-
-                        Group::make()
-                            ->columnSpan(['default' => 12])
-                            ->schema([
-                                Section::make('Approval History')
-                                    ->description('All actions and remarks related to this goods receipt')
-                                    ->icon(Heroicon::OutlinedClock)
-                                    ->collapsible()
-                                    ->schema([
-                                        ViewField::make('approval_history_timeline')
-                                            ->hiddenLabel()
-                                            ->view('filament.components.approval-history-timeline')
-                                            ->viewData(fn (): array => ['record' => $this->invoiceModel()])
-                                            ->dehydrated(false)
-                                            ->columnSpanFull(),
-                                    ]),
-                            ]),
-                    ]),
-            ])
-            ->statePath('data');
-    }
-
     /**
-     * @return array<int, mixed>
+     * @return array{0: int, 1: int, 2: float}
      */
-    protected function getAccountsPayableFields(): array
+    #[Computed]
+    public function totals(): array
     {
+        $items = collect($this->goods_receipts)
+            ->flatMap(fn (array $gr): array => $gr['goodReceiptItems'] ?? []);
+
         return [
-            TextInput::make('vendor_name')
-                ->label('Vendor')
-                ->readOnly()
-                ->dehydrated(false)
-                ->columnSpan(['default' => 12, 'md' => 4]),
-
-            TextInput::make('company_name')
-                ->label('Company')
-                ->readOnly()
-                ->dehydrated(false)
-                ->columnSpan(['default' => 12, 'md' => 4]),
-
-            ViewField::make('attachments')
-                ->label('Attached PDF')
-                ->view('filament.components.open-pdf-link')
-                ->viewData(fn (): array => ['attachments' => $this->data['attachments'] ?? []])
-                ->columnSpan(['default' => 12, 'md' => 4]),
-
-            TextInput::make('invoice_at')
-                ->label('Invoice Date')
-                ->readOnly()
-                ->dehydrated(false)
-                ->columnSpan(['default' => 12, 'md' => 4]),
-
-            TextInput::make('reference_number_display')
-                ->label('Reference No.')
-                ->readOnly()
-                ->dehydrated(false)
-                ->formatStateUsing(fn (): string => implode(', ', $this->data['reference_number'] ?? []))
-                ->columnSpan(['default' => 12, 'md' => 4]),
-
-            TextInput::make('overall_invoice_total')
-                ->label('Overall Invoice Total')
-                ->readOnly()
-                ->prefix($this->currencySymbol)
-                ->dehydrated(false)
-                ->columnSpan(['default' => 12, 'md' => 4]),
-
-            TextInput::make('invoice_number')
-                ->label('Invoice No.')
-                ->readOnly()
-                ->dehydrated(false)
-                ->placeholder('SAP-populated on posting')
-                ->columnSpan(['default' => 12, 'md' => 4]),
+            (int) $items->sum(fn (array $i): int => (int) ($i['quantity_po'] ?? 0)),
+            (int) $items->sum(fn (array $i): int => (int) ($i['quantity_billed'] ?? 0)),
+            round((float) $items->sum(fn (array $i): float => (float) ($i['amount'] ?? 0)), 2),
         ];
     }
 
-    /**
-     * Tax + Summary. Read-only for the supervisor and in view-only mode.
-     *
-     * @return array<int, mixed>
-     */
-    protected function getProcessorComponents(): array
-    {
-        return [
-            Group::make()
-                ->columnSpan(['default' => 12, 'lg' => 6])
-                ->schema([
-                    Section::make('Tax')
-                        ->icon(Heroicon::OutlinedReceiptPercent)
-                        ->iconColor('primary')
-                        ->columns(['default' => 1, 'md' => 12])
-                        ->schema([
-                            Select::make('withholding_tax_code')
-                                ->label('Withholding Tax Code')
-                                ->options(fn (): array => self::withholdingTaxOptions())
-                                ->searchable()
-                                ->preload()
-                                ->disabled($this->isTaxSectionReadonly())
-                                // Disabled fields are not dehydrated by default, so
-                                // without this a supervisor's action would post null
-                                // and wipe the processor's tax values.
-                                ->dehydrated()
-                                ->live(onBlur: true)
-                                ->afterStateUpdated(fn (Set $set) => $this->recalculateTaxSummary($set))
-                                ->columnSpan(['default' => 12, 'md' => 6]),
-
-                            TextInput::make('withholding_tax_base')
-                                ->label('Withholding Tax Base')
-                                ->numeric()
-                                ->prefix($this->currencySymbol)
-                                ->disabled($this->isTaxSectionReadonly())
-                                ->dehydrated()
-                                ->live(debounce: 800)
-                                ->afterStateUpdated(fn (Set $set) => $this->recalculateTaxSummary($set))
-                                ->columnSpan(['default' => 12, 'md' => 6]),
-
-                            Select::make('tax_code')
-                                ->label('Tax Code')
-                                ->options(fn (): array => self::taxCodeOptions())
-                                ->searchable()
-                                ->disabled($this->isTaxSectionReadonly())
-                                ->dehydrated()
-                                ->markAsRequired(! $this->isTaxSectionReadonly())
-                                ->live()
-                                ->afterStateUpdated(fn (Set $set) => $this->recalculateTaxSummary($set))
-                                ->columnSpan(['default' => 12]),
-
-                            Textarea::make('remarks_ap')
-                                ->label('AP Notes')
-                                ->disabled($this->isTaxSectionReadonly())
-                                ->dehydrated()
-                                ->columnSpan(['default' => 12]),
-                        ]),
-                ]),
-
-            Group::make()
-                ->columnSpan(['default' => 12, 'lg' => 6])
-                ->schema([
-                    Section::make('Summary')
-                        ->icon(Heroicon::OutlinedBanknotes)
-                        ->iconColor('primary')
-                        ->schema($this->getSummaryFields()),
-                ]),
-        ];
-    }
-
-    /**
-     * Recompute the VAT/EWT summary from the current tax selection. The tax
-     * service owns the maths; this only feeds the read-only inputs.
-     */
-    protected function recalculateTaxSummary(Set $set): void
+    public function submit(): void
     {
         $invoice = $this->invoiceModel();
 
-        if ($invoice === null) {
+        if ($invoice === null || $this->isViewOnly) {
             return;
         }
 
-        $taxCode = $this->data['tax_code'] !== null
-            ? TaxCode::query()->where('code', $this->data['tax_code'])->first()
-            : null;
+        $this->validate([
+            'tax_code' => ['required', 'string'],
+        ]);
 
-        $withholding = $this->data['withholding_tax_code'] !== null
-            ? WithholdingTaxCode::query()->where('code', $this->data['withholding_tax_code'])->first()
-            : null;
+        $this->persistTax($invoice);
 
-        $amount = collect($this->data['goods_receipts'] ?? [])
-            ->flatMap(fn (array $gr): array => $gr['goodReceiptItems'] ?? [])
-            ->sum(fn (array $item): float => (float) preg_replace('/[^0-9.\-]/', '', (string) ($item['amount'] ?? 0)));
+        // The processor hands the submission to the checker. The checker branch
+        // itself is blocked (B1), so the status here is the terminal processor step.
+        $invoice->forceFill([
+            'status' => P2pStatus::SubmittedToChecker,
+            'processed' => true,
+            'remarks_ap' => $this->remarks_ap,
+        ])->save();
 
-        $sales = number_format($amount > 0 ? $amount : (float) $invoice->amount_submitted, 2, '.', '');
+        Notification::make()
+            ->title('Submitted to checker')
+            ->body('The submission has been posted for verification.')
+            ->success()
+            ->send();
 
-        $withholdingBase = $this->data['withholding_tax_base'] !== null
-            ? (float) preg_replace('/[^0-9.\-]/', '', (string) $this->data['withholding_tax_base'])
-            : (float) $sales;
+        $this->redirectBack();
+    }
 
-        $summary = app(P2pTaxSummaryService::class)->calculateSummary(
-            $sales,
-            $taxCode,
-            (string) $withholdingBase,
-            $withholding,
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function escalate(array $data): void
+    {
+        $invoice = $this->invoiceModel();
+
+        if ($invoice === null || $this->isViewOnly) {
+            return;
+        }
+
+        $this->escalationReason = isset($data['escalationReason']) ? (string) $data['escalationReason'] : null;
+        $this->escalationRemarks = (string) ($data['escalationRemarks'] ?? '');
+
+        $this->validate([
+            'escalationReason' => ['required', 'string'],
+            'escalationRemarks' => ['required', 'string'],
+        ]);
+
+        // Escalation is per line: the processor ticks only the lines in dispute.
+        $stateIds = $this->escalatedGoodReceiptStateIds();
+
+        if ($stateIds === []) {
+            Notification::make()
+                ->title('Select at least one line')
+                ->body('Tick the GR line(s) you want to escalate.')
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $this->persistTax($invoice);
+
+        app(P2pEscalationRoutingService::class)->start(
+            $invoice,
+            $this->escalationReason,
+            $stateIds,
+            auth()->user(),
+            $this->escalationRemarks,
         );
 
-        foreach (['vatable_sales', 'vat_exempt', 'vat_zero_rated', 'vat', 'total', 'ewt', 'net'] as $key) {
-            $value = number_format((float) ($summary[$key] ?? 0), 2, '.', '');
+        Notification::make()->title('Escalation raised')->success()->send();
 
-            $set($key, $value);
-            $this->data[$key] = $value;
+        $this->redirectBack();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function returnToVendor(array $data): void
+    {
+        $invoice = $this->invoiceModel();
+
+        if ($invoice === null || $this->isViewOnly) {
+            return;
         }
+
+        $remarks = (string) ($data['remarks_ap'] ?? '');
+
+        if (trim($remarks) === '') {
+            $this->addError('returnRemarks', 'Remarks are required.');
+
+            return;
+        }
+
+        $this->persistTax($invoice);
+
+        app(P2pGoodReceiptReturnService::class)->returnToVendor($invoice, auth()->user(), $remarks);
+
+        Notification::make()
+            ->title('Returned to vendor')
+            ->body('The submission has been returned for correction.')
+            ->success()
+            ->send();
+
+        $this->redirectBack();
     }
 
     /**
-     * @return array<int, mixed>
+     * The GR state ids for the lines the processor ticked for escalation.
+     *
+     * @return array<int, int>
      */
-    protected function getSummaryFields(): array
+    protected function escalatedGoodReceiptStateIds(): array
     {
-        $columnSpan = ['default' => 12, 'md' => 6];
+        $tickedGrNumbers = collect($this->goods_receipts)
+            ->filter(fn (array $gr): bool => collect($gr['goodReceiptItems'] ?? [])
+                ->contains(fn (array $item): bool => ! empty($item['escalate'])))
+            ->pluck('good_receipt_number')
+            ->filter()
+            ->values();
 
-        return [
-            $this->summaryEntry('vatable_sales', 'Vatable Sales', $columnSpan),
-            $this->summaryEntry('vat_exempt', 'VAT Exempt', $columnSpan),
-            $this->summaryEntry('vat_zero_rated', 'VAT Zero Rated', $columnSpan),
-            $this->summaryEntry('vat', 'VAT', $columnSpan),
-            $this->summaryEntry('total', 'Total', $columnSpan),
-            $this->summaryEntry('ewt', 'EWT', $columnSpan),
-            $this->summaryEntry('net', 'NET', ['default' => 12]),
-        ];
-    }
+        if ($tickedGrNumbers->isEmpty()) {
+            return [];
+        }
 
-    /**
-     * @param  array<string, int>  $columnSpan
-     */
-    protected function summaryEntry(string $name, string $label, array $columnSpan): TextInput
-    {
-        return TextInput::make($name)
-            ->label($label)
-            ->prefix($this->currencySymbol)
-            ->disabled()
-            ->dehydrateStateUsing(fn ($state): float => (float) str_replace(',', '', (string) ($state ?? '0')))
-            ->dehydrated()
-            ->columnSpan($columnSpan);
+        return GoodReceiptState::query()
+            ->whereIn('good_receipt_number', $tickedGrNumbers->all())
+            ->pluck('id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
     }
 
     /**
@@ -710,15 +559,124 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
     protected function persistTax(Invoice $invoice): void
     {
         $invoice->forceFill([
-            'withholding_tax_code' => $this->data['withholding_tax_code'] ?? null,
-            'withholding_tax_base' => isset($this->data['withholding_tax_base'])
-                ? (float) preg_replace('/[^0-9.\-]/', '', (string) $this->data['withholding_tax_base'])
-                : null,
-            'tax_code' => $this->data['tax_code'] ?? null,
-            'remarks_ap' => $this->data['remarks_ap'] ?? null,
+            'withholding_tax_code' => $this->withholding_tax_code,
+            'withholding_tax_base' => $this->withholding_tax_base !== null ? (float) $this->withholding_tax_base : null,
+            'tax_code' => $this->tax_code,
+            'remarks_ap' => $this->remarks_ap,
         ])->save();
 
         app(P2pTaxSummaryService::class)->recalculate($invoice);
+    }
+
+    /**
+     * Recompute the summary from the current tax selection. The tax service owns
+     * the maths; this only formats it for the read-only inputs.
+     */
+    protected function recalculateTax(Set $set): void
+    {
+        $invoice = $this->invoiceModel();
+
+        if ($invoice === null) {
+            return;
+        }
+
+        // Compute against the in-form selection, not the persisted values.
+        $taxCode = $this->tax_code !== null
+            ? TaxCode::query()->where('code', $this->tax_code)->first()
+            : null;
+
+        $withholding = $this->withholding_tax_code !== null
+            ? WithholdingTaxCode::query()->where('code', $this->withholding_tax_code)->first()
+            : null;
+
+        [, , $amount] = $this->totals;
+        $sales = number_format($amount > 0 ? $amount : (float) $invoice->amount_submitted, 2, '.', '');
+
+        $summary = app(P2pTaxSummaryService::class)->calculateSummary(
+            $sales,
+            $taxCode,
+            (string) ($this->withholding_tax_base ?? $sales),
+            $withholding,
+        );
+
+        foreach (['vatable_sales', 'vat_exempt', 'vat_zero_rated', 'vat', 'total', 'ewt', 'net'] as $key) {
+            $value = number_format((float) ($summary[$key] ?? 0), 2, '.', '');
+
+            $set($key, $value);
+            $this->{$key} = $value;
+        }
+    }
+
+    protected function syncSummaryFromInvoice(Invoice $invoice): void
+    {
+        foreach (['vatable_sales', 'vat_exempt', 'vat_zero_rated', 'vat', 'total', 'ewt', 'net'] as $key) {
+            $this->{$key} = number_format((float) $invoice->{$key}, 2, '.', '');
+        }
+    }
+
+    protected function moneyEntry(string $name, string $label): TextInput
+    {
+        return TextInput::make($name)
+            ->label($label)
+            ->prefix('₱')
+            ->readOnly()
+            ->dehydrated(false);
+    }
+
+    /**
+     * Per-line 3-way detail for the viewer badge: PO vs GR vs invoiced for the
+     * PO line this invoice line belongs to.
+     *
+     * @return array<string, mixed>
+     */
+    protected static function matchFor(InvoiceLine $line): array
+    {
+        $service = app(P2pThreeWayMatchService::class);
+
+        return $service->breakdown(
+            (string) $line->purchase_order,
+            (string) $line->purchase_order_item,
+        );
+    }
+
+    protected function escalateAction(): Action
+    {
+        return Action::make('escalate')
+            ->label('Escalate')
+            ->color('warning')
+            ->icon(Heroicon::OutlinedArrowTrendingUp)
+            ->visible(! $this->isViewOnly)
+            ->schema([
+                Select::make('escalationReason')
+                    ->label('Reason')
+                    ->options(fn (): array => EscalationReason::query()
+                        ->active()
+                        ->forRole('processor')
+                        ->pluck('name', 'code')
+                        ->all())
+                    ->searchable()
+                    ->required(),
+                TextInput::make('escalationRemarks')
+                    ->label('Remarks')
+                    ->required(),
+            ])
+            ->action(fn (array $data) => $this->escalate($data))
+            ->modalSubmitActionLabel('Escalate');
+    }
+
+    protected function returnToVendorAction(): Action
+    {
+        return Action::make('returnToVendor')
+            ->label('Return to Vendor')
+            ->color('danger')
+            ->icon(Heroicon::OutlinedArrowUturnLeft)
+            ->visible(! $this->isViewOnly)
+            ->schema([
+                Textarea::make('remarks_ap')
+                    ->label('Remarks')
+                    ->required(),
+            ])
+            ->action(fn (array $data) => $this->returnToVendor($data));
     }
 
     /**
@@ -743,489 +701,35 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             ->all();
     }
 
-    // ---------------------------------------------------------------------
-    // Footer actions
-    // ---------------------------------------------------------------------
-
-    /**
-     * @return array<int, Action>
-     */
-    public function getFooterActions(): array
+    protected function invoiceModel(): ?Invoice
     {
-        // An open escalation that is waiting on this user owns the footer: the
-        // static actions (Submit, Return to Vendor, ...) would be wrong, so the
-        // legacy replaces them with Advance / Return / Cancel.
-        $escalation = $this->escalationForUser();
-
-        if ($escalation !== null) {
-            return [
-                $this->advanceEscalationAction(),
-                $this->returnEscalationAction(),
-                $this->backAction(),
-            ];
-        }
-
-        if ($this->isViewOnly) {
-            return [$this->backAction()];
-        }
-
-        $invoice = $this->invoiceModel();
-
-        if ($invoice === null) {
-            return [$this->backAction()];
-        }
-
-        // Supervisor ("checker"): approve (park in SAP) or return to the processor.
-        if ($this->isSupervisor()) {
-            return [
-                $this->approveAction(),
-                $this->returnToApProcessorAction(),
-                $this->backAction(),
-            ];
-        }
-
-        // Processor: submit to the supervisor, escalate, or return to the vendor.
-        return [
-            $this->submitAction(),
-            $this->escalateAction(),
-            $this->returnToVendorAction(),
-            $this->backAction(),
-        ];
-    }
-
-    /**
-     * The invoice's open escalation whose current hop is owned by the signed-in
-     * user, if any. Mirrors the legacy `escalationForUser()`: it is the one that
-     * turns the footer into Advance / Return.
-     */
-    protected function escalationForUser(): ?Escalation
-    {
-        if ($this->escalationForUserResolved) {
-            return $this->escalationForUser;
-        }
-
-        $this->escalationForUserResolved = true;
-
-        $user = $this->currentUser();
-        $invoice = $this->invoiceModel();
-
-        if ($user === null || $invoice === null) {
+        if (blank($this->invoice)) {
             return null;
         }
 
-        return $this->escalationForUser = $invoice->escalations
-            ->where('status', Escalation::STATUS_OPEN)
-            ->first(fn (Escalation $escalation): bool => $this->userHandlesEscalation($user, $escalation));
-    }
-
-    /**
-     * Whether the user owns the escalation's current hop. Hop roles are the
-     * lowercase legacy tokens, so map them to the app's TitleCase Spatie roles.
-     * The umbrella `warehouse` hop is handled by any warehouse role.
-     */
-    protected function userHandlesEscalation(User $user, Escalation $escalation): bool
-    {
-        $hopRole = $escalation->current_role;
-
-        if ($hopRole === 'warehouse') {
-            return $user->hasAnyRole([
-                RoleName::Warehouse,
-                RoleName::WarehouseRawMaterials,
-                RoleName::WarehouseSpareParts,
-            ]);
-        }
-
-        $appRole = Escalation::appRoleFor($hopRole);
-
-        return $appRole !== null && $user->hasRole($appRole);
-    }
-
-    protected function advanceEscalationAction(): Action
-    {
-        return Action::make('advanceEscalation')
-            ->label(fn (): string => $this->escalationForUser()?->currentActionLabel() ?? 'Advance')
-            ->icon(Heroicon::OutlinedArrowRightCircle)
-            ->color('warning')
-            ->modalHeading('Advance escalation')
-            ->modalDescription(fn (): ?string => $this->escalationForUser()?->stepLabel())
-            ->modalSubmitActionLabel('Advance')
-            ->schema([
-                Textarea::make('remarks')->label('Remarks')->required(),
-            ])
-            ->action(fn (array $data) => $this->advanceOpenEscalation($data));
-    }
-
-    protected function returnEscalationAction(): Action
-    {
-        return Action::make('returnEscalation')
-            ->label(fn (): string => 'Return to '.($this->escalationForUser()?->previousRoleLabel() ?? 'previous step'))
-            ->icon(Heroicon::OutlinedArrowUturnLeft)
-            ->color('gray')
-            ->modalHeading('Return escalation')
-            ->modalDescription(fn (): ?string => $this->escalationForUser()?->stepLabel())
-            ->modalSubmitActionLabel('Return')
-            ->schema([
-                Textarea::make('remarks')->label('Remarks')->required(),
-            ])
-            ->action(fn (array $data) => $this->returnOpenEscalation($data));
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    public function advanceOpenEscalation(array $data): void
-    {
-        $escalation = $this->escalationForUser();
-
-        if ($escalation === null) {
-            return;
-        }
-
-        app(P2pEscalationRoutingService::class)->advance($escalation, $this->currentUser(), (string) ($data['remarks'] ?? ''));
-
-        Notification::make()
-            ->title('Escalation advanced')
-            ->body('The escalation has been forwarded to the next step.')
-            ->success()
-            ->send();
-
-        $this->redirectBack();
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    public function returnOpenEscalation(array $data): void
-    {
-        $escalation = $this->escalationForUser();
-
-        if ($escalation === null) {
-            return;
-        }
-
-        app(P2pEscalationRoutingService::class)->returnToPreviousHop($escalation, $this->currentUser(), (string) ($data['remarks'] ?? ''));
-
-        Notification::make()
-            ->title('Escalation returned')
-            ->body('The escalation has been sent back to the previous step.')
-            ->success()
-            ->send();
-
-        $this->redirectBack();
-    }
-
-    protected function submitAction(): Action
-    {
-        return Action::make('submit')
-            ->label($this->invoiceModel()?->status === P2pStatus::ReturnedToApProcessor
-                ? P2pInvoiceActionLabel::Resubmit->value
-                : P2pInvoiceActionLabel::Submit->value)
-            ->color('primary')
-            ->icon(Heroicon::OutlinedPaperAirplane)
-            ->action(fn () => $this->submit());
-    }
-
-    protected function approveAction(): Action
-    {
-        return Action::make('approve')
-            ->label(P2pInvoiceActionLabel::Approve->value)
-            ->color('success')
-            ->icon(Heroicon::OutlinedCheckCircle)
-            ->requiresConfirmation()
-            ->modalHeading('Approve and park this invoice in SAP?')
-            ->schema([
-                Textarea::make('remarks_checker')->label('Remarks')->required(),
-            ])
-            ->action(fn (array $data) => $this->approve($data));
-    }
-
-    protected function returnToApProcessorAction(): Action
-    {
-        return Action::make('returnToApProcessor')
-            ->label(P2pInvoiceActionLabel::ReturnToApProcessor->value)
-            ->color('danger')
-            ->icon(Heroicon::OutlinedArrowUturnLeft)
-            ->schema([
-                Textarea::make('remarks_checker')->label('Remarks')->required(),
-            ])
-            ->action(fn (array $data) => $this->returnToApProcessor($data));
-    }
-
-    protected function returnToVendorAction(): Action
-    {
-        return Action::make('returnToVendor')
-            ->label(P2pInvoiceActionLabel::ReturnToVendor->value)
-            ->color('danger')
-            ->icon(Heroicon::OutlinedArrowUturnLeft)
-            ->schema([
-                Textarea::make('remarks_ap')->label('Remarks')->required(),
-            ])
-            ->action(fn (array $data) => $this->returnToVendor($data));
-    }
-
-    protected function escalateAction(): Action
-    {
-        return Action::make('escalate')
-            ->label(P2pInvoiceActionLabel::Escalate->value)
-            ->color('warning')
-            ->icon(Heroicon::OutlinedArrowTrendingUp)
-            ->schema([
-                Select::make('escalationReason')
-                    ->label('Reason')
-                    ->options(fn (): array => EscalationReason::query()
-                        ->active()
-                        ->forRole('processor')
-                        ->pluck('name', 'code')
-                        ->all())
-                    ->searchable()
-                    ->required(),
-                TextInput::make('escalationRemarks')
-                    ->label('Remarks')
-                    ->required(),
-            ])
-            ->action(fn (array $data) => $this->escalate($data));
-    }
-
-    protected function backAction(): Action
-    {
-        return Action::make('back')
-            ->label(P2pInvoiceActionLabel::Cancel->value)
-            ->color('gray')
-            ->action(fn () => $this->redirectBack());
-    }
-
-    // ---------------------------------------------------------------------
-    // Handlers
-    // ---------------------------------------------------------------------
-
-    public function submit(): void
-    {
-        $invoice = $this->invoiceModel();
-
-        if ($invoice === null || $this->isViewOnly || $this->isSupervisor()) {
-            return;
-        }
-
-        if (blank($this->data['tax_code'] ?? null)) {
-            Notification::make()
-                ->title('Submission failed')
-                ->body('Please select a Tax Code before submitting.')
-                ->danger()
-                ->send();
-
-            return;
-        }
-
-        $this->persistTax($invoice);
-
-        $from = $invoice->status;
-
-        $invoice->forceFill([
-            'status' => P2pStatus::SubmittedToChecker,
-            'processed' => true,
-        ])->save();
-
-        $this->writeHistory($invoice, $from, P2pStatus::SubmittedToChecker, $this->data['remarks_ap'] ?? null, false);
-
-        Notification::make()
-            ->title('Submitted successfully')
-            ->body('The submission has been sent to the checker for verification.')
-            ->success()
-            ->send();
-
-        $this->redirectBack();
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    public function approve(array $data): void
-    {
-        $invoice = $this->invoiceModel();
-
-        if ($invoice === null || ! $this->isSupervisor()) {
-            return;
-        }
-
-        $remarks = (string) ($data['remarks_checker'] ?? '');
-
-        if (trim($remarks) === '') {
-            $this->addError('checkerRemarks', 'Remarks are required.');
-
-            return;
-        }
-
-        app(P2pInvoiceParkingService::class)->park($invoice, $this->currentUser(), $remarks);
-
-        Notification::make()
-            ->title('Approved')
-            ->body('The invoice has been queued for parking in SAP.')
-            ->success()
-            ->send();
-
-        $this->redirectBack();
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    public function returnToApProcessor(array $data): void
-    {
-        $invoice = $this->invoiceModel();
-
-        if ($invoice === null || ! $this->isSupervisor()) {
-            return;
-        }
-
-        $remarks = (string) ($data['remarks_checker'] ?? '');
-
-        if (trim($remarks) === '') {
-            $this->addError('checkerRemarks', 'Remarks are required.');
-
-            return;
-        }
-
-        app(P2pGoodReceiptReturnService::class)->returnToApProcessor($invoice, $this->currentUser(), $remarks);
-
-        Notification::make()
-            ->title('Returned to AP Processor')
-            ->body('The submission has been sent back for correction.')
-            ->success()
-            ->send();
-
-        $this->redirectBack();
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    public function returnToVendor(array $data): void
-    {
-        $invoice = $this->invoiceModel();
-
-        if ($invoice === null || $this->isViewOnly || $this->isSupervisor()) {
-            return;
-        }
-
-        $remarks = (string) ($data['remarks_ap'] ?? '');
-
-        if (trim($remarks) === '') {
-            $this->addError('returnRemarks', 'Remarks are required.');
-
-            return;
-        }
-
-        $this->persistTax($invoice);
-
-        app(P2pGoodReceiptReturnService::class)->returnToVendor($invoice, $this->currentUser(), $remarks);
-
-        Notification::make()
-            ->title('Returned to Vendor')
-            ->body('The submission has been returned for correction.')
-            ->success()
-            ->send();
-
-        $this->redirectBack();
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    public function escalate(array $data): void
-    {
-        $invoice = $this->invoiceModel();
-
-        if ($invoice === null || $this->isViewOnly || $this->isSupervisor()) {
-            return;
-        }
-
-        $reason = (string) ($data['escalationReason'] ?? '');
-        $remarks = (string) ($data['escalationRemarks'] ?? '');
-
-        if ($reason === '' || trim($remarks) === '') {
-            Notification::make()
-                ->title('Escalation failed')
-                ->body('A reason and remarks are required.')
-                ->danger()
-                ->send();
-
-            return;
-        }
-
-        // Per-line: only the GR lines the processor ticked are escalated.
-        $stateIds = $this->tickedGoodReceiptStateIds();
-
-        if ($stateIds === []) {
-            Notification::make()
-                ->title('Select at least one item')
-                ->body('Tick the GR line(s) you want to escalate.')
-                ->warning()
-                ->send();
-
-            return;
-        }
-
-        $this->persistTax($invoice);
-
-        app(P2pEscalationRoutingService::class)->start(
-            $invoice,
-            $reason,
-            $stateIds,
-            $this->currentUser(),
-            $remarks,
-        );
-
-        Notification::make()
-            ->title('Escalated')
-            ->body('The record has been escalated for review.')
-            ->success()
-            ->send();
-
-        $this->redirectBack();
-    }
-
-    /**
-     * The GR state ids for the lines the processor ticked.
-     *
-     * @return array<int, int>
-     */
-    protected function tickedGoodReceiptStateIds(): array
-    {
-        return collect($this->data['goods_receipts'] ?? [])
-            ->filter(fn (array $gr): bool => collect($gr['goodReceiptItems'] ?? [])
-                ->contains(fn (array $item): bool => ! empty($item['escalate'])))
-            ->pluck('p2p_good_receipt_state_id')
-            ->filter()
-            ->map(fn ($id): int => (int) $id)
-            ->unique()
-            ->values()
-            ->all();
-    }
-
-    protected function writeHistory(Invoice $invoice, ?P2pStatus $from, P2pStatus $to, ?string $remarks, bool $visibleToVendor): void
-    {
-        $invoice->histories()->create([
-            'actioned_by' => $this->currentUserId(),
-            'from_status' => $from,
-            'to_status' => $to,
-            'remarks' => $remarks,
-            'is_visible_to_vendor' => $visibleToVendor,
-            'is_visible_to_admin' => true,
-        ]);
+        return $this->loadedInvoice ??= Invoice::query()
+            ->with(['vendor', 'company'])
+            ->find((int) $this->invoice);
     }
 
     protected function authorizeAccess(Invoice $invoice): void
     {
-        $user = $this->currentUser();
+        $user = auth()->user();
 
-        if ($user === null) {
-            abort(403);
-        }
-
-        // A vendor never reaches the AP screen.
-        if ($user->hasRole(RoleName::Vendor) && ! $user->hasRole(RoleName::Admin)) {
+        if ($user?->hasRole(RoleName::Vendor) && ! $user->hasRole(RoleName::Admin)) {
             abort(403, 'You are not authorized to process this record.');
         }
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('back')
+                ->label('Back')
+                ->color('gray')
+                ->icon(Heroicon::OutlinedArrowLeft)
+                ->action(fn () => $this->redirectBack()),
+        ];
     }
 
     protected function redirectBack(): void

@@ -44,11 +44,16 @@ function saved(Rfp $rfp): Rfp
     return $rfp;
 }
 
-it('is for approvers and Accounting, not plain requestors', function (string $email, int $status) {
+it('is only for Admin, AP Processor, AP Supervisor and AP Manager', function (string $email, int $status) {
     $this->actingAs(User::firstWhere('email', $email))->get('/hub/rfp-approvals')->assertStatus($status);
 })->with([
+    'Admin' => [RoleAndUserSeeder::OWNER_EMAIL, 200],
     'AP Processor' => ['ap.processor@ramcar.com', 200],
-    'Line Manager' => ['line.manager@ramcar.com', 200],
+    'AP Supervisor' => ['ap.supervisor@ramcar.com', 200],
+    'AP Manager' => ['ap.manager@ramcar.com', 200],
+    'Treasury' => ['treasury@ramcar.com', 403],
+    'Line Manager' => ['line.manager@ramcar.com', 403],
+    'Department Head' => ['department.head@ramcar.com', 403],
     'Requestor' => ['requestor@ramcar.com', 403],
 ]);
 
@@ -64,7 +69,7 @@ it('shows Accounting every submitted RFP, but no drafts', function () {
         ->assertCanNotSeeTableRecords([$draft]);
 });
 
-it('shows business approvers only what waits for them or what they acted on', function () {
+it('keeps the queue rules for business approvers (what waits for them or what they acted on)', function () {
     $assignedToMe = saved(approvalRfp(RfpStatus::ForApproval, RoleName::LineManager, $this->lineManager));
     $anyLineManager = saved(approvalRfp(RfpStatus::ForApproval, RoleName::LineManager));
     $assignedToOther = saved(approvalRfp(RfpStatus::ForApproval, RoleName::LineManager, User::factory()->create()));
@@ -72,14 +77,17 @@ it('shows business approvers only what waits for them or what they acted on', fu
     $iApproved = saved(approvalRfp(RfpStatus::Completed));
     $iApproved->histories()->create(['user_id' => $this->lineManager->id, 'action' => 'Approved']);
 
-    $this->actingAs($this->lineManager);
+    // Business approvers don't use the RFP Approvals page; the queue rules are kept for their approval screen
+    expect(Rfp::query()->awaiting($this->lineManager)->pluck('id')->sort()->values()->all())->toBe([$assignedToMe->id, $anyLineManager->id])
+        ->and(Rfp::query()->inApprovalsOf($this->lineManager)->pluck('id')->sort()->values()->all())->toBe([$assignedToMe->id, $anyLineManager->id, $iApproved->id]);
+});
 
-    Livewire::test(ListRfpApprovals::class)
-        ->assertCanSeeTableRecords([$assignedToMe, $anyLineManager])
-        ->assertCanNotSeeTableRecords([$assignedToOther, $otherRole, $iApproved])
-        ->set('activeTab', 'all')
-        ->assertCanSeeTableRecords([$assignedToMe, $anyLineManager, $iApproved])
-        ->assertCanNotSeeTableRecords([$assignedToOther, $otherRole]);
+it('counts what waits for the signed-in AP user in the menu badge', function () {
+    saved(approvalRfp(RfpStatus::ForApProcessing, RoleName::ApProcessor));
+    saved(approvalRfp(RfpStatus::ForApProcessing, RoleName::ApProcessor, $this->apProcessor));
+    saved(approvalRfp(RfpStatus::ForAccountingApproval, RoleName::ApSupervisor));
+
+    $this->actingAs($this->apProcessor);
 
     expect(RfpApprovalResource::getNavigationBadge())->toBe('2');
 });
@@ -112,7 +120,7 @@ it('puts a submitted RFP in the AP Processor queue', function () {
 it('opens the RFP with who it is with', function () {
     $rfp = saved(approvalRfp(RfpStatus::ForApproval, RoleName::LineManager, $this->lineManager));
 
-    $this->actingAs($this->lineManager);
+    $this->actingAs($this->apProcessor);
 
     Livewire::test(ViewRfpApproval::class, ['record' => $rfp->getKey()])
         ->assertOk()

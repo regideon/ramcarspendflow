@@ -17,7 +17,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'p2p_sap_good_receipt_id', 'purchase_order', 'purchase_order_item', 'item_numbering', 'item_id',
     'material_doc_year', 'material_doc_item', 'storage_location', 'item_name', 'item_description',
-    'quantity_po', 'quantity_served', 'uom', 'gr', 'unit_cost', 'amount', 'quantity_po_balance',
+    'quantity_po', 'quantity_served', 'uom', 'gr', 'unit_cost', 'net_price', 'price_unit', 'currency', 'amount',
+    'quantity_po_balance',
 ])]
 class SapGoodReceiptItem extends Model
 {
@@ -30,6 +31,16 @@ class SapGoodReceiptItem extends Model
     public function goodReceipt(): BelongsTo
     {
         return $this->belongsTo(SapGoodReceipt::class, 'p2p_sap_good_receipt_id');
+    }
+
+    /**
+     * The material (SAP MATNR), e.g. code "E9683647".
+     *
+     * @return BelongsTo<Item, $this>
+     */
+    public function item(): BelongsTo
+    {
+        return $this->belongsTo(Item::class);
     }
 
     /**
@@ -49,6 +60,18 @@ class SapGoodReceiptItem extends Model
     }
 
     /**
+     * PO price of one unit, in the PO currency (net price per price unit), for the 3-way match.
+     */
+    public function poUnitPrice(): ?string
+    {
+        if ($this->net_price === null) {
+            return null;
+        }
+
+        return bcdiv((string) $this->net_price, (string) max(1, $this->price_unit), 4);
+    }
+
+    /**
      * @return array<string, string>
      */
     protected function casts(): array
@@ -57,6 +80,8 @@ class SapGoodReceiptItem extends Model
             'quantity_po' => 'integer',
             'quantity_served' => 'integer',
             'unit_cost' => 'decimal:4',
+            'net_price' => 'decimal:4',
+            'price_unit' => 'integer',
             'amount' => 'decimal:4',
             'quantity_po_balance' => 'integer',
         ];

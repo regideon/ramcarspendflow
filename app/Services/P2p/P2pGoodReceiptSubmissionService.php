@@ -10,6 +10,7 @@ use App\Models\P2p\InvoiceLine;
 use App\Models\P2p\SapGoodReceiptItem;
 use App\Models\P2p\SapPurchaseOrder;
 use App\Models\User;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -31,6 +32,14 @@ class P2pGoodReceiptSubmissionService
      * Statuses from which a vendor may (re)submit.
      */
     private const array SUBMITTABLE = [P2pStatus::Pending, P2pStatus::ReturnedToVendor];
+
+    /**
+     * Invoice-match fields a submitted line may carry (see P2pInvoiceMatcher).
+     */
+    public const array MATCH_FIELDS = [
+        'invoice_reference', 'invoice_unit_price', 'invoice_currency', 'match_status', 'match_reasons',
+        'is_invoice_verified', 'is_quantity_edited',
+    ];
 
     public function __construct(
         private readonly P2pGoodReceiptStatusService $goodReceiptStatus,
@@ -72,7 +81,8 @@ class P2pGoodReceiptSubmissionService
     /**
      * Submit (or resubmit) selected GR lines to AP Processor.
      *
-     * @param  array<int, array{p2p_sap_good_receipt_item_id: int, quantity_billed: int|float|string}>  $lines
+     * @param  array<int, array{p2p_sap_good_receipt_item_id: int, quantity_billed: int|float|string, invoice_reference?: ?string, invoice_unit_price?: ?float, invoice_currency?: ?string, match_status?: ?string, match_reasons?: list<string>, is_invoice_verified?: bool, is_quantity_edited?: bool}>  $lines
+     *                                                                                                                                                                                                                                                                                                             lines may carry their match against the vendor's invoice (Read invoice with AI)
      * @param  array<string, mixed>  $attributes  extra invoice fields (reference_number, invoice_at, attachments, remarks_ap…)
      */
     public function submit(Invoice $invoice, array $lines, User $by, array $attributes = []): Invoice
@@ -126,6 +136,7 @@ class P2pGoodReceiptSubmissionService
                     'uom' => $item->uom,
                     'unit_cost' => $item->unit_cost,
                     'amount' => $amountLine,
+                    ...Arr::only($line, self::MATCH_FIELDS),
                 ]);
 
                 $quantity += $billed;

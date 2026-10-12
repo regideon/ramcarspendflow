@@ -2,16 +2,12 @@
 
 namespace App\Filament\Resources\P2p\PurchaseOrders\Pages;
 
-use App\Enums\RoleName;
+use App\Filament\Resources\P2p\PurchaseOrders\Actions\SyncFromSapAction;
 use App\Filament\Resources\P2p\PurchaseOrders\PurchaseOrderResource;
 use App\Filament\Resources\P2p\PurchaseOrders\Tables\PurchaseOrdersTable;
-use App\Jobs\P2p\SyncP2pPurchaseOrders;
 use App\Models\P2p\SapPurchaseOrder;
-use Filament\Actions\Action;
-use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Tabs\Tab;
-use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Builder;
 
 class ListPurchaseOrders extends ListRecords
@@ -21,24 +17,7 @@ class ListPurchaseOrders extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('syncFromSap')
-                ->label('Sync from SAP')
-                ->icon(Heroicon::OutlinedArrowPath)
-                ->visible(fn (): bool => auth()->user()?->hasRole(RoleName::Vendor) ?? false)
-                ->action(function (): void {
-                    $user = auth()->user();
-
-                    $queued = SyncP2pPurchaseOrders::dispatchUnlessPending([
-                        'vendor' => $user->vendor?->code,
-                        'changed_from' => now()->subDays(3)->format('Ymd'),
-                        'changed_to' => now()->format('Ymd'),
-                    ], $user->id, 'user-sync');
-
-                    Notification::make()
-                        ->title($queued ? 'Sync started' : 'Sync already in progress')
-                        ->{$queued ? 'success' : 'warning'}()
-                        ->send();
-                }),
+            SyncFromSapAction::make(),
         ];
     }
 

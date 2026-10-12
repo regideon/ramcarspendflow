@@ -67,7 +67,7 @@ The AP Processor can also **Cancel** a request. Cancelled requests are kept for 
 
 ## Good to know
 
-- **Two pages.** **My Requests** lists only the RFPs you raised. **RFP Approvals** is the queue for approvers and Accounting: the **For my action** tab (and the number next to the menu item) shows what is waiting for you, and **Current Approver** shows who each RFP is with.
+- **Two pages.** **My Requests** lists only the RFPs you raised. **RFP Approvals** is the queue for Admins and Accounting (AP Processor, AP Supervisor, AP Manager): the **For my action** tab (and the number next to the menu item) shows what is waiting for you, and **Current Approver** shows who each RFP is with.
 
 - **After you submit, the request is locked.** You can still open it and see its status and history, but you can only edit it again if it's sent back to you **For Revision**.
 - **Due type sets the due date.** **Urgent** is due the next business day and **Standard** in 5 business days, counted from the day you submit. Weekends are skipped.

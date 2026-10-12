@@ -8,6 +8,7 @@
     $invoiced = (float) ($invoiced ?? 0);
     $rows = $rows ?? [];
     $adjustment = (float) ($adjustment ?? 0);
+    $notes = $notes ?? []; // what the vendor's invoice said (Read invoice with AI)
 
     $palette = [
         'success' => ['bg' => '#dcfce7', 'text' => '#166534'],
@@ -43,6 +44,14 @@
                     </div>
 
                     <p style="margin:8px 0 0;font-size:13px;color:#4b5563;">{{ $reason }}</p>
+
+                    @if (filled($notes))
+                        <ul style="margin:10px 0 0;padding:10px 12px 10px 28px;background:#f9fafb;border-radius:8px;font-size:13px;color:#374151;list-style:disc;">
+                            @foreach ($notes as $note)
+                                <li>{{ $note }}</li>
+                            @endforeach
+                        </ul>
+                    @endif
 
                     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px;">
                         <div style="background:#f9fafb;border-radius:8px;padding:10px;">

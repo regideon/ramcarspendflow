@@ -2,6 +2,7 @@
 
 namespace App\Models\P2p;
 
+use App\Enums\P2pThreeWayMatchStatus;
 use App\Models\User;
 use Database\Factories\P2p\InvoiceLineFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -20,7 +21,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'p2p_invoice_id', 'p2p_sap_good_receipt_item_id', 'purchase_order', 'purchase_order_item',
     'item_id', 'storage_location', 'p2p_material_classification_id', 'classified_by', 'classified_at', 'item_name',
     'item_description', 'quantity_po', 'quantity_billed', 'quantity_previous', 'quantity_remaining',
-    'is_fully_billed', 'uom', 'unit_cost', 'amount',
+    'is_fully_billed', 'uom', 'unit_cost', 'amount', 'invoice_reference', 'invoice_unit_price', 'invoice_currency',
+    'match_status', 'match_reasons', 'is_invoice_verified', 'is_quantity_edited',
 ])]
 class InvoiceLine extends Model
 {
@@ -60,6 +62,17 @@ class InvoiceLine extends Model
     }
 
     /**
+     * Whether AP should check this line: it does not match the invoice, was not checked
+     * against one, or the vendor changed the quantity read from it.
+     */
+    public function needsMatchReview(): bool
+    {
+        return $this->match_status === P2pThreeWayMatchStatus::NoMatch
+            || ($this->match_status !== null && ! $this->is_invoice_verified)
+            || $this->is_quantity_edited;
+    }
+
+    /**
      * @return array<string, string>
      */
     protected function casts(): array
@@ -73,6 +86,11 @@ class InvoiceLine extends Model
             'unit_cost' => 'decimal:2',
             'amount' => 'decimal:2',
             'classified_at' => 'datetime',
+            'invoice_unit_price' => 'decimal:4',
+            'match_status' => P2pThreeWayMatchStatus::class,
+            'match_reasons' => 'array',
+            'is_invoice_verified' => 'boolean',
+            'is_quantity_edited' => 'boolean',
         ];
     }
 }
