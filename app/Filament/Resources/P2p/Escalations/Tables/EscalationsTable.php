@@ -11,6 +11,7 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Contracts\View\View;
 
 /**
  * Escalations a team must act on: the current hop reads from the reason's route,
@@ -113,6 +114,17 @@ class EscalationsTable
 
                         Notification::make()->title('Escalation resolved')->success()->send();
                     }),
+
+                Action::make('history')
+                    ->label('History')
+                    ->icon(Heroicon::OutlinedClock)
+                    ->color('gray')
+                    ->modalHeading('Approval history')
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('Close')
+                    ->modalContent(fn (Escalation $record): View => view('filament.components.approval-history-timeline', [
+                        'record' => $record->invoice,
+                    ])),
             ])
             ->striped();
     }
