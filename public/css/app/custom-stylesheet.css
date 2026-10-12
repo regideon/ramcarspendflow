@@ -239,9 +239,6 @@ span.flex.items-center.gap-2 {
     border-radius: 0.5rem;
     padding: 0.5rem 0.75rem;
 } */
-.fi-ta-actions:hover {
-    background-color: #fef3e6;
-}
 .fi-ta-actions > a,
 .fi-ta-actions > a:hover,
 .fi-ta-actions > a > span,
@@ -355,6 +352,25 @@ h3.text-sm.font-medium.text-gray-700.dark\:text-gray-200 {
 }
 button.fi-icon-btn.fi-size-md.fi-topbar-open-sidebar-btn {
     color: #f5c38a !important;
+}
+
+/* ---------------------------------------------------------
+   P2P — Bulk Goods Receipt: per-GR item tables
+   The item table repeater is nested inside a Section inside another Repeater
+   item, so the surrounding cards must not clip the table's rounded edges/shadow.
+--------------------------------------------------------- */
+.p2p-bulk-goods-receipt .fi-fo-repeater-item :is(.fi-section, .fi-sc-section),
+.p2p-bulk-goods-receipt .fi-fo-repeater-item :is(.fi-section-content-ctn, .fi-section-content) {
+    overflow: visible;
+}
+
+.p2p-bulk-goods-receipt .fi-fo-repeater-item .fi-fo-table-repeater {
+    /* Filament's table repeater scrolls (overflow: auto), which clips the
+       rounded ring/shadow of the <table> inside it. Let it show — the table is
+       w-full and stacks on narrow screens, so there is nothing to scroll. */
+    overflow: visible;
+    /* A little breathing room so the ring/shadow is not flush against the card. */
+    padding-block: 4px;
 }
 
 

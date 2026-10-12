@@ -1,0 +1,260 @@
+<?php
+
+use App\Enums\P2pStatus;
+use App\Enums\RoleName;
+use App\Filament\Pages\P2p\BulkGoodsReceipt;
+use App\Models\Company;
+use App\Models\P2p\EscalationReason;
+use App\Models\P2p\GoodReceiptState;
+use App\Models\P2p\Invoice;
+use App\Models\P2p\SapGoodReceipt;
+use App\Models\P2p\SapGoodReceiptItem;
+use App\Models\P2p\SapPurchaseOrder;
+use App\Models\User;
+use App\Models\Vendor;
+use App\Services\P2p\P2pGoodReceiptReturnService;
+use App\Services\P2p\P2pGoodReceiptSubmissionService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
+use Livewire\Livewire;
+use Spatie\Permission\Models\Role;
+
+pest()->use(RefreshDatabase::class);
+
+/**
+ * Two GRs on two POs, both for one vendor — the multi-PO case.
+ *
+ * @return array{user: User, vendor: Vendor, company: Company, states: array<int, GoodReceiptState>, items: array<int, SapGoodReceiptItem>}
+ */
+function bulkContext(): array
+{
+    $vendor = Vendor::factory()->create();
+    $company = Company::factory()->create();
+    $user = User::factory()->create(['vendor_id' => $vendor->id]);
+    $user->assignRole(Role::findOrCreate(RoleName::Vendor->value, 'web'));
+
+    $states = [];
+    $items = [];
+
+    foreach (['4500000900', '4500000901'] as $index => $poNumber) {
+        $po = SapPurchaseOrder::factory()->create(['purchase_order' => $poNumber]);
+        $receipt = SapGoodReceipt::factory()->create([
+            'purchase_order' => $poNumber,
+            'company_id' => $company->id,
+            'vendor_id' => $vendor->id,
+        ]);
+        $items[] = SapGoodReceiptItem::factory()->for($receipt, 'goodReceipt')->create([
+            'purchase_order' => $poNumber,
+            'quantity_po' => 10,
+            'quantity_served' => 10,
+            'unit_cost' => 100,
+        ]);
+        $states[] = GoodReceiptState::create([
+            'p2p_sap_good_receipt_id' => $receipt->id,
+            'purchase_order' => $poNumber,
+            'good_receipt_number' => $receipt->good_receipt_number,
+            'company_id' => $company->id,
+            'vendor_id' => $vendor->id,
+            'status' => P2pStatus::Pending,
+        ]);
+    }
+
+    return compact('user', 'vendor', 'company', 'states', 'items');
+}
+
+function bulkEscalationReason(): EscalationReason
+{
+    $reason = EscalationReason::create([
+        'code' => 'quantity_difference',
+        'name' => 'Quantity Difference',
+        'origin_role' => 'vendor',
+        'is_active' => true,
+    ]);
+
+    $reason->steps()->create(['step_order' => 1, 'role' => 'warehouse', 'status_id' => P2pStatus::EscalatedToWarehouse->value]);
+
+    return $reason;
+}
+
+it('processes multiple GRs across POs into one submission', function () {
+    $c = bulkContext();
+
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => array_map(fn ($s) => $s->id, $c['states'])])
+        ->set('invoiceAt', now()->toDateString())
+        ->set('reference_number', ['DR-1', 'DR-2'])
+        ->set('attachments', ['attachments-pdf/invoice.pdf'])
+        ->call('submit')
+        ->assertHasNoErrors();
+
+    $invoice = Invoice::query()->sole();
+
+    expect($invoice->status)->toBe(P2pStatus::SubmittedToAp)
+        ->and($invoice->po_numbers)->toHaveCount(2)
+        ->and($invoice->reference_number)->toBe(['DR-1', 'DR-2'])
+        ->and($invoice->attachments)->toBe(['attachments-pdf/invoice.pdf'])
+        ->and($invoice->lines()->count())->toBe(2)
+        ->and($invoice->amount_submitted)->toBe('2000.00');
+});
+
+it('requires a reference number before submitting', function () {
+    $c = bulkContext();
+
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->set('invoiceAt', now()->toDateString())
+        ->set('reference_number', [])
+        ->set('attachments', ['attachments-pdf/invoice.pdf'])
+        ->call('submit')
+        ->assertHasErrors(['reference_number' => 'required']);
+
+    expect(Invoice::query()->count())->toBe(0);
+});
+
+it('requires an attachment before submitting', function () {
+    $c = bulkContext();
+
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->set('invoiceAt', now()->toDateString())
+        ->set('reference_number', ['DR-1'])
+        ->set('attachments', [])
+        ->call('submit')
+        ->assertHasErrors(['attachments' => 'required']);
+
+    expect(Invoice::query()->count())->toBe(0);
+});
+
+it('escalates the selected goods receipts with a reason and remarks', function () {
+    $c = bulkContext();
+    $reason = bulkEscalationReason();
+
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->call('escalate', [
+            'escalationReason' => $reason->code,
+            'escalationRemarks' => 'Received quantity is short.',
+        ])
+        ->assertHasNoErrors();
+
+    expect($c['states'][0]->fresh()->status)->toBe(P2pStatus::EscalatedToWarehouse);
+});
+
+it('opens a submitted invoice read-only', function () {
+    $c = bulkContext();
+    $this->actingAs($c['user']);
+
+    $invoice = app(P2pGoodReceiptSubmissionService::class)->start($c['user'], [$c['states'][0]->id]);
+    app(P2pGoodReceiptSubmissionService::class)->submit($invoice, [
+        ['p2p_sap_good_receipt_item_id' => $c['items'][0]->id, 'quantity_billed' => 10],
+    ], $c['user']);
+
+    $component = Livewire::test(BulkGoodsReceipt::class, ['invoice' => $invoice->id]);
+
+    expect($component->instance()->isViewOnly)->toBeTrue()
+        ->and($component->instance()->goods_receipts)->toHaveCount(1)
+        ->and($component->instance()->goods_receipts[0]['goodReceiptItems'])->toHaveCount(1)
+        ->and($component->instance()->goods_receipts[0]['goodReceiptItems'][0]['quantity'])->toBe(10);
+
+    // Submitting from the read-only view must not change the invoice.
+    $component->set('reference_number', ['SHOULD-NOT-SAVE'])
+        ->set('attachments', ['attachments-pdf/other.pdf'])
+        ->call('submit');
+
+    expect($invoice->fresh()->status)->toBe(P2pStatus::SubmittedToAp)
+        ->and($invoice->fresh()->reference_number)->toBeNull();
+});
+
+it('re-submits a returned invoice', function () {
+    $c = bulkContext();
+    $this->actingAs($c['user']);
+
+    $submission = app(P2pGoodReceiptSubmissionService::class);
+    $invoice = $submission->start($c['user'], [$c['states'][0]->id]);
+    $invoice = $submission->submit($invoice, [
+        ['p2p_sap_good_receipt_item_id' => $c['items'][0]->id, 'quantity_billed' => 4],
+    ], $c['user']);
+
+    app(P2pGoodReceiptReturnService::class)->returnToVendor($invoice, $c['user'], 'Please correct the quantity.');
+
+    Livewire::test(BulkGoodsReceipt::class, ['invoice' => $invoice->id])
+        ->set('reference_number', ['DR-9'])
+        ->set('attachments', ['attachments-pdf/corrected.pdf'])
+        ->call('submit')
+        ->assertHasNoErrors();
+
+    $invoice->refresh();
+
+    expect($invoice->status)->toBe(P2pStatus::SubmittedToAp)
+        ->and($invoice->reference_number)->toBe(['DR-9'])
+        ->and($invoice->lines()->sole()->quantity_billed)->toBe(10);
+});
+
+it('lets the vendor cancel a returned request', function () {
+    Mail::fake();
+
+    $c = bulkContext();
+    $this->actingAs($c['user']);
+
+    $submission = app(P2pGoodReceiptSubmissionService::class);
+    $invoice = $submission->start($c['user'], [$c['states'][0]->id]);
+    $invoice = $submission->submit($invoice, [
+        ['p2p_sap_good_receipt_item_id' => $c['items'][0]->id, 'quantity_billed' => 10],
+    ], $c['user']);
+
+    app(P2pGoodReceiptReturnService::class)->returnToVendor($invoice, $c['user'], 'Wrong invoice date.');
+
+    Livewire::test(BulkGoodsReceipt::class, ['invoice' => $invoice->id])
+        ->callAction('cancelRequest');
+
+    expect($invoice->fresh()->status)->toBe(P2pStatus::Cancelled)
+        ->and($c['states'][0]->fresh()->status)->toBe(P2pStatus::Pending);
+});
+
+it('recomputes the overall total and keeps the 3-way badge after an update', function () {
+    $c = bulkContext();
+    $this->actingAs($c['user']);
+
+    $component = Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]]);
+
+    expect($component->instance()->overall_invoice_total)->toBe('1,000.00')
+        ->and($component->instance()->matchBase)->not->toBe([])
+        ->and($component->html())->toContain('3-Way Match');
+
+    $component->set('goods_receipts.0.goodReceiptItems.0.include', false);
+
+    expect($component->instance()->overall_invoice_total)->toBe('0.00')
+        ->and($component->instance()->matchBase)->not->toBe([])
+        ->and($component->html())->toContain('3-Way Match');
+});
+
+it('hides per-line pricing and the total amount from vendors', function () {
+    $c = bulkContext();
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->assertDontSee('Unit Cost')
+        ->assertDontSee('Total Amount')
+        ->assertSee('Total GR Qty')
+        ->assertSee('Total Invoice Qty')
+        ->assertSee('Overall Invoice Total')
+        ->assertSee('Click for the 3-way breakdown');
+});
+
+it('shows per-line pricing and the total amount to non-vendors', function () {
+    $c = bulkContext();
+
+    $admin = User::factory()->create();
+    $admin->assignRole(Role::findOrCreate(RoleName::Admin->value, 'web'));
+
+    $this->actingAs($admin);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->assertSee('Unit Cost')
+        ->assertSee('Amount')
+        ->assertSee('Total Amount');
+});
