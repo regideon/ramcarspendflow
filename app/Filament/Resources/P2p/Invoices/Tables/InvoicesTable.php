@@ -26,28 +26,63 @@ class InvoicesTable
                     ->searchable()
                     ->sortable()
                     ->weight('medium'),
-                TextColumn::make('status')
-                    ->badge()
-                    ->sortable(),
+
                 TextColumn::make('vendor.name')
                     ->label('Vendor')
                     ->searchable()
-                    ->limit(30),
+                    ->limit(30)
+                    ->description(fn (Invoice $record): ?string => $record->vendor?->code)
+                    ->hidden(fn (): bool => auth()->user()?->hasRole(RoleName::Vendor) ?? false),
+
                 TextColumn::make('company.name')
-                    ->label('Company'),
-                TextColumn::make('invoice_number')
-                    ->label('Invoice no.')
-                    ->searchable()
-                    ->toggleable(),
+                    ->label('Company')
+                    ->hidden(fn (): bool => ! (auth()->user()?->hasRole(RoleName::Vendor) ?? false)),
+
+                TextColumn::make('po_numbers')
+                    ->label('PO')
+                    ->badge()
+                    ->listWithLineBreaks()
+                    ->searchable(),
+
+                TextColumn::make('reference_number')
+                    ->label('Reference')
+                    ->badge()
+                    ->listWithLineBreaks()
+                    ->searchable(),
+
+                TextColumn::make('invoice_at')
+                    ->label('Invoice Date')
+                    ->date()
+                    ->sortable(),
+
+                TextColumn::make('gr_numbers')
+                    ->label('GR')
+                    ->badge()
+                    ->listWithLineBreaks()
+                    ->searchable(),
+
                 TextColumn::make('amount_submitted')
                     ->label('Amount')
-                    ->numeric(decimalPlaces: 2)
+                    ->numeric(decimalPlaces: 2, thousandsSeparator: ',')
                     ->alignEnd()
+                    ->sortable()
+                    ->hidden(fn (): bool => auth()->user()?->hasRole(RoleName::Vendor) ?? false),
+
+                TextColumn::make('invoice_number')
+                    ->label('Invoice No')
+                    // SAP fills this in only after the invoice is parked/posted.
+                    ->placeholder('—')
+                    ->searchable(),
+
+                TextColumn::make('status')
+                    ->badge()
                     ->sortable(),
+
                 TextColumn::make('submitted_at')
                     ->label('Submitted')
                     ->dateTime('M j, Y g:i A')
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->defaultSort('submitted_at', 'desc')
             ->filters([

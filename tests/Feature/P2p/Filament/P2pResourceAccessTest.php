@@ -75,3 +75,21 @@ it('forbids a requestor from invoices', function () {
         ->get('/hub/p2p/invoices')
         ->assertForbidden();
 });
+
+it('lets escalation handlers open escalations', function (RoleName $role) {
+    $this->actingAs(User::factory()->create()->assignRole($role))
+        ->get('/hub/p2p/escalations')
+        ->assertOk();
+})->with([
+    'admin' => RoleName::Admin,
+    'procurement' => RoleName::Procurement,
+    'warehouse' => RoleName::Warehouse,
+    'warehouse raw materials' => RoleName::WarehouseRawMaterials,
+    'warehouse spare parts' => RoleName::WarehouseSpareParts,
+]);
+
+it('forbids a vendor from escalations', function () {
+    $this->actingAs(User::factory()->create()->assignRole(RoleName::Vendor))
+        ->get('/hub/p2p/escalations')
+        ->assertForbidden();
+});

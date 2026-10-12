@@ -3,8 +3,9 @@
 namespace App\Filament\Resources\P2p\Invoices\Pages;
 
 use App\Enums\P2pStatus;
-use App\Filament\Resources\P2p\GoodsReceipts\GoodsReceiptResource;
+use App\Enums\RoleName;
 use App\Filament\Resources\P2p\Invoices\InvoiceResource;
+use App\Filament\Resources\P2p\PurchaseOrders\PurchaseOrderResource;
 use Filament\Actions\Action;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Tabs\Tab;
@@ -21,7 +22,8 @@ class ListInvoices extends ListRecords
             Action::make('process')
                 ->label('Process')
                 ->icon(Heroicon::OutlinedPlay)
-                ->url(fn (): string => GoodsReceiptResource::getUrl('index')),
+                ->visible(fn (): bool => auth()->user()?->hasAnyRole([RoleName::Vendor, RoleName::Admin]) ?? false)
+                ->url(fn (): string => PurchaseOrderResource::getUrl('index')),
         ];
     }
 

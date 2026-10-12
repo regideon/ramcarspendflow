@@ -20,6 +20,24 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 ])]
 class Escalation extends Model
 {
+    /** Status values of an escalation request. */
+    public const string STATUS_OPEN = 'open';
+
+    public const string STATUS_RESOLVED = 'resolved';
+
+    public const string STATUS_CANCELLED = 'cancelled';
+
+    /**
+     * Maps an escalation hop role to the application role that handles it. The portal
+     * calls its vendors "supplier", but a route (and the client) talks about "vendor".
+     */
+    public const array ROLE_APP_ROLES = [
+        'vendor' => 'supplier',
+        'processor' => 'processor',
+        'procurement' => 'procurement',
+        'warehouse' => 'warehouse',
+    ];
+
     /**
      * @return BelongsTo<Invoice, $this>
      */
@@ -50,6 +68,47 @@ class Escalation extends Model
     public function actionedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'actioned_by');
+    }
+
+    /**
+     * The current hop of the escalation's route, if any.
+     */
+    public function currentStep(): ?EscalationReasonStep
+    {
+        $this->loadMissing('reason.steps');
+
+        return $this->reason?->steps->firstWhere('step_order', $this->current_step_order);
+    }
+
+    /**
+     * The escalation reference shown to users: the batch when the request spans
+     * several GRs, otherwise the escalation's own number.
+     */
+    public function requestNumber(): string
+    {
+        return $this->batch_number ?: $this->escalation_number;
+    }
+
+    /**
+     * Human-readable current hop, e.g. "Warehouse - Quantity Difference".
+     */
+    public function stepLabel(): string
+    {
+        return trim(implode(' - ', array_filter([self::roleLabel($this->current_role), $this->reason?->name])));
+    }
+
+    /**
+     * Map a hop role to a human-readable label.
+     */
+    public static function roleLabel(?string $role): string
+    {
+        return match ($role) {
+            'warehouse' => 'Warehouse',
+            'procurement' => 'Procurement',
+            'vendor' => 'Vendor',
+            'processor' => 'AP Processor',
+            default => (string) $role,
+        };
     }
 
     /**

@@ -36,6 +36,7 @@ class HubPanelProvider extends PanelProvider
             ->databaseNotifications()
             ->profile(isSimple: false)
             ->topNavigation()
+            ->maxContentWidth('screen-2xl')
             // Custom CSS turned off for now, to see Filament's native styling
             ->assets([
                 Css::make('custom-stylesheet', asset('css/app/custom-stylesheet.css')),
