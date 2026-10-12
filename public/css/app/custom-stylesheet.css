@@ -136,8 +136,9 @@ span.fi-sidebar-item-label {
     font-size: 0.825rem !important;
 }
 
-main.fi-main.fi-width-7xl {
-    padding: 0 32px 32px 16px;
+main.fi-main.fi-width-7xl,
+main.fi-main.fi-width-full {
+    padding: 0 32px 32px 32px;
 }
 button.fi-icon-btn.fi-size-md.fi-topbar-open-sidebar-btn {
     color: white;
@@ -190,7 +191,9 @@ span.fi-topbar-item-labelL:hover {
     color: black;
 }
 header.fi-header {
-    margin-bottom: 1rem;
+    /* Filament's fi-page-header-main-ctn already applies row-gap: 2rem, so an
+       extra margin here doubled the gap between the page heading and content. */
+    margin-bottom: 0;
 }
 
 /* widget */
@@ -268,9 +271,6 @@ main.fi-simple-main.fi-width-lg {
 }
 .items-start > h4.text-sm {
     font-size: 0.975rem;
-}
-.fi-sc-component {
-    margin-top: -10px;
 }
 
 span.fi-sc-text {
