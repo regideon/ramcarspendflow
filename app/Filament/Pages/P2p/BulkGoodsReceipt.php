@@ -176,7 +176,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
         return $schema->components([
             View::make('filament.components.p2p-status-stepper')
-                ->viewData(fn (): array => $this->stepperData())
+                ->viewData(fn(): array => $this->stepperData())
                 ->columnSpanFull(),
 
             Section::make('Goods Receipt Information')
@@ -186,6 +186,21 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                     Grid::make()
                         ->columns(['default' => 1, 'sm' => 2, 'lg' => 3])
                         ->schema([
+                            FileUpload::make('attachments')
+                                ->label('Upload Attachments (PDF)')
+                                ->disk('public')
+                                ->directory('attachments-pdf')
+                                ->acceptedFileTypes(['application/pdf'])
+                                ->maxSize(5024)
+                                ->multiple()
+                                ->previewable()
+                                ->openable()
+                                ->downloadable()
+                                ->visibility('public')
+                                ->markAsRequired()
+                                ->disabled($this->isViewOnly)
+                                ->columnSpanFull(),
+
                             TextInput::make('vendor_name')
                                 ->label('Vendor')
                                 ->readOnly()
@@ -219,20 +234,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                                 ->disabled()
                                 ->dehydrated(false),
 
-                            FileUpload::make('attachments')
-                                ->label('Upload Attachments (PDF)')
-                                ->disk('public')
-                                ->directory('attachments-pdf')
-                                ->acceptedFileTypes(['application/pdf'])
-                                ->maxSize(5024)
-                                ->multiple()
-                                ->previewable()
-                                ->openable()
-                                ->downloadable()
-                                ->visibility('public')
-                                ->markAsRequired()
-                                ->disabled($this->isViewOnly)
-                                ->columnSpanFull(),
+
                         ]),
                 ]),
 
@@ -248,7 +250,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                     Hidden::make('good_receipt_number'),
 
                     Section::make('Items')
-                        ->heading(fn (Get $get): string => 'Items for GR #'.($get('good_receipt_number') ?? 'N/A'))
+                        ->heading(fn(Get $get): string => 'Items for GR #' . ($get('good_receipt_number') ?? 'N/A'))
                         ->description('The items selected for purchase')
                         ->icon(Heroicon::OutlinedShoppingBag)
                         ->schema([
@@ -265,7 +267,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
                                     TextEntry::make('purchase_order')->hiddenLabel(),
                                     TextEntry::make('gr_number')->hiddenLabel(),
-                                    TextEntry::make('material_doc_item')->hiddenLabel(),
+                                    TextEntry::make('purchase_order_item')->hiddenLabel(),
                                     TextEntry::make('item_name')->hiddenLabel(),
                                     TextEntry::make('quantity_po')->hiddenLabel(),
                                     TextEntry::make('uom')->hiddenLabel(),
@@ -284,12 +286,12 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                                         TextEntry::make('unit_cost_display')
                                             ->hiddenLabel()
                                             ->prefix('₱')
-                                            ->state(fn (Get $get): string => number_format((float) ($get('unit_cost') ?? 0), 2, '.', ',')),
+                                            ->state(fn(Get $get): string => number_format((float) ($get('unit_cost') ?? 0), 2, '.', ',')),
 
                                         TextEntry::make('amount_display')
                                             ->hiddenLabel()
                                             ->prefix('₱')
-                                            ->state(fn (Get $get): string => number_format(
+                                            ->state(fn(Get $get): string => number_format(
                                                 (float) ($get('quantity') ?? 0) * (float) ($get('unit_cost') ?? 0),
                                                 2,
                                                 '.',
@@ -300,7 +302,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                                     ViewField::make('three_way')
                                         ->hiddenLabel()
                                         ->view('filament.components.three-way-match-badge')
-                                        ->viewData(fn (Get $get): array => $this->threeWayBreakdown($get)),
+                                        ->viewData(fn(Get $get): array => $this->threeWayBreakdown($get)),
                                 ])
                                 ->addable(false)
                                 ->deletable(false)
@@ -309,7 +311,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                             TextEntry::make('totals_row')
                                 ->hiddenLabel()
                                 ->columnSpanFull()
-                                ->state(fn (Get $get): HtmlString => $this->totalsRow($get('goodReceiptItems') ?? [])),
+                                ->state(fn(Get $get): HtmlString => $this->totalsRow($get('goodReceiptItems') ?? [])),
                         ]),
                 ]),
 
@@ -554,18 +556,18 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         $receipts = $this->receipts;
 
         $items = $receipts->flatMap(
-            fn (GoodReceiptState $state): Collection => $state->sapGoodReceipt?->items ?? collect(),
+            fn(GoodReceiptState $state): Collection => $state->sapGoodReceipt?->items ?? collect(),
         );
 
         $remaining = app(P2pGoodReceiptSubmissionService::class)->remainingQuantitiesFor($items, $invoice);
 
         return $receipts
-            ->map(fn (GoodReceiptState $state): array => [
+            ->map(fn(GoodReceiptState $state): array => [
                 'good_receipt_id' => $state->id,
                 'purchase_order' => $state->purchase_order,
                 'good_receipt_number' => $state->good_receipt_number,
                 'goodReceiptItems' => ($state->sapGoodReceipt?->items ?? collect())
-                    ->map(fn (SapGoodReceiptItem $item): array => [
+                    ->map(fn(SapGoodReceiptItem $item): array => [
                         'p2p_sap_good_receipt_item_id' => $item->id,
                         'purchase_order' => $item->purchase_order,
                         'purchase_order_item' => $item->purchase_order_item,
@@ -596,7 +598,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         return $invoice->lines()
             ->with('sapItem.goodReceipt')
             ->get()
-            ->groupBy(fn (InvoiceLine $line): string => (string) ($line->sapItem?->goodReceipt?->good_receipt_number ?? $line->purchase_order))
+            ->groupBy(fn(InvoiceLine $line): string => (string) ($line->sapItem?->goodReceipt?->good_receipt_number ?? $line->purchase_order))
             ->map(function (Collection $lines, string $grNumber): array {
                 $first = $lines->first();
 
@@ -604,7 +606,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                     'good_receipt_id' => $first->sapItem?->goodReceipt?->id,
                     'purchase_order' => $first->purchase_order,
                     'good_receipt_number' => $grNumber,
-                    'goodReceiptItems' => $lines->map(fn (InvoiceLine $line): array => [
+                    'goodReceiptItems' => $lines->map(fn(InvoiceLine $line): array => [
                         'p2p_sap_good_receipt_item_id' => $line->p2p_sap_good_receipt_item_id,
                         'purchase_order' => $line->purchase_order,
                         'purchase_order_item' => $line->purchase_order_item,
@@ -637,9 +639,9 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
     public function matchBase(): array
     {
         $lineKeys = collect($this->goods_receipts)
-            ->flatMap(fn (array $goodsReceipt): array => $goodsReceipt['goodReceiptItems'] ?? [])
-            ->map(fn (array $item): string => $this->lineKey($item['purchase_order'] ?? null, $item['purchase_order_item'] ?? null))
-            ->filter(fn (string $key): bool => $key !== '|')
+            ->flatMap(fn(array $goodsReceipt): array => $goodsReceipt['goodReceiptItems'] ?? [])
+            ->map(fn(array $item): string => $this->lineKey($item['purchase_order'] ?? null, $item['purchase_order_item'] ?? null))
+            ->filter(fn(string $key): bool => $key !== '|')
             ->unique()
             ->values();
 
@@ -652,7 +654,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                 foreach ($lineKeys as $key) {
                     [$purchaseOrder, $purchaseOrderItem] = explode('|', $key, 2);
 
-                    $query->orWhere(fn (Builder $line): Builder => $line
+                    $query->orWhere(fn(Builder $line): Builder => $line
                         ->where('purchase_order', $purchaseOrder)
                         ->where('purchase_order_item', $purchaseOrderItem));
                 }
@@ -665,8 +667,8 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         $billedByItem = $service->billedQuantitiesFor($items->pluck('id'));
 
         return $items
-            ->groupBy(fn (SapGoodReceiptItem $item): string => $this->lineKey($item->purchase_order, $item->purchase_order_item))
-            ->map(fn (Collection $lineItems): array => $service->breakdownForItems($lineItems, $reversedGoodReceiptIds, $billedByItem))
+            ->groupBy(fn(SapGoodReceiptItem $item): string => $this->lineKey($item->purchase_order, $item->purchase_order_item))
+            ->map(fn(Collection $lineItems): array => $service->breakdownForItems($lineItems, $reversedGoodReceiptIds, $billedByItem))
             ->all();
     }
 
@@ -708,7 +710,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
     protected function lineKey(mixed $purchaseOrder, mixed $purchaseOrderItem): string
     {
-        return ((string) $purchaseOrder).'|'.((string) $purchaseOrderItem);
+        return ((string) $purchaseOrder) . '|' . ((string) $purchaseOrderItem);
     }
 
     /**
@@ -767,18 +769,18 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
     {
         $collection = collect($items);
 
-        $grQty = (int) $collection->sum(fn (array $item): int => (int) ($item['quantity_served'] ?? 0));
+        $grQty = (int) $collection->sum(fn(array $item): int => (int) ($item['quantity_served'] ?? 0));
 
-        $selected = $collection->filter(fn (array $item): bool => ! empty($item['include']));
+        $selected = $collection->filter(fn(array $item): bool => ! empty($item['include']));
 
-        $invoiceQty = (int) $selected->sum(fn (array $item): int => (int) ($item['quantity'] ?? 0));
+        $invoiceQty = (int) $selected->sum(fn(array $item): int => (int) ($item['quantity'] ?? 0));
         $amount = (float) $selected->sum(
-            fn (array $item): float => (float) ($item['quantity'] ?? 0) * (float) ($item['unit_cost'] ?? 0),
+            fn(array $item): float => (float) ($item['quantity'] ?? 0) * (float) ($item['unit_cost'] ?? 0),
         );
 
         $amountLine = $this->hidePricing()
             ? ''
-            : '<span>Total Amount: <span>₱'.number_format($amount, 2, '.', ',').'</span></span>';
+            : '<span>Total Amount: <span>₱' . number_format($amount, 2, '.', ',') . '</span></span>';
 
         $grQtyFmt = number_format($grQty);
         $invoiceQtyFmt = number_format($invoiceQty);
@@ -807,9 +809,9 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
     protected function totalFor(array $goodsReceipts): string
     {
         $total = collect($goodsReceipts)
-            ->flatMap(fn (array $goodsReceipt): array => $goodsReceipt['goodReceiptItems'] ?? [])
-            ->filter(fn (array $item): bool => ! empty($item['include']))
-            ->sum(fn (array $item): float => (float) ($item['quantity'] ?? 0) * (float) ($item['unit_cost'] ?? 0));
+            ->flatMap(fn(array $goodsReceipt): array => $goodsReceipt['goodReceiptItems'] ?? [])
+            ->filter(fn(array $item): bool => ! empty($item['include']))
+            ->sum(fn(array $item): float => (float) ($item['quantity'] ?? 0) * (float) ($item['unit_cost'] ?? 0));
 
         return number_format($total, 2, '.', ',');
     }
@@ -879,14 +881,14 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             ->schema([
                 Select::make('escalationReason')
                     ->label('Reason')
-                    ->options(fn (): array => EscalationReason::query()->active()->forRole('vendor')->pluck('name', 'code')->all())
+                    ->options(fn(): array => EscalationReason::query()->active()->forRole('vendor')->pluck('name', 'code')->all())
                     ->searchable()
                     ->required(),
                 TextInput::make('escalationRemarks')
                     ->label('Remarks')
                     ->required(),
             ])
-            ->action(fn (array $data) => $this->escalate($data))
+            ->action(fn(array $data) => $this->escalate($data))
             ->modalSubmitActionLabel('Escalate');
     }
 
