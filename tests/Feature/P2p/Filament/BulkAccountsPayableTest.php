@@ -331,7 +331,7 @@ it('refuses an escalation action from a user who does not own the hop', function
     $this->actingAs($processor);
 
     Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
-        ->call('advanceEscalation', ['remarks' => 'Trying anyway.']);
+        ->call('advanceOpenEscalation', ['remarks' => 'Trying anyway.']);
 
     expect($escalation->fresh()->status)->toBe(Escalation::STATUS_OPEN);
 });
