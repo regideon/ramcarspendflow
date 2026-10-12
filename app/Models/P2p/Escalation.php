@@ -3,6 +3,7 @@
 namespace App\Models\P2p;
 
 use App\Enums\P2pStatus;
+use App\Enums\RoleName;
 use App\Models\User;
 use App\Services\P2p\Escalation\StepAction;
 use App\Services\P2p\Escalation\StepActionRegistry;
@@ -40,6 +41,24 @@ class Escalation extends Model
         'procurement' => 'procurement',
         'warehouse' => 'warehouse',
     ];
+
+    /**
+     * The app's Spatie role for a hop role. Hop roles are the lowercase legacy tokens
+     * stored in `current_role`, while the seeded Spatie roles are TitleCase, so a
+     * direct `hasRole($hopRole)` never matches.
+     */
+    public static function appRoleFor(?string $hopRole): ?RoleName
+    {
+        return match ($hopRole) {
+            'vendor' => RoleName::Vendor,
+            'processor' => RoleName::ApProcessor,
+            'procurement' => RoleName::Procurement,
+            'warehouse' => RoleName::Warehouse,
+            'warehouse_raw_materials' => RoleName::WarehouseRawMaterials,
+            'warehouse_spare_parts' => RoleName::WarehouseSpareParts,
+            default => null,
+        };
+    }
 
     /**
      * @return BelongsTo<Invoice, $this>

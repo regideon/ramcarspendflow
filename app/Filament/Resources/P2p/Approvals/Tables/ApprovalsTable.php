@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\P2p\Approvals\Tables;
 
 use App\Enums\P2pStatus;
+use App\Enums\RoleName;
 use App\Filament\Pages\P2p\BulkAccountsPayable;
 use App\Models\P2p\Invoice;
 use App\Services\P2p\P2pThreeWayMatchService;
@@ -93,15 +94,11 @@ class ApprovalsTable
                     ->sortable()
                     ->description(fn (Invoice $record): ?string => $record->submitted_at?->diffForHumans()),
             ])
-            // Oldest first: the processor works the queue in order.
+            // Oldest first: the queue is worked in order.
             ->defaultSort('submitted_at')
             ->filters([
                 SelectFilter::make('status')
-                    ->options([
-                        P2pStatus::SubmittedToAp->value => P2pStatus::SubmittedToAp->getLabel(),
-                        P2pStatus::ApReview->value => P2pStatus::ApReview->getLabel(),
-                        P2pStatus::ReturnedToApProcessor->value => P2pStatus::ReturnedToApProcessor->getLabel(),
-                    ])
+                    ->options(fn (): array => self::statusOptions())
                     ->multiple(),
                 Filter::make('needs_invoice_review')
                     ->label('Needs invoice review')
@@ -110,14 +107,31 @@ class ApprovalsTable
             ])
             ->recordActions([
                 Action::make('process')
-                    ->label('Process')
+                    ->label('Review')
                     ->url(fn (Invoice $record): string => BulkAccountsPayable::getUrl(['invoice' => $record->id])),
             ])
             ->recordUrl(fn (Invoice $record): string => BulkAccountsPayable::getUrl(['invoice' => $record->id]))
             ->searchPlaceholder('Search GRC no., invoice no. or vendor')
-            ->emptyStateHeading('Nothing to approve')
-            ->emptyStateDescription('Submissions waiting on AP will appear here.')
+            ->emptyStateHeading('Nothing to action')
+            ->emptyStateDescription('Submissions waiting on you will appear here.')
             ->striped();
+    }
+
+    /**
+     * The statuses present in the viewer's own queue, so the filter never offers a
+     * status they cannot receive.
+     *
+     * @return array<int|string, string>
+     */
+    private static function statusOptions(): array
+    {
+        $statuses = auth()->user()?->hasRole(RoleName::ApSupervisor) ?? false
+            ? [P2pStatus::SubmittedToChecker, P2pStatus::CheckerReview]
+            : [P2pStatus::SubmittedToAp, P2pStatus::ApReview, P2pStatus::ReturnedToApProcessor];
+
+        return collect($statuses)
+            ->mapWithKeys(fn (P2pStatus $status): array => [$status->value => $status->getLabel()])
+            ->all();
     }
 
     /**

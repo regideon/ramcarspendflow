@@ -38,8 +38,6 @@ class EscalationResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'escalation_number';
 
-    protected static bool $shouldRegisterNavigation = false;
-
     public static function table(Table $table): Table
     {
         return EscalationsTable::configure($table);

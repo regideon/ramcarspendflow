@@ -44,6 +44,42 @@ it('forbids a vendor and a requestor from approvals', function (RoleName $role) 
     'requestor' => RoleName::Requestor,
 ]);
 
+it('lets an AP supervisor open approvals and the processing screen', function () {
+    $supervisor = User::factory()->create()->assignRole(RoleName::ApSupervisor);
+    $this->actingAs($supervisor);
+
+    $this->get('/hub/p2p/approvals')->assertOk();
+
+    $invoice = apInvoice(P2pStatus::SubmittedToChecker);
+    $this->get('/hub/p2p/bulk-accounts-payable?invoice='.$invoice->id)->assertOk();
+});
+
+it('queues the checker queue for a supervisor and the processor queue for a processor', function () {
+    $withProcessor = apInvoice(P2pStatus::SubmittedToAp);
+    $withSupervisor = apInvoice(P2pStatus::SubmittedToChecker);
+
+    $this->actingAs(User::factory()->create()->assignRole(RoleName::ApProcessor));
+    $processorIds = ApprovalResource::getEloquentQuery()->pluck('id')->all();
+
+    $this->actingAs(User::factory()->create()->assignRole(RoleName::ApSupervisor));
+    $supervisorIds = ApprovalResource::getEloquentQuery()->pluck('id')->all();
+
+    expect($processorIds)->toContain($withProcessor->id)
+        ->and($processorIds)->not->toContain($withSupervisor->id)
+        ->and($supervisorIds)->toContain($withSupervisor->id)
+        ->and($supervisorIds)->not->toContain($withProcessor->id);
+});
+
+it('badges a supervisor with their own queue size', function () {
+    $this->actingAs(User::factory()->create()->assignRole(RoleName::ApSupervisor));
+
+    apInvoice(P2pStatus::SubmittedToChecker);
+    apInvoice(P2pStatus::SubmittedToChecker);
+    apInvoice(P2pStatus::SubmittedToAp);
+
+    expect(ApprovalResource::getNavigationBadge())->toBe('2');
+});
+
 it('queues only submissions awaiting the AP processor', function () {
     $this->actingAs(User::factory()->create()->assignRole(RoleName::ApProcessor));
 

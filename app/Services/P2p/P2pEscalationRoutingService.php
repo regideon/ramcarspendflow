@@ -176,6 +176,41 @@ class P2pEscalationRoutingService
     }
 
     /**
+     * Send an open escalation back to its previous hop (de-escalate). At the
+     * first hop there is no previous handler, so the escalation resolves and
+     * returns to its originator.
+     */
+    public function returnToPreviousHop(Escalation $escalation, ?User $by, ?string $remarks = null): void
+    {
+        DB::transaction(function () use ($escalation, $by, $remarks): void {
+            /** @var Escalation $escalation */
+            $escalation = Escalation::query()->whereKey($escalation->getKey())->lockForUpdate()->firstOrFail();
+            $steps = $escalation->reason->steps;
+            $previous = $steps->firstWhere('step_order', $escalation->current_step_order - 1);
+
+            // Nothing before this hop: the request goes back to whoever raised it.
+            if ($previous === null) {
+                $this->resolve($escalation, $by, $remarks);
+
+                return;
+            }
+
+            $escalation->forceFill([
+                'current_step_order' => $previous->step_order,
+                'current_role' => $this->resolveRole($previous, $escalation->origin_role),
+            ])->save();
+
+            $this->goodReceiptStatus->recalculate($escalation->goodReceiptState);
+
+            $this->syncHeaderStatus($escalation->invoice->fresh());
+
+            $this->mail->sendForCurrentHop($escalation->fresh());
+
+            $this->history($escalation, $by, $remarks, 'Escalation returned to the previous step.');
+        });
+    }
+
+    /**
      * Resolve an escalation; the GR returns to the status it had before escalating.
      */
     public function resolve(Escalation $escalation, ?User $by, ?string $remarks = null): void
