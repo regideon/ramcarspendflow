@@ -86,10 +86,27 @@ it('supports a partial submission and keeps the rest billable', function () {
 
     $line = $invoice->lines->first();
 
-    expect($line->quantity_billed)->toBe('4.000')
-        ->and($line->quantity_remaining)->toBe('6.000')
+    expect($line->quantity_billed)->toBe(4)
+        ->and($line->quantity_remaining)->toBe('6.00')
         ->and($line->is_fully_billed)->toBeFalse()
-        ->and($service->remainingQuantityFor($c['item']->fresh()))->toBe('6.000');
+        ->and($service->remainingQuantityFor($c['item']->fresh()))->toBe(6);
+});
+
+it('computes remaining quantities for many items in one pass', function () {
+    $c = submissionContext(quantity: 10);
+    $service = app(P2pGoodReceiptSubmissionService::class);
+
+    expect($service->remainingQuantitiesFor(collect()))->toBe([]);
+
+    $invoice = $service->start($c['user'], [$c['state']->id]);
+    $service->submit($invoice, [
+        ['p2p_sap_good_receipt_item_id' => $c['item']->id, 'quantity_billed' => 4],
+    ], $c['user']);
+
+    $items = SapGoodReceiptItem::query()->whereKey($c['item']->id)->get();
+
+    expect($service->remainingQuantitiesFor($items))->toBe([$c['item']->id => 6])
+        ->and($service->remainingQuantitiesFor($items, $invoice->fresh()))->toBe([$c['item']->id => 10]);
 });
 
 it('rejects a quantity over the remaining amount', function () {
@@ -130,5 +147,5 @@ it('replaces lines when a returned invoice is resubmitted', function () {
     ], $c['user']);
 
     expect($invoice->lines()->count())->toBe(1)
-        ->and($invoice->lines()->first()->quantity_billed)->toBe('10.000');
+        ->and($invoice->lines()->first()->quantity_billed)->toBe(10);
 });

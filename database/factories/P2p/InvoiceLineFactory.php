@@ -18,7 +18,7 @@ class InvoiceLineFactory extends Factory
      */
     public function definition(): array
     {
-        $quantity = fake()->randomFloat(3, 1, 50);
+        $quantity = fake()->numberBetween(1, 50);
         $unitCost = fake()->randomFloat(2, 10, 5000);
 
         return [

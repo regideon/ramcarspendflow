@@ -16,8 +16,11 @@ class ReverseAndReGrAction implements StepAction
     public function handle(StepActionContext $context): StepActionCompletion
     {
         // TODO(SAP): reverse + re-GR via the SAP write service, then let the sync pull
-        // the replacement GR (ReversalDetectionService).
-        return StepActionCompletion::done('Reverse & re-GR requested.');
+        // the replacement GR (ReversalDetectionService). Until the write side lands,
+        // recording the intent settles the hop: the warehouse's reversal closes the
+        // escalation rather than walking the route on. Return
+        // `StepActionCompletion::skipped()` when there is nothing to reverse.
+        return StepActionCompletion::resolved('Reverse & re-GR recorded.');
     }
 
     public static function key(): string

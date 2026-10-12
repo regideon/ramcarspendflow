@@ -65,16 +65,16 @@ to the originator. Status IDs reference `App\Enums\P2pStatus`.
 
 ## 3.5 Ported master data (real SAP extracts)
 
-Two masters are imported from the legacy P2P extracts (reference data, not transactions):
+Imported from the live P2P data (reference data, not transactions):
 
 | Seeder | Source | Loads |
 |---|---|---|
-| `P2pVendorSeeder` | `database/data/LocalVendor.csv` (~9.8k rows) | Shared `vendors` (upsert by SAP code) + `company_vendor` per CoCd |
-| `P2pSlocMasterSeeder` | `database/data/T001L_SLOC.csv` (270 rows) | `p2p_sloc_classifications` (company + plant + SLOC + description), classified via `config/p2p.php` |
+| `P2pCompanySeeder` | `p2p_prod_clone.companies` | Shared `companies` (51 SAP company codes) |
+| `P2pVendorSeeder` | `database/data/P2pVendors.csv` + `LocalVendor.csv` | Shared `vendors` (7,487) + `company_vendor` extensions |
+| `P2pItemSeeder` | `p2p_prod_clone.items` | `p2p_items` (2) |
+| `P2pDeliveryTypeSeeder` | `p2p_prod_clone.delivery_types` | `p2p_delivery_types` (Full / Partial Delivery) |
+| `P2pSlocMasterSeeder` | `database/data/T001L_SLOC.csv` | `p2p_sloc_classifications` (270), classified via `config/p2p.php` |
 
-`config/p2p.php` holds the SLOC → classification map today; later it becomes
-`p2p_sloc_classifications` data maintained in the UI. A manually classified SLOC is
-**never** re-classified by a re-seed (only its description is refreshed).
-
-The remaining P2P setup (items, delivery types, escalation reasons, points of contact)
-is generic demo data (`P2pDemoMasterDataSeeder`) — see [Demo data plan](10-demo-data-plan.md).
+The generic P2P setup (material classifications, escalation reasons, points of contact)
+stays in `P2pDemoMasterDataSeeder`. Seeded-from-X masters deactivate stale rows
+(never delete). A manually classified SLOC is never re-classified by a re-seed.

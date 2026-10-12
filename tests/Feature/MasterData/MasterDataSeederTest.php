@@ -38,5 +38,5 @@ it('can be re-run without duplicating data', function () {
     $this->seed(DatabaseSeeder::class);
 
     expect($counts())->toBe($firstRun)
-        ->and($firstRun)->toBe([count(RoleName::cases()), 4, 185, 15, 70, 9, 17]);
+        ->and($firstRun)->toBe([count(RoleName::cases()), 51, 185, 15, 70, 9, 17]);
 });

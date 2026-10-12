@@ -147,11 +147,15 @@ Role names continue to use `App\Enums\RoleName` (never string literals).
 
 ## 2.8 Money & quantity precision
 
+Quantity columns mirror the P2P source: **whole units are `integer`**; only the
+aggregate columns the legacy schema defines as decimal are `decimal(15,2)`.
+
 | Group | Type |
 |---|---|
-| `p2p_invoices` tax/total/qty fields | `decimal(15,2)` |
-| `p2p_invoice_lines` `unit_cost` / `amount` | `decimal(15,2)` |
-| `p2p_invoice_lines` `quantity_billed` | `decimal(15,2)` |
-| SAP mirror amounts | keep SAP scale (`decimal(15,2)` / `(12,4)` as sourced) |
+| `quantity_po`, `quantity_served`, `quantity_po_balance`, `quantity_billed`, `quantity_total` | **integer** |
+| `quantity_previously_served`, `quantity_remaining`, `quantity_submitted` | `decimal(15,2)` (legacy parity) |
+| `p2p_invoices` tax/total fields | `decimal(15,2)` |
+| SAP mirror amounts (`p2p_sap_*`) and `p2p_items.unit_cost` | `decimal(12,4)` |
+| Working amounts (`p2p_invoice_lines` `unit_cost`/`amount`, `p2p_good_receipt_states.amount_total`) | `decimal(12,2)` |
 
 Never floats. Compare approval/threshold values on the PHP amount.

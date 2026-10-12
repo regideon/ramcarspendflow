@@ -4,21 +4,20 @@ namespace Database\Seeders\P2p;
 
 use App\Enums\P2pStatus;
 use App\Enums\RoleName;
-use App\Models\P2p\DeliveryType;
 use App\Models\P2p\EmailNotificationReceiver;
 use App\Models\P2p\EscalationReason;
 use App\Models\P2p\EscalationReasonStep;
-use App\Models\P2p\Item;
 use App\Models\P2p\MaterialClassification;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 /**
- * Generic P2P master data for development, UAT and the mancom demo: items, delivery
- * types, material/SLOC classifications, escalation routes and Points of Contact.
- * There is no SAP integration yet, so none of this is real SAP data. Safe to re-run
- * (upserts by code). See docs/p2p/03-master-data.md and docs/p2p/10-demo-data-plan.md.
+ * Generic P2P master data for development, UAT and the mancom demo: material
+ * classifications, escalation routes and Points of Contact. Items, delivery types,
+ * companies, vendors and SLOC come from the SAP extracts (P2pItemSeeder,
+ * P2pDeliveryTypeSeeder, P2pCompanySeeder, P2pVendorSeeder, P2pSlocMasterSeeder).
+ * Safe to re-run (upserts by code). See docs/p2p/03-master-data.md.
  */
 class P2pDemoMasterDataSeeder extends Seeder
 {
@@ -30,8 +29,6 @@ class P2pDemoMasterDataSeeder extends Seeder
 
         DB::transaction(function (): void {
             $this->seedMaterialClassifications();
-            $this->seedItems();
-            $this->seedDeliveryTypes();
             $this->seedEscalationReasons();
             $this->seedPointsOfContact();
         });
@@ -53,40 +50,6 @@ class P2pDemoMasterDataSeeder extends Seeder
         }
 
         // The SLOC master itself is imported from T001L by P2pSlocMasterSeeder.
-    }
-
-    protected function seedItems(): void
-    {
-        $items = [
-            'RM-0001' => ['Lead Ingot', 'KG', 85.00],
-            'RM-0002' => ['Sulfuric Acid', 'L', 42.50],
-            'SP-0001' => ['Conveyor Belt', 'M', 1250.00],
-            'SP-0002' => ['Hydraulic Oil', 'L', 320.00],
-            'PK-0001' => ['Carton Box (Large)', 'PC', 18.75],
-            'PK-0002' => ['Shrink Wrap', 'ROLL', 260.00],
-        ];
-
-        foreach ($items as $code => [$name, $uom, $unitCost]) {
-            Item::updateOrCreate(['code' => $code], [
-                'name' => $name,
-                'uom' => $uom,
-                'unit_cost' => $unitCost,
-                'is_active' => true,
-            ]);
-        }
-    }
-
-    protected function seedDeliveryTypes(): void
-    {
-        $types = [
-            'DEL' => ['Delivery', 1],
-            'PU' => ['Pickup', 2],
-            'DS' => ['Drop Ship', 3],
-        ];
-
-        foreach ($types as $code => [$name, $sort]) {
-            DeliveryType::updateOrCreate(['code' => $code], ['name' => $name, 'sort' => $sort, 'is_active' => true]);
-        }
     }
 
     /**

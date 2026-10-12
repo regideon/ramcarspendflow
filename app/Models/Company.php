@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\P2p\SapPurchaseOrder;
 use Database\Factories\CompanyFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -44,6 +45,14 @@ class Company extends Model
     public function users(): BelongsToMany
     {
         return $this->belongsToMany(User::class)->withTimestamps();
+    }
+
+    /**
+     * @return HasMany<SapPurchaseOrder, $this>
+     */
+    public function sapPurchaseOrders(): HasMany
+    {
+        return $this->hasMany(SapPurchaseOrder::class, 'company_code', 'code');
     }
 
     /**

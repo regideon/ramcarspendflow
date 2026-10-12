@@ -18,7 +18,8 @@ class VendorFactory extends Factory
     public function definition(): array
     {
         return [
-            'code' => fake()->unique()->numerify('2#####'),
+            // Prefixed so it never collides with a SAP/seeded vendor code (all numeric).
+            'code' => 'DEMO'.fake()->unique()->numberBetween(100000, 999999),
             'name' => fake()->company(),
             'email' => fake()->companyEmail(),
             'country' => 'PH',

@@ -65,10 +65,10 @@ class InvoiceLine extends Model
     protected function casts(): array
     {
         return [
-            'quantity_po' => 'decimal:3',
-            'quantity_billed' => 'decimal:3',
-            'quantity_previous' => 'decimal:3',
-            'quantity_remaining' => 'decimal:3',
+            'quantity_po' => 'integer',
+            'quantity_billed' => 'integer',
+            'quantity_previous' => 'decimal:2',
+            'quantity_remaining' => 'decimal:2',
             'is_fully_billed' => 'boolean',
             'unit_cost' => 'decimal:2',
             'amount' => 'decimal:2',

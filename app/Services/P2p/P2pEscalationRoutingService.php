@@ -117,8 +117,23 @@ class P2pEscalationRoutingService
             $steps = $escalation->reason->steps;
             $current = $steps->firstWhere('step_order', $escalation->current_step_order);
 
-            if ($current?->action !== null) {
-                $this->actions->resolve($current->action)?->handle(new StepActionContext($escalation, $by, $remarks));
+            // A custom hop action (e.g. "Reverse & re-GR") replaces the generic
+            // Advance: it may settle the hop without walking the route, or decline
+            // to act at all (leaving the escalation where it is).
+            $action = $current?->action !== null ? $this->actions->resolve($current->action) : null;
+
+            if ($action !== null) {
+                $completion = $action->handle(new StepActionContext($escalation, $by, $remarks));
+
+                if (! $completion->handled) {
+                    return;
+                }
+
+                if ($completion->resolved) {
+                    $this->resolve($escalation, $by, $remarks);
+
+                    return;
+                }
             }
 
             $next = $steps->firstWhere('step_order', $escalation->current_step_order + 1);
@@ -129,17 +144,34 @@ class P2pEscalationRoutingService
                 return;
             }
 
+            // The label that pushed the request forward: the custom action (or the
+            // hop's configured label), falling back to the generic "Advance".
+            $actionLabel = $action !== null
+                ? $current->action_label
+                : ($current->action_label ?? 'Advance');
+
             $escalation->forceFill([
                 'current_step_order' => $next->step_order,
                 'current_role' => $this->resolveRole($next, $escalation->origin_role),
             ])->save();
 
             $this->goodReceiptStatus->recalculate($escalation->goodReceiptState);
+
+            // A terminal hop hands the request back to the originator, so entering
+            // it ends the cycle rather than leaving it open on that role.
+            if ($next->override_header_status) {
+                $this->afterClosed($escalation, $by, $remarks, $actionLabel);
+
+                $this->mail->sendForCurrentHop($escalation->fresh());
+
+                return;
+            }
+
             $this->syncHeaderStatus($escalation->invoice->fresh());
 
             $this->mail->sendForCurrentHop($escalation->fresh());
 
-            $this->history($escalation, $by, $remarks, 'Escalation advanced.');
+            $this->history($escalation, $by, $remarks, $actionLabel ?? 'Escalation advanced.');
         });
     }
 

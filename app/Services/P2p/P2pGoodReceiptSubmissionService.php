@@ -97,21 +97,21 @@ class P2pGoodReceiptSubmissionService
             // Replace any previous lines (resubmission after a return).
             $invoice->lines()->delete();
 
-            $quantity = '0.00';
+            $quantity = 0;
             $amount = '0.00';
 
             foreach ($lines as $line) {
                 $item = SapGoodReceiptItem::query()->findOrFail($line['p2p_sap_good_receipt_item_id']);
-                $billed = (string) $line['quantity_billed'];
+                $billed = (int) $line['quantity_billed'];
                 $remaining = $this->remainingQuantityFor($item, $invoice);
 
-                if (bccomp($billed, $remaining, 3) > 0) {
+                if ($billed > $remaining) {
                     throw ValidationException::withMessages([
                         'lines' => "Line {$item->item_name} exceeds the remaining quantity ({$remaining}).",
                     ]);
                 }
 
-                $amountLine = bcmul($billed, (string) ($item->unit_cost ?? '0'), 2);
+                $amountLine = bcmul((string) $billed, (string) ($item->unit_cost ?? '0'), 2);
 
                 $invoice->lines()->create([
                     'p2p_sap_good_receipt_item_id' => $item->id,
@@ -121,14 +121,14 @@ class P2pGoodReceiptSubmissionService
                     'item_name' => $item->item_name,
                     'quantity_po' => $item->quantity_served ?? $item->quantity_po,
                     'quantity_billed' => $billed,
-                    'quantity_remaining' => bcsub($remaining, $billed, 3),
-                    'is_fully_billed' => bccomp(bcsub($remaining, $billed, 3), '0', 3) === 0,
+                    'quantity_remaining' => $remaining - $billed,
+                    'is_fully_billed' => $remaining === $billed,
                     'uom' => $item->uom,
                     'unit_cost' => $item->unit_cost,
                     'amount' => $amountLine,
                 ]);
 
-                $quantity = bcadd($quantity, $billed, 3);
+                $quantity += $billed;
                 $amount = bcadd($amount, $amountLine, 2);
             }
 
@@ -162,7 +162,7 @@ class P2pGoodReceiptSubmissionService
     /**
      * Quantity still billable on a mirror item, excluding the given invoice's own lines.
      */
-    public function remainingQuantityFor(SapGoodReceiptItem $item, ?Invoice $invoice = null): string
+    public function remainingQuantityFor(SapGoodReceiptItem $item, ?Invoice $invoice = null): int
     {
         $query = InvoiceLine::query()
             ->where('p2p_sap_good_receipt_item_id', $item->id)
@@ -172,10 +172,45 @@ class P2pGoodReceiptSubmissionService
             $query->where('p2p_invoice_id', '!=', $invoice->id);
         }
 
-        $billed = (string) $query->sum('quantity_billed');
-        $total = (string) ($item->quantity_served ?? $item->quantity_po ?? 0);
+        $billed = (int) $query->sum('quantity_billed');
+        $total = (int) ($item->quantity_served ?? $item->quantity_po ?? 0);
 
-        return bcsub($total, $billed, 3);
+        return $total - $billed;
+    }
+
+    /**
+     * Remaining billable quantity per mirror item, in a single query (avoids the
+     * N+1 of calling {@see self::remainingQuantityFor()} once per line).
+     *
+     * @param  Collection<int, SapGoodReceiptItem>  $items
+     * @return array<int, int> remaining quantity keyed by mirror item id
+     */
+    public function remainingQuantitiesFor(Collection $items, ?Invoice $invoice = null): array
+    {
+        if ($items->isEmpty()) {
+            return [];
+        }
+
+        $query = InvoiceLine::query()
+            ->whereIn('p2p_sap_good_receipt_item_id', $items->pluck('id'))
+            ->whereRelation('invoice', 'status', '!=', P2pStatus::Cancelled->value);
+
+        if ($invoice !== null) {
+            $query->where('p2p_invoice_id', '!=', $invoice->id);
+        }
+
+        $billedByItem = $query
+            ->groupBy('p2p_sap_good_receipt_item_id')
+            ->selectRaw('p2p_sap_good_receipt_item_id, SUM(quantity_billed) as billed')
+            ->pluck('billed', 'p2p_sap_good_receipt_item_id');
+
+        return $items
+            ->mapWithKeys(function (SapGoodReceiptItem $item) use ($billedByItem): array {
+                $total = (int) ($item->quantity_served ?? $item->quantity_po ?? 0);
+
+                return [$item->id => $total - (int) ($billedByItem[$item->id] ?? 0)];
+            })
+            ->all();
     }
 
     protected function recalculatePurchaseOrders(Invoice $invoice): void

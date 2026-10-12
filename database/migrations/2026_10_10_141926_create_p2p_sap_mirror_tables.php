@@ -26,7 +26,7 @@ return new class extends Migration
             $table->string('currency_key')->nullable(); // WAERS
             $table->decimal('total_amount', 15, 2)->nullable();
             $table->json('gr_numbers')->nullable();
-            $table->decimal('quantity_po_balance', 15, 3)->nullable();
+            $table->integer('quantity_po_balance')->nullable();
 
             // Down payment (read from EKPO / EKBE).
             $table->boolean('has_down_payment')->default(false);
@@ -76,7 +76,7 @@ return new class extends Migration
             $table->integer('gr')->nullable();
             $table->decimal('unit_cost', 15, 2)->nullable();
             $table->decimal('amount', 15, 2)->nullable();
-            $table->decimal('quantity_po_balance', 15, 3)->nullable();
+            $table->integer('quantity_po_balance')->nullable();
             $table->timestamps();
         });
     }
