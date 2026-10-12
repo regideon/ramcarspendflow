@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Rfps\Pages;
 
 use App\Filament\Resources\Rfps\RfpResource;
+use App\Filament\Resources\Rfps\Widgets\RfpProgress;
 use App\Models\Rfp\Rfp;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
@@ -12,6 +13,13 @@ use Illuminate\Validation\ValidationException;
 class CreateRfp extends CreateRecord
 {
     protected static string $resource = RfpResource::class;
+
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            RfpProgress::class,
+        ];
+    }
 
     protected static ?string $title = 'New request for payment';
 

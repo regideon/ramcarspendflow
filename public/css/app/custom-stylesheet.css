@@ -373,3 +373,8 @@ button.fi-icon-btn.fi-size-md.fi-topbar-open-sidebar-btn {
     padding-block: 4px;
 }
 
+
+
+.fi-section-content.fi-grid.sm\:fi-grid-cols.xl\:fi-grid-cols.fi-sc.fi-sc-has-gap {
+    margin: 16px 0;
+}

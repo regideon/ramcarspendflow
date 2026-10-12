@@ -4,6 +4,10 @@ Newest first. Each entry gives the decision and the reason for it.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-12 | **My Requests** (`/hub/rfps`) = legacy "My RFPs": only your own RFPs, even for Admins. **RFP Approvals** (`/hub/rfp-approvals`) = legacy "Approvals": the approver/Accounting queue. Named "RFP …" so **P2P Approvals** can be added beside it | User decision |
+| 2026-10-12 | An RFP records who must act next: `current_approver_role`, plus a person when one is assigned (legacy assigns people; with none, anyone with the role may act). Keeps R3 open for new RFPs | Needed for the queue and the legacy data |
+| 2026-10-12 | **Legacy RFP data is imported** (`rfp:import-legacy`, see [09](09-legacy-rfp-import.md)): RFP, item and one-time vendor ids kept; users matched by email with their legacy password hash and mapped roles; legacy master data imported by code and demo master data deactivated. Replaces "legacy-database import dropped" | User wants real data to work with |
+| 2026-10-12 | New status **Rejected** (final); history rows can record an **action** without a status change | Legacy has 153 rejected RFPs and action-style history |
 | 2026-10-07 | **Charging first:** an RFP line picks a **cost center or a PO no.** before the sub category. With a cost center, sub categories are limited to G/Ls mapped to it (`cost_center_gl_account`) **and** matching its expense type from the 3rd digit of the code (1–2 = OPEX → G/L 6…, 3+ = MFG → G/L 5…; `CostCenter::allowsGlCode()`). With a PO, only PO-type sub categories (e.g. Supplier Down Payment) | AP request: stops wrong-G/L charging between OPEX and MFG |
 | 2026-10-07 | Step 5 status is **For Accounting Approval** for both AP Supervisor and AP Manager; either can **Return to AP Processor** (answers R7) | AP enhancement request (I. Dela Cruz, 2026-10-07) |
 | 2026-10-07 | Cancelling needs remarks, always visible to AP; Step 4 shows a **total Net of Withholding Tax** | AP enhancement request |

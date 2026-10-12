@@ -63,9 +63,9 @@ erDiagram
 | `rfp_due_types` | Urgent / Standard: `code` (stable, used by code), `processing_days`, `business_days_only`, `is_default`. Sets the RFP due date, counted from submission. Edited under **RFP Settings → Due Types** |
 | `rfp_approval_rules` | Step 3 matrix tiers: `request_type` (null = any), `is_direct_to_vp`, `max_amount` (inclusive, null = no limit) |
 | `rfp_approval_rule_steps` | Roles per tier with `step_order` (same order = parallel) |
-| `rfps` | The request: `rfp_number` (RFP-YYYY-000001), paying company, requestor, `request_type`, `rfp_due_type_id` + `due_date`, `account_group_id` + `vendor_id` (payee; "Final payee" on a Reimbursement), payment method, purpose, `is_direct_to_vp`, `is_pre_approved` + `pre_approval_documents`, `total_php_amount`, `status` (`App\Enums\RfpStatus`), `submitted_at`, soft deletes |
+| `rfps` | The request: `rfp_number` (RFP-YYYY-000001), paying company, requestor, `request_type`, `rfp_due_type_id` + `due_date`, `account_group_id` + `vendor_id` (payee; "Final payee" on a Reimbursement), payment method, purpose, `is_direct_to_vp`, `is_pre_approved` + `pre_approval_documents`, `total_php_amount`, `status` (`App\Enums\RfpStatus`), `current_approver_role` (`RoleName`) + optional `current_approver_id` (who must act next; with no person, anyone with the role), `submitted_at`, soft deletes |
 | `rfp_items` | Line items (charged to a cost center **or** a PO no., then a subcategory that fits it; see decision 2026-10-07): `sort`, description (item details), subcategory, `gl_account_id` (copied from the subcategory), cost center, invoice no./date, PO no., `currency_id` + `amount` + `exchange_rate` + `php_amount`, `attachments` (private disk paths). Reimbursement only: `company_id`, `vendor_type` (`App\Enums\RfpVendorType`), `vendor_id` / `rfp_one_time_vendor_id` |
-| `rfp_histories` | Append-only status log: user, from/to status, remarks |
+| `rfp_histories` | Append-only log: user, `action` (e.g. Approved, Tax codes processed), from/to status (nullable when the action does not change it), remarks |
 | _Phase 2.4:_ `rfp_approval_steps` | Snapshot of the resolved approver chain per RFP. To be designed |
 
 ## 5. P2P tables (Phase 3, to be designed)

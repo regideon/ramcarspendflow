@@ -21,6 +21,10 @@ class CategoryForm
                             ->required()
                             ->maxLength(150)
                             ->unique(ignoreRecord: true),
+                        Toggle::make('is_default')
+                            ->label('Default')
+                            ->helperText('Pre-selected on new RFP lines.')
+                            ->inline(false),
                         Toggle::make('is_active')
                             ->label('Active')
                             ->default(true)

@@ -43,7 +43,7 @@ class ListRfps extends ListRecords
             'in_progress' => Tab::make('In progress')
                 ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', $inProgress)),
             'closed' => Tab::make('Closed')
-                ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', [RfpStatus::Completed, RfpStatus::Cancelled])),
+                ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', [RfpStatus::Completed, RfpStatus::Rejected, RfpStatus::Cancelled])),
         ];
     }
 }

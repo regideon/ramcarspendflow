@@ -18,6 +18,7 @@ enum RfpStatus: string implements HasColor, HasLabel
     case ForAccountingApproval = 'for_accounting_approval'; // Step 5: AP Supervisor, then AP Manager
     case ForTreasury = 'for_treasury';
     case Completed = 'completed';
+    case Rejected = 'rejected'; // an approver rejected it; final
     case Cancelled = 'cancelled';
 
     public function getLabel(): string
@@ -31,6 +32,7 @@ enum RfpStatus: string implements HasColor, HasLabel
             self::ForAccountingApproval => 'For Accounting Approval',
             self::ForTreasury => 'For Treasury',
             self::Completed => 'Completed',
+            self::Rejected => 'Rejected',
             self::Cancelled => 'Cancelled',
         };
     }
@@ -41,9 +43,27 @@ enum RfpStatus: string implements HasColor, HasLabel
             self::Draft => 'gray',
             self::ForRevision => 'warning',
             self::Completed => 'success',
-            self::Cancelled => 'danger',
+            self::Rejected, self::Cancelled => 'danger',
             default => 'info',
         };
+    }
+
+    /**
+     * Statuses with nothing left to do.
+     *
+     * @return list<self>
+     */
+    public static function final(): array
+    {
+        return [self::Completed, self::Rejected, self::Cancelled];
+    }
+
+    /**
+     * Whether the RFP is with an approver or Accounting (not the requestor, not finished).
+     */
+    public function isAwaitingApproval(): bool
+    {
+        return ! in_array($this, [self::Draft, self::ForRevision, ...self::final()], true);
     }
 
     /**

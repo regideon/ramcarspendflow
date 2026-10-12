@@ -14,11 +14,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Expense subcategory: decides the G/L account and SAP posting data for an RFP line.
  */
 #[Table('rfp_subcategories')]
-#[Fillable(['rfp_category_id', 'gl_account_id', 'name', 'document_type', 'posting_key', 'requires_cost_center', 'requires_po_number', 'is_active'])]
+#[Fillable(['rfp_category_id', 'gl_account_id', 'name', 'document_type', 'posting_key', 'requires_cost_center', 'requires_po_number', 'is_default', 'is_active'])]
 class Subcategory extends Model
 {
     /** @use HasFactory<SubcategoryFactory> */
     use HasFactory;
+
+    protected static function booted(): void
+    {
+        // Only one sub category is pre-selected on new RFP lines
+        static::saved(function (Subcategory $subcategory): void {
+            if ($subcategory->is_default && ($subcategory->wasRecentlyCreated || $subcategory->wasChanged('is_default'))) {
+                static::query()->whereKeyNot($subcategory->getKey())->update(['is_default' => false]);
+            }
+        });
+    }
 
     /**
      * @return BelongsTo<Category, $this>
@@ -44,6 +54,7 @@ class Subcategory extends Model
         return [
             'requires_cost_center' => 'boolean',
             'requires_po_number' => 'boolean',
+            'is_default' => 'boolean',
             'is_active' => 'boolean',
         ];
     }

@@ -111,13 +111,15 @@ class RfpInfolist
                             ->table([
                                 TableColumn::make('When'),
                                 TableColumn::make('By'),
+                                TableColumn::make('Action'),
                                 TableColumn::make('Status'),
                                 TableColumn::make('Remarks'),
                             ])
                             ->schema([
                                 TextEntry::make('created_at')->dateTime('M j, Y g:i A'),
                                 TextEntry::make('user.name')->placeholder('System'),
-                                TextEntry::make('to_status')->badge(),
+                                TextEntry::make('action')->placeholder('—'),
+                                TextEntry::make('to_status')->badge()->placeholder('—'),
                                 TextEntry::make('remarks')->placeholder('—'),
                             ])
                             ->placeholder('No activity yet'),

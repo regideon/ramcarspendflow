@@ -67,11 +67,14 @@ The AP Processor can also **Cancel** a request. Cancelled requests are kept for 
 
 ## Good to know
 
+- **Two pages.** **My Requests** lists only the RFPs you raised. **RFP Approvals** is the queue for approvers and Accounting: the **For my action** tab (and the number next to the menu item) shows what is waiting for you, and **Current Approver** shows who each RFP is with.
+
 - **After you submit, the request is locked.** You can still open it and see its status and history, but you can only edit it again if it's sent back to you **For Revision**.
 - **Due type sets the due date.** **Urgent** is due the next business day and **Standard** in 5 business days, counted from the day you submit. Weekends are skipped.
 - **Attach supporting documents to every item** (invoice, receipt or quotation). You can't submit until each item has at least one. Files are stored privately; only people working on the request can open them.
+- **Read receipt.** After you upload a PDF or photo of a receipt, invoice or bill in **Supporting Document**, click **Read receipt with AI**. The AI reads it and shows what it found (invoice no., date, amount, currency, details, a suggested sub category and, on a reimbursement, who was paid). Check and correct the values, then click **Apply to item**. Nothing is filled in until you apply it, and you are still responsible for what you submit. It also warns you about possible duplicates, a date outside the last 6 months, VAT that isn't 12%, or a vendor that doesn't match the RFP.
 - **Pre-approved?** If the payment was already approved outside the portal, turn on **Pre-approved** and attach the proof of approval (for example, the approval email). The approval matrix is then skipped.
-- **Charge first, then pick the category.** On each item, choose the **cost center** (or enter the **PO no.**) first. The sub category list then shows only the G/L accounts that fit: OPEX cost centers (3rd digit 1 or 2) take G/L 6…, MFG cost centers (3rd digit 3 and above) take G/L 5…. A PO no. shows only PO-type sub categories, such as Supplier Down Payment.
+- **Charge first, then pick the category.** On each item, choose the **cost center** (or enter the **PO no.**) first. Pick the **Category**, then the **Sub category**. The sub category list shows only what fits the cost center or PO: OPEX cost centers (3rd digit 1 or 2) take G/L 6…, MFG cost centers (3rd digit 3 and above) take G/L 5…. A PO no. shows only PO-type sub categories, such as Supplier Down Payment.
 - **Each item has its own currency.** Foreign amounts are converted to PHP at the rate on file. The total in PHP is shown live and saved with the request.
 - **Who sees your request:** you, the people at each step of its route, and administrators.
 - **History:** every status change is recorded with who did it, when, and any remarks. See the **History** panel on the request.

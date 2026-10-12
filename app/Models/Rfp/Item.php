@@ -25,6 +25,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable([
     'rfp_id', 'sort', 'company_id', 'vendor_type', 'vendor_id', 'rfp_one_time_vendor_id', 'rfp_subcategory_id',
     'cost_center_id', 'invoice_number', 'invoice_date', 'po_number', 'description', 'currency_id', 'amount', 'attachments',
+    'receipt_scan',
 ])]
 class Item extends Model
 {
@@ -165,6 +166,7 @@ class Item extends Model
             'exchange_rate' => 'decimal:6',
             'php_amount' => 'decimal:2',
             'attachments' => 'array',
+            'receipt_scan' => 'array',
         ];
     }
 }

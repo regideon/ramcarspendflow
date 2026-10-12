@@ -48,6 +48,9 @@ class SubcategoriesRelationManager extends RelationManager
                     ->label('Requires cost center'),
                 Toggle::make('requires_po_number')
                     ->label('Requires PO number'),
+                Toggle::make('is_default')
+                    ->label('Default')
+                    ->helperText('Pre-selected on new RFP lines.'),
                 Toggle::make('is_active')
                     ->label('Active')
                     ->default(true),
@@ -72,6 +75,9 @@ class SubcategoriesRelationManager extends RelationManager
                     ->boolean(),
                 IconColumn::make('requires_po_number')
                     ->label('PO no.')
+                    ->boolean(),
+                IconColumn::make('is_default')
+                    ->label('Default')
                     ->boolean(),
                 IconColumn::make('is_active')
                     ->label('Active')
