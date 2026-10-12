@@ -3,7 +3,6 @@
 use App\Enums\P2pStatus;
 use App\Enums\RoleName;
 use App\Filament\Pages\P2p\BulkGoodsReceipt;
-use App\Filament\Resources\P2p\Invoices\InvoiceResource;
 use App\Filament\Resources\P2p\Invoices\Pages\ListInvoices;
 use App\Filament\Resources\P2p\PurchaseOrders\PurchaseOrderResource;
 use App\Models\Company;
@@ -79,16 +78,15 @@ it('opens a submission in the bulk goods-receipt screen for vendors', function (
     expect($component->instance()->getTable()->getRecordUrl($invoice))->toBe($url);
 });
 
-it('keeps the plain view page for AP processors', function () {
+it('leaves AP processor rows unlinked now the detail page is gone', function () {
     $this->actingAs(invoiceListProcessor());
 
     $invoice = invoiceListInvoice(User::factory()->create());
-    $url = InvoiceResource::getUrl('view', ['record' => $invoice]);
 
     $component = Livewire::test(ListInvoices::class);
 
-    $component->assertTableActionHasUrl('view', $url, $invoice);
-    expect($component->instance()->getTable()->getRecordUrl($invoice))->toBe($url);
+    $component->assertTableActionHidden('view', $invoice);
+    expect($component->instance()->getTable()->getRecordUrl($invoice))->toBeNull();
 });
 
 it('links the Process header action to purchase orders for vendors', function () {

@@ -5,7 +5,6 @@ namespace App\Filament\Resources\P2p\Invoices\Tables;
 use App\Enums\P2pStatus;
 use App\Enums\RoleName;
 use App\Filament\Pages\P2p\BulkGoodsReceipt;
-use App\Filament\Resources\P2p\Invoices\InvoiceResource;
 use App\Models\P2p\Invoice;
 use Filament\Actions\Action;
 use Filament\Support\Icons\Heroicon;
@@ -92,24 +91,25 @@ class InvoicesTable
                     ->icon(Heroicon::Eye)
                     ->color('gray')
                     ->iconButton()
-                    ->url(fn (Invoice $record): string => self::viewUrl($record)),
+                    ->visible(fn (Invoice $record): bool => self::viewUrl($record) !== null)
+                    ->url(fn (Invoice $record): ?string => self::viewUrl($record)),
             ])
-            ->recordUrl(fn (Invoice $record): string => self::viewUrl($record))
+            ->recordUrl(fn (Invoice $record): ?string => self::viewUrl($record))
             ->searchPlaceholder('Search GRC no., invoice no. or vendor')
             ->striped();
     }
 
     /**
      * Vendors and admins open a submission in the bulk goods-receipt screen (read-only
-     * unless the invoice was returned to the vendor). AP processors cannot access that
-     * page, so they keep the plain view page.
+     * unless the invoice was returned to the vendor). AP processors have no detail
+     * screen, so their rows stay unlinked.
      */
-    private static function viewUrl(Invoice $record): string
+    private static function viewUrl(Invoice $record): ?string
     {
         if (auth()->user()?->hasAnyRole([RoleName::Vendor, RoleName::Admin])) {
             return BulkGoodsReceipt::getUrl(['invoice' => $record->id]);
         }
 
-        return InvoiceResource::getUrl('view', ['record' => $record]);
+        return null;
     }
 }

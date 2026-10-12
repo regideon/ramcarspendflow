@@ -4,14 +4,10 @@ namespace App\Filament\Resources\P2p\GoodsReceipts;
 
 use App\Enums\RoleName;
 use App\Filament\Resources\P2p\GoodsReceipts\Pages\ListGoodsReceipts;
-use App\Filament\Resources\P2p\GoodsReceipts\Pages\ViewGoodsReceipt;
 use App\Filament\Resources\P2p\GoodsReceipts\Tables\GoodsReceiptsTable;
 use App\Models\P2p\GoodReceiptState;
 use BackedEnum;
-use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
-use Filament\Schemas\Components\Section;
-use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -47,23 +43,6 @@ class GoodsReceiptResource extends Resource
         return GoodsReceiptsTable::configure($table);
     }
 
-    public static function infolist(Schema $schema): Schema
-    {
-        return $schema->components([
-            Section::make('Goods receipt')->schema([
-                TextEntry::make('good_receipt_number')->label('GR no.'),
-                TextEntry::make('purchase_order')->label('PO no.'),
-                TextEntry::make('status')->badge(),
-                TextEntry::make('vendor.name')->label('Vendor'),
-                TextEntry::make('company.short_name')->label('Company'),
-                TextEntry::make('quantity_total')->label('Qty'),
-                TextEntry::make('amount_total')->money('PHP'),
-                TextEntry::make('reversed_at')->label('Reversed')->dateTime()->placeholder('—'),
-                TextEntry::make('replacement_gr_number')->label('Replacement GR')->placeholder('—'),
-            ])->columns(3),
-        ]);
-    }
-
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery();
@@ -94,7 +73,6 @@ class GoodsReceiptResource extends Resource
     {
         return [
             'index' => ListGoodsReceipts::route('/'),
-            'view' => ViewGoodsReceipt::route('/{record}'),
         ];
     }
 }

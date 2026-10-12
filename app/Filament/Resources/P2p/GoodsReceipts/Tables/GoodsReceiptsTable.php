@@ -4,7 +4,6 @@ namespace App\Filament\Resources\P2p\GoodsReceipts\Tables;
 
 use App\Enums\RoleName;
 use App\Filament\Pages\P2p\BulkGoodsReceipt;
-use App\Filament\Resources\P2p\GoodsReceipts\GoodsReceiptResource;
 use App\Models\P2p\GoodReceiptState;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -65,7 +64,16 @@ class GoodsReceiptsTable
                     ->visible(fn (): bool => auth()->user()?->hasRole(RoleName::Vendor) ?? false)
                     ->action(fn (Collection $records) => redirect(BulkGoodsReceipt::getUrl(['ids' => $records->pluck('id')->all()]))),
             ])
-            ->recordUrl(fn (GoodReceiptState $record): string => GoodsReceiptResource::getUrl('view', ['record' => $record]))
+            ->recordUrl(fn (GoodReceiptState $record): ?string => self::processUrl($record))
             ->striped();
+    }
+
+    /**
+     * A row opens the bulk goods-receipt screen, which shows the receipt read-only
+     * unless it is pending (then the vendor can process it).
+     */
+    protected static function processUrl(GoodReceiptState $record): ?string
+    {
+        return BulkGoodsReceipt::getUrl(['ids' => [$record->id]]);
     }
 }

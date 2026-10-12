@@ -4,14 +4,10 @@ namespace App\Filament\Resources\P2p\Invoices;
 
 use App\Enums\RoleName;
 use App\Filament\Resources\P2p\Invoices\Pages\ListInvoices;
-use App\Filament\Resources\P2p\Invoices\Pages\ViewInvoice;
 use App\Filament\Resources\P2p\Invoices\Tables\InvoicesTable;
 use App\Models\P2p\Invoice;
 use BackedEnum;
-use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
-use Filament\Schemas\Components\Section;
-use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -55,27 +51,6 @@ class InvoiceResource extends Resource
         return InvoicesTable::configure($table);
     }
 
-    public static function infolist(Schema $schema): Schema
-    {
-        return $schema->components([
-            Section::make('Invoice')->schema([
-                TextEntry::make('grc_number')->label('GRC no.'),
-                TextEntry::make('status')->badge(),
-                TextEntry::make('invoice_number')->label('Invoice no.')->placeholder('—'),
-                TextEntry::make('vendor.name')->label('Vendor'),
-                TextEntry::make('company.name')->label('Company'),
-                TextEntry::make('invoice_at')->label('Invoice date')->dateTime()->placeholder('—'),
-                TextEntry::make('amount_submitted')->label('Amount')->money('PHP'),
-                TextEntry::make('vat')->money('PHP'),
-                TextEntry::make('ewt')->label('WHT')->money('PHP'),
-                TextEntry::make('net')->label('Net')->money('PHP'),
-                TextEntry::make('submitted_at')->label('Submitted')->dateTime()->placeholder('—'),
-                TextEntry::make('po_numbers')->label('POs')->listWithLineBreaks()->placeholder('—'),
-                TextEntry::make('gr_numbers')->label('GRs')->listWithLineBreaks()->placeholder('—'),
-            ])->columns(3),
-        ]);
-    }
-
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()->visibleTo(auth()->user());
@@ -95,7 +70,6 @@ class InvoiceResource extends Resource
     {
         return [
             'index' => ListInvoices::route('/'),
-            'view' => ViewInvoice::route('/{record}'),
         ];
     }
 }

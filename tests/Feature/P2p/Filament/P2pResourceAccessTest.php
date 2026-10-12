@@ -93,3 +93,13 @@ it('forbids a vendor from escalations', function () {
         ->get('/hub/p2p/escalations')
         ->assertForbidden();
 });
+
+it('removed the P2P detail screens in favour of the processing screens', function () {
+    $admin = User::factory()->create()->assignRole(RoleName::Admin);
+
+    // The three P2P resources expose no `view` page: rows link to the processing
+    // screens (bulk goods receipt / GR list) instead of a record detail page.
+    foreach (['/hub/p2p/invoices/1', '/hub/p2p/goods-receipts/1', '/hub/p2p/purchase-orders/1'] as $url) {
+        $this->actingAs($admin)->get($url)->assertNotFound();
+    }
+});
