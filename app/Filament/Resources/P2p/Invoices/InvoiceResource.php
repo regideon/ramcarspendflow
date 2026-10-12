@@ -63,7 +63,7 @@ class InvoiceResource extends Resource
                 TextEntry::make('status')->badge(),
                 TextEntry::make('invoice_number')->label('Invoice no.')->placeholder('—'),
                 TextEntry::make('vendor.name')->label('Vendor'),
-                TextEntry::make('company.short_name')->label('Company'),
+                TextEntry::make('company.name')->label('Company'),
                 TextEntry::make('invoice_at')->label('Invoice date')->dateTime()->placeholder('—'),
                 TextEntry::make('amount_submitted')->label('Amount')->money('PHP'),
                 TextEntry::make('vat')->money('PHP'),

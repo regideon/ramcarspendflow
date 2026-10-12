@@ -47,7 +47,11 @@ it('forbids a non-vendor from purchase orders', function () {
 it('lets a vendor open goods receipts and the bulk page', function () {
     $vendor = User::factory()->create()->assignRole(RoleName::Vendor);
 
-    $this->actingAs($vendor)->get('/hub/p2p/goods-receipts')->assertOk();
+    // A bare visit lands on the Pending tab (deep-link-friendly), so it redirects first.
+    $this->actingAs($vendor)->get('/hub/p2p/goods-receipts')
+        ->assertRedirectContains('activeTab=pending');
+
+    $this->actingAs($vendor)->get('/hub/p2p/goods-receipts?activeTab=pending')->assertOk();
     $this->actingAs($vendor)->get('/hub/p2p/bulk-goods-receipt')->assertOk();
 });
 

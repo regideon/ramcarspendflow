@@ -193,9 +193,6 @@ span.flex.items-center.gap-2 {
     border-radius: 0.5rem;
     padding: 0.5rem 0.75rem;
 } */
-.fi-ta-actions:hover {
-    background-color: #feeef3;
-}
 .fi-ta-actions > a,
 .fi-ta-actions > a:hover,
 .fi-ta-actions > a > span,

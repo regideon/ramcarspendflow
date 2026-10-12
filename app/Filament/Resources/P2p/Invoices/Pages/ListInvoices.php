@@ -25,11 +25,14 @@ class ListInvoices extends ListRecords
         ];
     }
 
+    public function getDefaultActiveTab(): string
+    {
+        return 'all';
+    }
+
     public function getTabs(): array
     {
         return [
-            'pending' => Tab::make('Pending')
-                ->query(fn (Builder $query): Builder => $query->where('status', P2pStatus::Pending->value)),
             'in_progress' => Tab::make('In Progress')
                 ->query(fn (Builder $query): Builder => $query->whereIn('status', [
                     P2pStatus::SubmittedToAp->value,

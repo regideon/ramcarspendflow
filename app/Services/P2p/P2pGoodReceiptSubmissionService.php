@@ -178,6 +178,41 @@ class P2pGoodReceiptSubmissionService
         return $total - $billed;
     }
 
+    /**
+     * Remaining billable quantity per mirror item, in a single query (avoids the
+     * N+1 of calling {@see self::remainingQuantityFor()} once per line).
+     *
+     * @param  Collection<int, SapGoodReceiptItem>  $items
+     * @return array<int, int> remaining quantity keyed by mirror item id
+     */
+    public function remainingQuantitiesFor(Collection $items, ?Invoice $invoice = null): array
+    {
+        if ($items->isEmpty()) {
+            return [];
+        }
+
+        $query = InvoiceLine::query()
+            ->whereIn('p2p_sap_good_receipt_item_id', $items->pluck('id'))
+            ->whereRelation('invoice', 'status', '!=', P2pStatus::Cancelled->value);
+
+        if ($invoice !== null) {
+            $query->where('p2p_invoice_id', '!=', $invoice->id);
+        }
+
+        $billedByItem = $query
+            ->groupBy('p2p_sap_good_receipt_item_id')
+            ->selectRaw('p2p_sap_good_receipt_item_id, SUM(quantity_billed) as billed')
+            ->pluck('billed', 'p2p_sap_good_receipt_item_id');
+
+        return $items
+            ->mapWithKeys(function (SapGoodReceiptItem $item) use ($billedByItem): array {
+                $total = (int) ($item->quantity_served ?? $item->quantity_po ?? 0);
+
+                return [$item->id => $total - (int) ($billedByItem[$item->id] ?? 0)];
+            })
+            ->all();
+    }
+
     protected function recalculatePurchaseOrders(Invoice $invoice): void
     {
         SapPurchaseOrder::query()

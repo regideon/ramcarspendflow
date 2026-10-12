@@ -21,6 +21,7 @@
         "barryvdh/laravel-debugbar": "^4.4",
         "beyondcode/laravel-query-detector": "^2.3",
         "fakerphp/faker": "^1.23",
+        "laradumps/laradumps": "^5.4",
         "laravel/boost": "^2.10",
         "laravel/pail": "^1.2.5",
         "laravel/pao": "^1.0.6",

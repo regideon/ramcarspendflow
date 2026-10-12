@@ -73,14 +73,9 @@ class GoodsReceiptResource extends Resource
             $query->where('vendor_id', $user->vendor_id);
         }
 
-        // Reached from Purchase Orders ("View GR's" / "Process GRs").
-        if ($purchaseOrders = request()->query('purchase_orders')) {
-            $query->whereIn('purchase_order', (array) $purchaseOrders);
-        }
-
-        if ($grNumbers = request()->query('gr_numbers')) {
-            $query->whereIn('good_receipt_number', (array) $grNumbers);
-        }
+        // The Purchase Orders -> GRs deep-link scope (gr_numbers / purchase_orders) is
+        // applied by ListGoodsReceipts so it survives Livewire interactions and keeps
+        // the base-number "-P" fallback. See ListGoodsReceipts::applyGrOrPoFilter().
 
         return $query;
     }
