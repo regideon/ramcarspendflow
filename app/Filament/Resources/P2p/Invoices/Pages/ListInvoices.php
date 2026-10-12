@@ -4,11 +4,9 @@ namespace App\Filament\Resources\P2p\Invoices\Pages;
 
 use App\Enums\P2pStatus;
 use App\Enums\RoleName;
-use App\Filament\Exports\P2pInvoiceExporter;
 use App\Filament\Resources\P2p\Invoices\InvoiceResource;
 use App\Filament\Resources\P2p\PurchaseOrders\PurchaseOrderResource;
 use Filament\Actions\Action;
-use Filament\Actions\ExportAction;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Tabs\Tab;
 use Filament\Support\Icons\Heroicon;
@@ -21,12 +19,8 @@ class ListInvoices extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            ExportAction::make()
-                ->label('Export')
-                ->exporter(P2pInvoiceExporter::class)
-                // Vendors export their own invoices; staff export the whole queue.
-                ->visible(fn (): bool => auth()->user() !== null),
-
+            // The invoice export is hidden for now; P2pInvoiceExporter is kept for
+            // when it is re-enabled.
             Action::make('process')
                 ->label('Process')
                 ->icon(Heroicon::OutlinedPlay)
