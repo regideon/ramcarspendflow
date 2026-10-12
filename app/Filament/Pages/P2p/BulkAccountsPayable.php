@@ -819,15 +819,15 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
     }
 
     /**
-     * Whether the user owns the escalation's current hop. The app role for a hop
-     * comes from `Escalation::ROLE_APP_ROLES`; the umbrella `warehouse` token is
-     * handled by any warehouse role.
+     * Whether the user owns the escalation's current hop. Hop roles are the
+     * lowercase legacy tokens, so map them to the app's TitleCase Spatie roles.
+     * The umbrella `warehouse` hop is handled by any warehouse role.
      */
     protected function userHandlesEscalation(User $user, Escalation $escalation): bool
     {
         $hopRole = $escalation->current_role;
 
-        if (in_array($hopRole, ['warehouse', 'warehouse_raw_materials', 'warehouse_spare_parts'], true)) {
+        if ($hopRole === 'warehouse') {
             return $user->hasAnyRole([
                 RoleName::Warehouse,
                 RoleName::WarehouseRawMaterials,
@@ -835,9 +835,9 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             ]);
         }
 
-        $appRole = Escalation::ROLE_APP_ROLES[$hopRole] ?? $hopRole;
+        $appRole = Escalation::appRoleFor($hopRole);
 
-        return $user->hasRole($appRole);
+        return $appRole !== null && $user->hasRole($appRole);
     }
 
     protected function advanceEscalationAction(): Action
@@ -912,31 +912,6 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             ->send();
 
         $this->redirectBack();
-    }
-
-    /**
-     * Guard an escalation action: only a user who owns the current hop may act,
-     * and the escalation must belong to the invoice on screen.
-     */
-    protected function authorizeEscalationAction(Escalation $escalation): bool
-    {
-        $user = $this->currentUser();
-
-        if ($user === null
-            || $escalation->status !== Escalation::STATUS_OPEN
-            || $escalation->p2p_invoice_id !== $this->invoiceModel()?->id
-            || ! $this->userHandlesEscalation($user, $escalation)
-        ) {
-            Notification::make()
-                ->title('Not allowed')
-                ->body('This escalation is not waiting on you.')
-                ->danger()
-                ->send();
-
-            return false;
-        }
-
-        return true;
     }
 
     protected function submitAction(): Action

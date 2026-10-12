@@ -2,7 +2,6 @@
 
 namespace App\Services\P2p\Mail;
 
-use App\Enums\RoleName;
 use App\Mail\P2p\EscalatedInvoiceNoticeMail;
 use App\Mail\P2p\EscalateToProcurementMail;
 use App\Models\P2p\Escalation;
@@ -17,15 +16,6 @@ use Illuminate\Support\Facades\Mail;
  */
 class EscalationMailService
 {
-    /**
-     * Map an escalation hop role to the app's Spatie role.
-     */
-    private const array ROLE_ALIASES = [
-        'procurement' => RoleName::Procurement,
-        'warehouse' => RoleName::Warehouse,
-        'processor' => RoleName::ApProcessor,
-    ];
-
     public function sendForCurrentHop(Escalation $escalation): void
     {
         foreach ($this->recipientsFor($escalation) as $email) {
@@ -57,7 +47,7 @@ class EscalationMailService
             return collect($escalation->invoice?->vendor?->email)->filter();
         }
 
-        $roleName = self::ROLE_ALIASES[$role] ?? null;
+        $roleName = Escalation::appRoleFor($role);
 
         if ($roleName === null) {
             return collect();
