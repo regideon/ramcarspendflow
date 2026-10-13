@@ -34,9 +34,9 @@ class PurchaseOrdersTable
                     ->searchable()
                     ->sortable()
                     ->weight('medium'),
-                TextColumn::make('gr_numbers')
-                    ->label('GRs')
-                    ->state(fn (SapPurchaseOrder $record): int => implode(', ', $record->gr_numbers ?? [])),
+                // TextColumn::make('gr_numbers')
+                //     ->label('GRs')
+                //     ->state(fn (SapPurchaseOrder $record): int => implode(', ', $record->gr_numbers ?? [])),
                 TextColumn::make('vendor_code')
                     ->label('Vendor')
                     ->searchable()
