@@ -7,11 +7,11 @@
 <x-filament-widgets::widget>
     @if (count($items))
         <div class="overflow-hidden rounded-xl border-s-4 border-warning-500 bg-warning-50 p-4 ring-1 ring-warning-200 dark:bg-warning-500/10 dark:ring-warning-500/20">
-            <div class="mb-3 flex flex-wrap items-center gap-2">
+            {{-- <div class="mb-3 flex flex-wrap items-center gap-2">
                 <x-filament::icon icon="heroicon-o-arrow-uturn-left" class="h-6 w-6 text-warning-600 dark:text-warning-400" />
                 <h2 class="text-base font-semibold text-gray-950 dark:text-white">Back on your desk</h2>
                 <span class="text-sm text-gray-600 dark:text-gray-400">· {{ count($items) }} {{ str('item')->plural(count($items)) }} returned or unblocked</span>
-            </div>
+            </div> --}}
 
             <div class="flex flex-col gap-2">
                 @foreach ($items as $item)
