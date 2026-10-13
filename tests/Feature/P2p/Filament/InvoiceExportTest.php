@@ -25,16 +25,16 @@ function invoiceExportLabels(): array
         ->all();
 }
 
-it('offers the invoice export to staff', function () {
+it('hides the invoice export from staff for now', function () {
     $this->actingAs(User::factory()->create()->assignRole(RoleName::ApProcessor));
 
-    Livewire::test(ListInvoices::class)->assertActionExists('export');
+    Livewire::test(ListInvoices::class)->assertActionDoesNotExist('export');
 });
 
-it('offers the invoice export to vendors', function () {
+it('hides the invoice export from vendors for now', function () {
     $this->actingAs(User::factory()->create()->assignRole(RoleName::Vendor));
 
-    Livewire::test(ListInvoices::class)->assertActionExists('export');
+    Livewire::test(ListInvoices::class)->assertActionDoesNotExist('export');
 });
 
 it('exports the full column set to staff', function () {

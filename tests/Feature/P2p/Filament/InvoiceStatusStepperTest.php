@@ -117,7 +117,12 @@ it('renders escalation hop labels per batch', function () {
     expect($html)->toContain('Escalation')
         ->and($html)->toContain('BATCH-STEPPER-1')
         ->and($html)->toContain('Procurement')
-        ->and($html)->toContain('Warehouse');
+        ->and($html)->toContain('Warehouse')
+        // The escalation route replaces the normal forward path, so its steps
+        // (Processor / Checker / Completed) are no longer rendered.
+        ->and($html)->not->toContain('Completed')
+        ->and($html)->not->toContain('Processor')
+        ->and($html)->not->toContain('Checker');
 });
 
 it('renders the stepper inside the invoice view page', function () {

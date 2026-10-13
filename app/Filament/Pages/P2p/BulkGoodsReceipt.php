@@ -226,11 +226,12 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                                 ->readOnly()
                                 ->dehydrated(false),
 
+                            // Hidden for now; keep the field so it can be re-enabled.
                             TextInput::make('grc_number')
                                 ->label('GRC no.')
                                 ->readOnly()
                                 ->dehydrated(false)
-                                ->visible(filled($this->invoice)),
+                                ->hidden(),
 
                             DatePicker::make('invoiceAt')
                                 ->label('Invoice Date')

@@ -47,7 +47,9 @@ class EscalationResource extends Resource
     {
         return parent::getEloquentQuery()
             ->where('status', Escalation::STATUS_OPEN)
-            ->with(['reason', 'goodReceiptState', 'invoice.vendor', 'invoice.company']);
+            // `reason.steps` feeds each row's current-hop action/label, so eager-load
+            // it to avoid a query per row.
+            ->with(['reason.steps', 'goodReceiptState', 'invoice.vendor', 'invoice.company']);
     }
 
     public static function canAccess(): bool

@@ -25,11 +25,13 @@ class ApprovalsTable
         return $table
             ->modifyQueryUsing(fn (Builder $query): Builder => $query->with(['vendor', 'company']))
             ->columns([
+                // Hidden for now; keep the column so it can be re-enabled.
                 TextColumn::make('grc_number')
                     ->label('GRC No.')
                     ->searchable()
                     ->sortable()
-                    ->weight('medium'),
+                    ->weight('medium')
+                    ->hidden(),
 
                 TextColumn::make('vendor.name')
                     ->label('Vendor')
