@@ -27,7 +27,7 @@ class RfpApprovalResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClipboardDocumentCheck;
 
-    // protected static string|UnitEnum|null $navigationGroup = 'RFP';
+    protected static string|UnitEnum|null $navigationGroup = 'RFP';
 
     protected static ?string $navigationLabel = 'RFP Approvals';
 

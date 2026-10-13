@@ -31,7 +31,7 @@ class RfpResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBanknotes;
 
-    // protected static string|UnitEnum|null $navigationGroup = 'RFP';
+    protected static string|UnitEnum|null $navigationGroup = 'RFP';
 
     protected static ?string $navigationLabel = 'RFP Requests'; // My Requests
 
