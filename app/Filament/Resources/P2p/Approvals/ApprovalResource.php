@@ -27,7 +27,7 @@ class ApprovalResource extends Resource
 
     protected static string|UnitEnum|null $navigationGroup = 'P2P';
 
-    protected static ?string $navigationLabel = 'Approvals';
+    protected static ?string $navigationLabel = 'P2P Approvals';
 
     protected static ?string $modelLabel = 'approval';
 

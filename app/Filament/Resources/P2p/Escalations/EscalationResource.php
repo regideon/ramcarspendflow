@@ -26,7 +26,7 @@ class EscalationResource extends Resource
 
     protected static string|UnitEnum|null $navigationGroup = 'P2P';
 
-    protected static ?string $navigationLabel = 'Escalations';
+    protected static ?string $navigationLabel = 'P2P Escalations';
 
     protected static ?string $modelLabel = 'escalation';
 
