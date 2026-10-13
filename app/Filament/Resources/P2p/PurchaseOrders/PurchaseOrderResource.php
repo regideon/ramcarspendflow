@@ -34,7 +34,7 @@ class PurchaseOrderResource extends Resource
 
     protected static ?string $slug = 'p2p/purchase-orders';
 
-    protected static ?int $navigationSort = 2;
+    protected static ?int $navigationSort = 1;
 
     protected static ?string $recordTitleAttribute = 'purchase_order';
 
