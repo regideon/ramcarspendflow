@@ -422,7 +422,7 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                                                             ->hiddenLabel()
                                                             ->wrap(),
 
-                                                        TextEntry::make('material_doc_item')
+                                                        TextEntry::make('purchase_order_item')
                                                             ->hiddenLabel(),
 
                                                         TextEntry::make('quantity_po')

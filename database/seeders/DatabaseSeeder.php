@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use Database\Seeders\P2p\P2pApprovalSampleSeeder;
 use Database\Seeders\P2p\P2pCompanySeeder;
 use Database\Seeders\P2p\P2pDeliveryTypeSeeder;
 use Database\Seeders\P2p\P2pDemoMasterDataSeeder;
@@ -41,6 +42,7 @@ class DatabaseSeeder extends Seeder
             P2pSlocMasterSeeder::class,
             P2pVendorSeeder::class,
             P2pDemoTransactionSeeder::class,
+            P2pApprovalSampleSeeder::class,
             ApprovalMatrixSeeder::class,
             DueTypeSeeder::class,
         ]);
