@@ -18,6 +18,8 @@ use App\Models\Rfp\DueType;
 use App\Models\Rfp\Subcategory;
 use App\Models\Vendor;
 use App\Services\Rfp\ReceiptScanner;
+use App\Services\Rfp\RfpItemsSpreadsheet;
+use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Hidden;
@@ -29,6 +31,8 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\ToggleButtons;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Actions;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Text;
@@ -38,7 +42,10 @@ use Filament\Schemas\Schema;
 use Filament\Support\Enums\Alignment;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\HtmlString;
+use Illuminate\Support\Str;
 use Livewire\Component;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
 /**
  * The legacy RFP Portal request form (RFP info, items, totals), rebuilt compact.
@@ -71,6 +78,7 @@ class RfpForm
             ->columns(1)
             ->components([
                 static::infoSection(),
+                static::massUploadSection(),
                 static::itemsSection(),
                 static::summarySection(),
             ]);
@@ -183,6 +191,93 @@ class RfpForm
                     ->maxLength(1000)
                     ->columnSpanFull(),
             ]);
+    }
+
+    /**
+     * Mass upload: fill the Items below from the Excel template (legacy "Upload Batch Items Listing").
+     */
+    protected static function massUploadSection(): Section
+    {
+        return Section::make('Mass upload')
+            ->description('Have many items? Fill in the Excel template and upload it; the Items below are filled in for you. "GL Number" picks the Sub Category.')
+            ->icon(Heroicon::OutlinedTableCells)
+            ->compact()
+            ->schema([
+                Actions::make([
+                    Action::make('uploadItems')
+                        ->label('Upload Excel')
+                        ->icon(Heroicon::OutlinedArrowUpTray)
+                        ->modalHeading('Upload items from Excel')
+                        ->modalDescription('Use the template (Download template). Every row must be valid; problems are listed by row. Blank items on screen are replaced; items you already filled in are kept.')
+                        ->modalSubmitActionLabel('Upload')
+                        ->modalWidth('lg')
+                        ->schema([
+                            FileUpload::make('file')
+                                ->label('Excel or CSV file')
+                                ->acceptedFileTypes([
+                                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                    'text/csv',
+                                    'application/csv',
+                                    'text/plain',
+                                ])
+                                ->maxSize(5_120)
+                                ->storeFiles(false)
+                                ->required(),
+                        ])
+                        ->action(fn (array $data, Get $get, Set $set, Action $action) => static::uploadItems($data['file'], $get, $set, $action)),
+                    Action::make('downloadTemplate')
+                        ->label('Download template')
+                        ->icon(Heroicon::OutlinedArrowDownTray)
+                        ->color('gray')
+                        ->action(fn () => response()
+                            ->download(app(RfpItemsSpreadsheet::class)->template(), 'RFP items template.xlsx')
+                            ->deleteFileAfterSend()),
+                ])->key('massUploadActions'),
+            ]);
+    }
+
+    /**
+     * Read the uploaded sheet into the Items repeater; nothing changes when a row is invalid.
+     */
+    protected static function uploadItems(TemporaryUploadedFile $file, Get $get, Set $set, Action $action): void
+    {
+        if (blank($get('company_id'))) {
+            Notification::make()->title('Choose the paying company first')->warning()->send();
+            $action->halt();
+        }
+
+        $result = app(RfpItemsSpreadsheet::class)->parse(
+            $file->getRealPath(),
+            $file->getClientOriginalExtension(),
+            (int) $get('company_id'),
+            static::isReimbursement($get),
+        );
+
+        if ($result['errors'] !== []) {
+            $shown = array_slice($result['errors'], 0, 15);
+            $more = count($result['errors']) - count($shown);
+
+            Notification::make()
+                ->title('Nothing was uploaded: fix '.count($result['errors']).' '.Str::plural('problem', count($result['errors'])))
+                ->body(new HtmlString(implode('<br>', array_map('e', $shown)).($more > 0 ? "<br>…and {$more} more" : '')))
+                ->danger()
+                ->persistent()
+                ->send();
+
+            $action->halt();
+        }
+
+        // Keep items already filled in; replace blank ones (like the default first line)
+        $kept = collect($get('items') ?? [])->filter(fn (array $item): bool => filled($item['description'] ?? null) || filled($item['amount'] ?? null) || filled($item['attachments'] ?? null));
+        $uploaded = collect($result['items'])->mapWithKeys(fn (array $item): array => [(string) Str::uuid() => $item]);
+
+        $set('items', $kept->merge($uploaded)->all());
+
+        Notification::make()
+            ->title(count($result['items']).' '.Str::plural('item', count($result['items'])).' added from the file')
+            ->body('Review them below and attach a supporting document to each item before submitting.')
+            ->success()
+            ->send();
     }
 
     protected static function itemsSection(): Section
@@ -323,6 +418,19 @@ class RfpForm
                             ->validationAttribute('one-time vendor')
                             ->columnSpan(['sm' => 12, 'md' => 4]),
 
+                        Select::make('cost_center_id')
+                            ->label('Cost Center')
+                            ->options(fn (Get $get): array => static::costCenterOptions($get('../../company_id')))
+                            ->searchable()
+                            ->placeholder(fn (Get $get): string => filled($get('po_number')) ? 'n/a' : 'Select')
+                            ->disabled(fn (Get $get): bool => filled($get('po_number')))
+                            ->dehydrated()
+                            ->required(fn (Get $get): bool => blank($get('po_number')))
+                            ->validationMessages(['required' => 'Choose a cost center or enter a PO number.'])
+                            ->live()
+                            ->afterStateUpdated(fn (Get $get, Set $set) => static::clearSubcategoryIfNotAllowed($get, $set))
+                            ->columnSpan(['sm' => 12, 'md' => 3]),
+
                         // Category lists every active category, chained to Sub Category (as in legacy).
                         // It is a filter only (not stored); on edit it is read back from the sub category.
                         Select::make('rfp_category_id')
@@ -359,19 +467,6 @@ class RfpForm
                             ->afterStateUpdated(fn (Get $get, Set $set) => filled($get('rfp_subcategory_id'))
                                 ? $set('rfp_category_id', Subcategory::query()->whereKey($get('rfp_subcategory_id'))->value('rfp_category_id'))
                                 : null)
-                            ->columnSpan(['sm' => 12, 'md' => 3]),
-
-                        Select::make('cost_center_id')
-                            ->label('Cost Center')
-                            ->options(fn (Get $get): array => static::costCenterOptions($get('../../company_id')))
-                            ->searchable()
-                            ->placeholder(fn (Get $get): string => filled($get('po_number')) ? 'n/a' : 'Select')
-                            ->disabled(fn (Get $get): bool => filled($get('po_number')))
-                            ->dehydrated()
-                            ->required(fn (Get $get): bool => blank($get('po_number')))
-                            ->validationMessages(['required' => 'Choose a cost center or enter a PO number.'])
-                            ->live()
-                            ->afterStateUpdated(fn (Get $get, Set $set) => static::clearSubcategoryIfNotAllowed($get, $set))
                             ->columnSpan(['sm' => 12, 'md' => 3]),
 
                         TextInput::make('po_number')
@@ -605,7 +700,9 @@ class RfpForm
 
     /**
      * Sub categories the line may be charged to ("charging first"):
-     * - with a cost center: G/L accounts mapped to it that match its OPEX/MFG type;
+     * - with a cost center: G/L accounts of its OPEX/MFG type (3rd digit of the cost center).
+     *   The cost center → G/L mapping is not enforced (decided 2026-10-13: legacy's mapping
+     *   is incomplete and the legacy form did not enforce it either);
      * - with a PO no.: sub categories that take a PO (e.g. Supplier Down Payment);
      * - with neither yet: all of them (the cost center / PO is required on save).
      *
@@ -623,12 +720,10 @@ class RfpForm
 
         return once(function () use ($costCenterId): Collection {
             $costCenter = CostCenter::find($costCenterId);
-            $mappedGlAccountIds = $costCenter?->glAccounts()->wherePivot('is_active', true)->pluck('gl_accounts.id')->all() ?? [];
 
             return static::activeSubcategories()
                 ->filter(fn (Subcategory $subcategory): bool => ! $subcategory->requires_po_number
-                    && in_array($subcategory->gl_account_id, $mappedGlAccountIds, true)
-                    && $costCenter->allowsGlCode($subcategory->glAccount->code))
+                    && ($costCenter?->allowsGlCode($subcategory->glAccount->code) ?? false))
                 ->values();
         });
     }

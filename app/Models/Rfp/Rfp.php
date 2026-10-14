@@ -7,6 +7,7 @@ use App\Enums\RfpStatus;
 use App\Enums\RoleName;
 use App\Models\AccountGroup;
 use App\Models\Company;
+use App\Models\Concerns\HasComments;
 use App\Models\PaymentMethod;
 use App\Models\User;
 use App\Models\Vendor;
@@ -32,7 +33,7 @@ use Illuminate\Validation\ValidationException;
 class Rfp extends Model
 {
     /** @use HasFactory<RfpFactory> */
-    use HasFactory, SoftDeletes;
+    use HasComments, HasFactory, SoftDeletes;
 
     /**
      * @var array<string, mixed>
@@ -122,6 +123,19 @@ class Rfp extends Model
     public function histories(): HasMany
     {
         return $this->hasMany(History::class)->latest('id');
+    }
+
+    /**
+     * Users who can open this RFP and so may be @mentioned on it: the requestor and the
+     * RFP Approvals roles (business approvers have no RFP screen yet).
+     *
+     * @return Builder<User>
+     */
+    public function mentionableUsers(): Builder
+    {
+        return User::query()->where('is_active', true)->where(fn (Builder $query) => $query
+            ->whereKey($this->requestor_id)
+            ->orWhereHas('roles', fn (Builder $query) => $query->whereIn('name', RoleName::rfpApprovalsUsers())));
     }
 
     /**

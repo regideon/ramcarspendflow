@@ -3,8 +3,11 @@
 namespace App\Filament\Resources\Rfps\Schemas;
 
 use App\Enums\RfpRequestType;
+use App\Filament\Resources\Rfps\Actions\AddCommentAction;
+use App\Models\Comment;
 use App\Models\Rfp\Item;
 use App\Models\Rfp\Rfp;
+use Filament\Forms\Components\RichEditor\RichContentRenderer;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
@@ -12,6 +15,7 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\Alignment;
+use Filament\Support\Enums\FontWeight;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
 
@@ -102,6 +106,34 @@ class RfpInfolist
                                     ->formatStateUsing(fn (string $state): HtmlString => static::fileLink($state))
                                     ->placeholder('None'),
                             ]),
+                    ]),
+                Section::make('Comments')
+                    ->key('comments')
+                    ->compact()
+                    ->description('Questions and answers on this RFP. Posting a comment does not change the status.')
+                    ->headerActions([AddCommentAction::make()])
+                    ->schema([
+                        RepeatableEntry::make('comments')
+                            ->hiddenLabel()
+                            ->schema([
+                                TextEntry::make('user.name')
+                                    ->hiddenLabel()
+                                    ->weight(FontWeight::SemiBold)
+                                    ->belowContent(fn (Comment $record): string => $record->created_at->format('M j, Y g:i A')),
+                                TextEntry::make('body')
+                                    ->hiddenLabel()
+                                    ->formatStateUsing(fn (string $state): string => RichContentRenderer::make($state)
+                                        ->mentions([AddCommentAction::mentionProvider()])
+                                        ->toHtml())
+                                    ->html()
+                                    ->prose(),
+                                TextEntry::make('attachments')
+                                    ->hiddenLabel()
+                                    ->listWithLineBreaks()
+                                    ->formatStateUsing(fn (string $state): HtmlString => static::fileLink($state))
+                                    ->visible(fn (Comment $record): bool => filled($record->attachments)),
+                            ])
+                            ->placeholder('No comments yet'),
                     ]),
                 Section::make('History')
                     ->compact()

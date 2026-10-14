@@ -57,6 +57,14 @@ class RfpApprovalResource extends Resource
     }
 
     /**
+     * The History and Comments sections list each entry's user; load them with the record.
+     */
+    public static function getRecordRouteBindingEloquentQuery(): Builder
+    {
+        return parent::getRecordRouteBindingEloquentQuery()->with(['histories.user', 'comments.user']);
+    }
+
+    /**
      * RFPs waiting for the signed-in user.
      */
     public static function getNavigationBadge(): ?string

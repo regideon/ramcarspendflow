@@ -16,6 +16,7 @@ use Database\Seeders\CurrencySeeder;
 use Database\Seeders\DemoMasterDataSeeder;
 use Database\Seeders\Rfp\DueTypeSeeder;
 use Database\Seeders\RoleAndUserSeeder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 
@@ -138,3 +139,16 @@ it('keeps My Requests to the user\'s own RFPs, even for Admins', function () {
         ->assertCanSeeTableRecords([$mine])
         ->assertCanNotSeeTableRecords([$theirs]);
 });
+
+it('loads the History users with the record', function () {
+    $rfp = saved(approvalRfp(RfpStatus::ForApProcessing, RoleName::ApProcessor));
+    $rfp->histories()->create(['user_id' => $this->lineManager->id, 'action' => 'Approved']);
+    $rfp->histories()->create(['user_id' => $this->departmentHead->id, 'action' => 'Approved']);
+
+    $this->actingAs($this->apProcessor);
+    Model::preventLazyLoading();
+
+    Livewire::test(ViewRfpApproval::class, ['record' => $rfp->getRouteKey()])
+        ->assertOk()
+        ->assertSee([$this->lineManager->name, $this->departmentHead->name]);
+})->after(fn () => Model::preventLazyLoading(false));

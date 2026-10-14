@@ -65,6 +65,14 @@ class RfpResource extends Resource
         return parent::getEloquentQuery()->ownedBy(auth()->user());
     }
 
+    /**
+     * The History and Comments sections list each entry's user; load them with the record.
+     */
+    public static function getRecordRouteBindingEloquentQuery(): Builder
+    {
+        return parent::getRecordRouteBindingEloquentQuery()->with(['histories.user', 'comments.user']);
+    }
+
     public static function canAccess(): bool
     {
         return auth()->user()?->hasAnyRole([RoleName::Requestor, RoleName::Admin]) ?? false;
