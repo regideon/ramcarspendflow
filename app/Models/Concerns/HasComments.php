@@ -104,10 +104,28 @@ trait HasComments
     }
 
     /**
+     * Adds `unread_comments_count` for the user to every row in one query, so a list
+     * does not look up each row's unread messages separately.
+     *
+     * @param  Builder<static>  $query
+     */
+    public function scopeWithUnreadCommentsCountFor(Builder $query, User $user): void
+    {
+        $query->withCount(['comments as unread_comments_count' => fn (Builder $comments) => static::constrainCommentsFor($comments->reorder(), $user)
+            ->where('comments.user_id', '!=', $user->id)
+            ->whereRaw('comments.id > coalesce((select comment_reads.last_read_comment_id from comment_reads where comment_reads.commentable_type = comments.commentable_type and comment_reads.commentable_id = comments.commentable_id and comment_reads.user_id = ?), 0)', [$user->id])]);
+    }
+
+    /**
      * Comments by other people that the user has not seen yet.
      */
     public function unreadCommentsCountFor(User $user): int
     {
+        // Already counted by withUnreadCommentsCountFor() for the signed-in user's list
+        if (array_key_exists('unread_comments_count', $this->getAttributes()) && $user->is(auth()->user())) {
+            return (int) $this->getAttribute('unread_comments_count');
+        }
+
         $lastRead = $this->commentReads()->where('user_id', $user->id)->value('last_read_comment_id') ?? 0;
 
         return $this->commentsVisibleTo($user)->whereNot('user_id', $user->id)->where('id', '>', $lastRead)->count();

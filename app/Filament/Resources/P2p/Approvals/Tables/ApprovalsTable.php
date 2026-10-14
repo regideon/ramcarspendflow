@@ -25,7 +25,9 @@ class ApprovalsTable
     public static function configure(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query): Builder => $query->with(['vendor', 'company']))
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query
+                ->with(['vendor', 'company'])
+                ->withUnreadCommentsCountFor(auth()->user()))
             ->columns([
                 // Hidden for now; keep the column so it can be re-enabled.
                 TextColumn::make('grc_number')

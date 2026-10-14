@@ -20,7 +20,9 @@ class RfpsTable
     public static function configure(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query): Builder => $query->with(['company', 'dueType', 'vendor', 'requestor', 'items.currency']))
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query
+                ->with(['company', 'dueType', 'vendor', 'requestor', 'items.currency'])
+                ->withUnreadCommentsCountFor(auth()->user()))
             ->columns([
                 TextColumn::make('rfp_number')
                     ->label('RFP no.')

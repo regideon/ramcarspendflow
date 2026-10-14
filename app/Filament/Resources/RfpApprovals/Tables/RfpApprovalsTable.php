@@ -25,7 +25,8 @@ class RfpApprovalsTable
         return $table
             ->modifyQueryUsing(fn (Builder $query): Builder => $query
                 ->with(['company', 'dueType', 'vendor', 'requestor', 'currentApprover', 'items.currency'])
-                ->withCount('items'))
+                ->withCount('items')
+                ->withUnreadCommentsCountFor(auth()->user()))
             ->columns([
                 TextColumn::make('rfp_number')
                     ->label('RFP ID')

@@ -16,6 +16,7 @@ use Database\Seeders\Rfp\DueTypeSeeder;
 use Database\Seeders\RoleAndUserSeeder;
 use Filament\Actions\Testing\TestAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 pest()->use(RefreshDatabase::class);
@@ -98,4 +99,31 @@ it('keeps comments on a soft delete and removes them on a force delete', functio
 
     $this->rfp->forceDelete();
     expect(Comment::count())->toBe(0);
+});
+
+it('counts unread messages for a whole list in one query, matching the per-record count', function () {
+    $apProcessor = User::firstWhere('email', 'ap.processor@ramcar.com');
+    $requestor = User::firstWhere('email', 'requestor@ramcar.com');
+    $company = Company::firstWhere('code', '1000');
+
+    $rfps = Rfp::factory()->count(3)->for($requestor, 'requestor')->for($company)->create(['status' => RfpStatus::ForApReview]);
+    $rfps[0]->comments()->create(['user_id' => $requestor->id, 'body' => 'one']);
+    $rfps[0]->comments()->create(['user_id' => $requestor->id, 'body' => 'two']);
+    $rfps[0]->comments()->create(['user_id' => $apProcessor->id, 'body' => 'my own']);
+    $rfps[1]->comments()->create(['user_id' => $requestor->id, 'body' => 'read already']);
+    $rfps[1]->markCommentsReadBy($apProcessor);
+    $rfps[1]->comments()->create(['user_id' => $requestor->id, 'body' => 'new']);
+
+    $this->actingAs($apProcessor);
+
+    $expected = $rfps->mapWithKeys(fn ($rfp): array => [$rfp->id => $rfp->fresh()->unreadCommentsCountFor($apProcessor)])->all();
+
+    $listed = Rfp::query()->whereKey($rfps->pluck('id'))->withUnreadCommentsCountFor($apProcessor)->get();
+
+    DB::enableQueryLog();
+    $counts = $listed->mapWithKeys(fn ($rfp): array => [$rfp->id => $rfp->unreadCommentsCountFor($apProcessor)])->all();
+
+    expect($counts)->toBe($expected)
+        ->and($expected)->toBe([$rfps[0]->id => 2, $rfps[1]->id => 1, $rfps[2]->id => 0])
+        ->and(DB::getQueryLog())->toBe([]);
 });

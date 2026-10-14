@@ -21,7 +21,9 @@ class InvoicesTable
     public static function configure(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $query): Builder => $query->with(['vendor', 'company']))
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query
+                ->with(['vendor', 'company'])
+                ->withUnreadCommentsCountFor(auth()->user()))
             ->columns([
                 TextColumn::make('vendor.name')
                     ->label('Vendor')
