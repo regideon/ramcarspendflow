@@ -6,6 +6,7 @@ use App\Enums\P2pStatus;
 use App\Enums\P2pThreeWayMatchStatus;
 use App\Enums\RoleName;
 use App\Filament\Pages\P2p\Actions\ReadInvoiceAction;
+use App\Filament\Resources\P2p\Escalations\EscalationResource;
 use App\Filament\Resources\P2p\Invoices\InvoiceResource;
 use App\Models\P2p\ApprovalHistory;
 use App\Models\P2p\Escalation;
@@ -14,6 +15,7 @@ use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
 use App\Models\P2p\SapGoodReceiptItem;
+use App\Models\User;
 use App\Services\P2p\P2pEscalationRoutingService;
 use App\Services\P2p\P2pGoodReceiptReturnService;
 use App\Services\P2p\P2pGoodReceiptSubmissionService;
@@ -137,13 +139,34 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
     protected ?Invoice $loadedInvoice = null;
 
     /**
+     * Whether the escalation lookup for the signed-in user has been resolved, so
+     * the action labels/modals that call {@see self::escalationForUser()} during a
+     * single render do not re-query the invoice's escalations each time.
+     */
+    protected bool $escalationForUserResolved = false;
+
+    /**
+     * The open escalation waiting on the signed-in user, if any. Cached per request.
+     */
+    protected ?Escalation $escalationForUser = null;
+
+    /**
      * Disabled "Overall Invoice Total" input, recomputed whenever the rows change.
      */
     public string $overall_invoice_total = '0.00';
 
     public static function canAccess(): bool
     {
-        return auth()->user()?->hasAnyRole([RoleName::Vendor, RoleName::Admin]) ?? false;
+        return auth()->user()?->hasAnyRole([
+            RoleName::Vendor,
+            RoleName::Admin,
+            // Escalation hop owners open the request to Advance / Return the
+            // escalation (the footer replaces the vendor actions for them).
+            RoleName::Procurement,
+            RoleName::Warehouse,
+            RoleName::WarehouseRawMaterials,
+            RoleName::WarehouseSpareParts,
+        ]) ?? false;
     }
 
     /**
@@ -342,6 +365,10 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                 ]),
 
             Actions::make([
+                $this->advanceEscalationAction(),
+
+                $this->returnEscalationAction(),
+
                 Action::make('submit')
                     ->label('Submit to AP')
                     ->icon(Heroicon::OutlinedPaperAirplane)
@@ -1223,6 +1250,131 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             ])
             ->action(fn (array $data) => $this->escalate($data))
             ->modalSubmitActionLabel('Escalate');
+    }
+
+    /**
+     * The request's open escalation whose current hop is owned by the signed-in
+     * user, if any. When present, the footer becomes Advance / Return and the
+     * vendor actions are hidden (the request is out on an escalation).
+     */
+    protected function escalationForUser(): ?Escalation
+    {
+        if ($this->escalationForUserResolved) {
+            return $this->escalationForUser;
+        }
+
+        $this->escalationForUserResolved = true;
+
+        $user = auth()->user();
+        $invoice = $this->invoiceModel();
+
+        if (! $user instanceof User || $invoice === null) {
+            return null;
+        }
+
+        return $this->escalationForUser = $invoice->escalations()
+            ->where('status', Escalation::STATUS_OPEN)
+            ->with(['reason.steps'])
+            ->get()
+            ->first(fn (Escalation $escalation): bool => $this->userHandlesEscalation($user, $escalation));
+    }
+
+    /**
+     * Whether the user owns the escalation's current hop. Hop roles are the
+     * lowercase legacy tokens, so map them to the app's TitleCase Spatie roles.
+     * The umbrella `warehouse` hop is handled by any warehouse role.
+     */
+    protected function userHandlesEscalation(User $user, Escalation $escalation): bool
+    {
+        $hopRole = $escalation->current_role;
+
+        if ($hopRole === 'warehouse') {
+            return $user->hasAnyRole([
+                RoleName::Warehouse,
+                RoleName::WarehouseRawMaterials,
+                RoleName::WarehouseSpareParts,
+            ]);
+        }
+
+        $appRole = Escalation::appRoleFor($hopRole);
+
+        return $appRole !== null && $user->hasRole($appRole);
+    }
+
+    protected function advanceEscalationAction(): Action
+    {
+        return Action::make('advanceEscalation')
+            ->label(fn (): string => $this->escalationForUser()?->currentActionLabel() ?? 'Advance')
+            ->icon(Heroicon::OutlinedArrowRightCircle)
+            ->color('warning')
+            ->visible(fn (): bool => $this->escalationForUser() !== null)
+            ->modalHeading('Advance escalation')
+            ->modalDescription(fn (): ?string => $this->escalationForUser()?->stepLabel())
+            ->modalSubmitActionLabel('Advance')
+            ->schema([
+                Textarea::make('remarks')->label('Remarks')->required(),
+            ])
+            ->action(fn (array $data) => $this->advanceOpenEscalation($data));
+    }
+
+    protected function returnEscalationAction(): Action
+    {
+        return Action::make('returnEscalation')
+            ->label(fn (): string => 'Return to '.($this->escalationForUser()?->previousRoleLabel() ?? 'previous step'))
+            ->icon(Heroicon::OutlinedArrowUturnLeft)
+            ->color('gray')
+            ->visible(fn (): bool => $this->escalationForUser() !== null)
+            ->modalHeading('Return escalation')
+            ->modalDescription(fn (): ?string => $this->escalationForUser()?->stepLabel())
+            ->modalSubmitActionLabel('Return')
+            ->schema([
+                Textarea::make('remarks')->label('Remarks')->required(),
+            ])
+            ->action(fn (array $data) => $this->returnOpenEscalation($data));
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function advanceOpenEscalation(array $data): void
+    {
+        $escalation = $this->escalationForUser();
+
+        if ($escalation === null) {
+            return;
+        }
+
+        app(P2pEscalationRoutingService::class)->advance($escalation, auth()->user(), (string) ($data['remarks'] ?? ''));
+
+        Notification::make()
+            ->title('Escalation advanced')
+            ->body('The escalation has been forwarded to the next step.')
+            ->success()
+            ->send();
+
+        $this->redirect(EscalationResource::getUrl('index'));
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function returnOpenEscalation(array $data): void
+    {
+        $escalation = $this->escalationForUser();
+
+        if ($escalation === null) {
+            return;
+        }
+
+        app(P2pEscalationRoutingService::class)->returnToPreviousHop($escalation, auth()->user(), (string) ($data['remarks'] ?? ''));
+
+        Notification::make()
+            ->title('Escalation returned')
+            ->body('The escalation has been sent back to the previous step.')
+            ->success()
+            ->send();
+
+        $this->redirect(EscalationResource::getUrl('index'));
     }
 
     protected function cancelRequestAction(): Action

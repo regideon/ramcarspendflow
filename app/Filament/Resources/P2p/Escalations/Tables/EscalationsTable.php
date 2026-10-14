@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\P2p\Escalations\Tables;
 
+use App\Filament\Pages\P2p\BulkGoodsReceipt;
 use App\Models\P2p\Escalation;
 use App\Services\P2p\P2pEscalationRoutingService;
 use Filament\Actions\Action;
@@ -9,6 +10,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\View\View;
@@ -125,8 +127,32 @@ class EscalationsTable
                     ->modalContent(fn (Escalation $record): View => view('filament.components.approval-history-timeline', [
                         'record' => $record->invoice,
                     ])),
+
+                // Mirrors the Invoices list: open the request in the bulk
+                // goods-receipt screen, read-only, with the hop's Advance / Return
+                // in the footer for the team the escalation is waiting on.
+                Action::make('view')
+                    ->label('View')
+                    ->icon(Heroicon::Eye)
+                    ->color('gray')
+                    ->iconButton()
+                    ->visible(fn (Escalation $record): bool => self::viewUrl($record) !== null)
+                    ->url(fn (Escalation $record): ?string => self::viewUrl($record)),
             ])
+            ->recordActionsPosition(RecordActionsPosition::BeforeColumns)
+            ->recordUrl(fn (Escalation $record): ?string => self::viewUrl($record))
             ->striped();
+    }
+
+    /**
+     * The escalation's request, opened read-only in the bulk goods-receipt screen
+     * (which is where the hop team advances or returns it).
+     */
+    protected static function viewUrl(Escalation $record): ?string
+    {
+        return $record->p2p_invoice_id !== null
+            ? BulkGoodsReceipt::getUrl(['invoice' => $record->p2p_invoice_id])
+            : null;
     }
 
     /**

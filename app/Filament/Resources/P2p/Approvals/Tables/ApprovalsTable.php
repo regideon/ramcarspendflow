@@ -9,6 +9,7 @@ use App\Models\P2p\Invoice;
 use App\Services\P2p\P2pThreeWayMatchService;
 use Filament\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -112,6 +113,7 @@ class ApprovalsTable
                     ->label('Review')
                     ->url(fn (Invoice $record): string => BulkAccountsPayable::getUrl(['invoice' => $record->id])),
             ])
+            ->recordActionsPosition(RecordActionsPosition::BeforeColumns)
             ->recordUrl(fn (Invoice $record): string => BulkAccountsPayable::getUrl(['invoice' => $record->id]))
             ->searchPlaceholder('Search GRC no., invoice no. or vendor')
             ->emptyStateHeading('Nothing to action')

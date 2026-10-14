@@ -17,7 +17,9 @@ use UnitEnum;
  * The AP worklist: submissions waiting on the processor, or — for the AP
  * Supervisor (checker) — those waiting to be approved and parked in SAP.
  *
- * Shown as a single navigation destination rather than a group.
+ * The list is the whole set of submissions the viewer may see; the tabs on
+ * {@see ListApprovals} narrow it (their own queue, the other queues, escalated,
+ * posted). Only the "For my action" tab is actionable — the rest are read-only.
  */
 class ApprovalResource extends Resource
 {
@@ -29,9 +31,9 @@ class ApprovalResource extends Resource
 
     protected static ?string $navigationLabel = 'P2P Approvals';
 
-    protected static ?string $modelLabel = 'approval';
+    protected static ?string $modelLabel = 'P2P approval';
 
-    protected static ?string $pluralModelLabel = 'approvals';
+    protected static ?string $pluralModelLabel = 'P2P approvals';
 
     protected static ?string $slug = 'p2p/approvals';
 
@@ -45,20 +47,22 @@ class ApprovalResource extends Resource
     }
 
     /**
-     * The viewer's queue: the processor sees what they must act on, the supervisor
-     * sees what is waiting on them. Both are scoped the way the Invoices list is.
+     * Every submission the viewer may see. The tabs narrow this: "For my action"
+     * is the viewer's own queue, the others are read-only overviews.
      */
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->actionableBy(auth()->user())
             ->visibleTo(auth()->user())
             ->with(['vendor', 'company']);
     }
 
+    /**
+     * The badge is the viewer's own actionable queue, not everything they can see.
+     */
     public static function getNavigationBadge(): ?string
     {
-        $count = static::getEloquentQuery()->count();
+        $count = parent::getEloquentQuery()->actionableBy(auth()->user())->count();
 
         return $count > 0 ? (string) $count : null;
     }

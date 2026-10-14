@@ -3,12 +3,14 @@
 use App\Enums\P2pStatus;
 use App\Enums\RoleName;
 use App\Filament\Resources\P2p\Approvals\ApprovalResource;
+use App\Filament\Resources\P2p\Approvals\Pages\ListApprovals;
 use App\Models\Company;
 use App\Models\P2p\Invoice;
 use App\Models\User;
 use App\Models\Vendor;
 use Database\Seeders\RoleAndUserSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
 
 pest()->use(RefreshDatabase::class);
 
@@ -54,20 +56,19 @@ it('lets an AP supervisor open approvals and the processing screen', function ()
     $this->get('/hub/p2p/bulk-accounts-payable?invoice='.$invoice->id)->assertOk();
 });
 
-it('queues the checker queue for a supervisor and the processor queue for a processor', function () {
+it('shows the checker queue for a supervisor and the processor queue for a processor on the For my action tab', function () {
     $withProcessor = apInvoice(P2pStatus::SubmittedToAp);
     $withSupervisor = apInvoice(P2pStatus::SubmittedToChecker);
 
     $this->actingAs(User::factory()->create()->assignRole(RoleName::ApProcessor));
-    $processorIds = ApprovalResource::getEloquentQuery()->pluck('id')->all();
+    Livewire::test(ListApprovals::class)
+        ->assertCanSeeTableRecords([$withProcessor])
+        ->assertCanNotSeeTableRecords([$withSupervisor]);
 
     $this->actingAs(User::factory()->create()->assignRole(RoleName::ApSupervisor));
-    $supervisorIds = ApprovalResource::getEloquentQuery()->pluck('id')->all();
-
-    expect($processorIds)->toContain($withProcessor->id)
-        ->and($processorIds)->not->toContain($withSupervisor->id)
-        ->and($supervisorIds)->toContain($withSupervisor->id)
-        ->and($supervisorIds)->not->toContain($withProcessor->id);
+    Livewire::test(ListApprovals::class)
+        ->assertCanSeeTableRecords([$withSupervisor])
+        ->assertCanNotSeeTableRecords([$withProcessor]);
 });
 
 it('badges a supervisor with their own queue size', function () {
@@ -80,7 +81,7 @@ it('badges a supervisor with their own queue size', function () {
     expect(ApprovalResource::getNavigationBadge())->toBe('2');
 });
 
-it('queues only submissions awaiting the AP processor', function () {
+it('shows only submissions awaiting the AP processor on the For my action tab', function () {
     $this->actingAs(User::factory()->create()->assignRole(RoleName::ApProcessor));
 
     $submitted = apInvoice(P2pStatus::SubmittedToAp);
@@ -92,10 +93,45 @@ it('queues only submissions awaiting the AP processor', function () {
     $parked = apInvoice(P2pStatus::InvoiceParked);
     $vendorPending = apInvoice(P2pStatus::Pending);
 
-    $ids = ApprovalResource::getEloquentQuery()->pluck('id')->all();
+    Livewire::test(ListApprovals::class)
+        ->assertCanSeeTableRecords([$submitted, $returned, $review])
+        ->assertCanNotSeeTableRecords([$withChecker, $parked, $vendorPending]);
+});
 
-    expect($ids)->toContain($submitted->id, $returned->id, $review->id)
-        ->and($ids)->not->toContain($withChecker->id, $parked->id, $vendorPending->id);
+it('lets a processor view the other queues on their own tabs', function () {
+    $this->actingAs(User::factory()->create()->assignRole(RoleName::ApProcessor));
+
+    $processor = apInvoice(P2pStatus::SubmittedToAp);
+    $checker = apInvoice(P2pStatus::SubmittedToChecker);
+
+    // "All" is an overview of every submission the viewer may see.
+    Livewire::withQueryParams(['activeTab' => 'all'])->test(ListApprovals::class)
+        ->assertCanSeeTableRecords([$processor, $checker]);
+
+    // The AP Checker queue is listed, but it is not the processor's to action.
+    Livewire::withQueryParams(['activeTab' => 'ap_checker'])->test(ListApprovals::class)
+        ->assertCanSeeTableRecords([$checker])
+        ->assertCanNotSeeTableRecords([$processor]);
+
+    // And the processor's own queue sits on its own tab.
+    Livewire::withQueryParams(['activeTab' => 'ap_processor'])->test(ListApprovals::class)
+        ->assertCanSeeTableRecords([$processor])
+        ->assertCanNotSeeTableRecords([$checker]);
+});
+
+it('surfaces escalated and SAP-posted submissions on their own tabs', function () {
+    $this->actingAs(User::factory()->create()->assignRole(RoleName::ApProcessor));
+
+    $escalated = apInvoice(P2pStatus::EscalateToProcurement);
+    $parked = apInvoice(P2pStatus::InvoiceParked);
+
+    Livewire::withQueryParams(['activeTab' => 'escalated'])->test(ListApprovals::class)
+        ->assertCanSeeTableRecords([$escalated])
+        ->assertCanNotSeeTableRecords([$parked]);
+
+    Livewire::withQueryParams(['activeTab' => 'posted'])->test(ListApprovals::class)
+        ->assertCanSeeTableRecords([$parked])
+        ->assertCanNotSeeTableRecords([$escalated]);
 });
 
 it('badges the navigation with the queue size', function () {

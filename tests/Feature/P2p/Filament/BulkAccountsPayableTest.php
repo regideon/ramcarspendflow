@@ -335,3 +335,28 @@ it('refuses an escalation action from a user who does not own the hop', function
 
     expect($escalation->fresh()->status)->toBe(Escalation::STATUS_OPEN);
 });
+
+it('opens a submission outside the viewer queue read-only', function () {
+    [$processor, $invoice] = apPageContext(P2pStatus::SubmittedToChecker);
+    $this->actingAs($processor);
+
+    $component = Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id]);
+
+    expect($component->instance()->isViewOnly)->toBeTrue();
+});
+
+it('opens the processor queue read-only for a supervisor', function () {
+    $supervisor = User::factory()->create()->assignRole(RoleName::ApSupervisor);
+    [, $invoice] = apPageContext(P2pStatus::SubmittedToAp);
+    $this->actingAs($supervisor);
+
+    $component = Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id]);
+
+    expect($component->instance()->isViewOnly)->toBeTrue();
+
+    $actions = collect($component->instance()->getFooterActions())
+        ->map(fn ($action): string => $action->getName())
+        ->all();
+
+    expect($actions)->not->toContain('approve', 'returnToApProcessor');
+});

@@ -178,6 +178,32 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
         return $this->userHasRole(RoleName::ApSupervisor->value);
     }
 
+    /**
+     * Whether the submission sits in the viewer's own queue, so it is safe to act
+     * on. A supervisor acts on the checker queue, a processor on the processor
+     * queue, and an admin on either. Everything else (other queues, escalated,
+     * posted) is view-only; escalation hop owners act through the footer instead.
+     */
+    protected function canActOn(Invoice $invoice): bool
+    {
+        $awaitingProcessor = in_array($invoice->status, [
+            P2pStatus::SubmittedToAp,
+            P2pStatus::ApReview,
+            P2pStatus::ReturnedToApProcessor,
+        ], true);
+
+        $awaitingChecker = in_array($invoice->status, [
+            P2pStatus::SubmittedToChecker,
+            P2pStatus::CheckerReview,
+        ], true);
+
+        return match (true) {
+            $this->isSupervisor() => $awaitingChecker,
+            $this->userHasRole(RoleName::Admin->value) => $awaitingProcessor || $awaitingChecker,
+            default => $awaitingProcessor,
+        };
+    }
+
     protected function invoiceModel(): ?Invoice
     {
         if (blank($this->invoice)) {
@@ -201,19 +227,9 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
         $this->authorizeAccess($invoice);
 
-        // A role that may only review opens the screen read-only. The queue only
-        // hands out actionable records, but a deep link could point anywhere.
-        $this->isViewOnly = $this->isSupervisor()
-            ? ! in_array($invoice->status, [P2pStatus::SubmittedToChecker, P2pStatus::CheckerReview], true)
-            : ! in_array($invoice->status, [
-                P2pStatus::SubmittedToAp,
-                P2pStatus::ApReview,
-                P2pStatus::ReturnedToApProcessor,
-            ], true);
-
-        if ($this->isSupervisor()) {
-            $this->isViewOnly = false;
-        }
+        // Only the viewer's own queue is actionable. The Approvals tabs surface the
+        // other queues too, so anything outside the viewer's queue opens read-only.
+        $this->isViewOnly = ! $this->canActOn($invoice);
 
         $this->data['invoice_id'] = $invoice->id;
         $this->data['vendor_name'] = $invoice->vendor?->name ?? 'N/A';

@@ -28,9 +28,9 @@ class EscalationResource extends Resource
 
     protected static ?string $navigationLabel = 'P2P Escalations';
 
-    protected static ?string $modelLabel = 'escalation';
+    protected static ?string $modelLabel = 'P2P escalation';
 
-    protected static ?string $pluralModelLabel = 'escalations';
+    protected static ?string $pluralModelLabel = 'P2P escalations';
 
     protected static ?string $slug = 'p2p/escalations';
 

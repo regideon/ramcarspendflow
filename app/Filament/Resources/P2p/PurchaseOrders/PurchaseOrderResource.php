@@ -38,6 +38,8 @@ class PurchaseOrderResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'purchase_order';
 
+    public static bool $shouldRegisterNavigation = false;
+
     public static function table(Table $table): Table
     {
         return PurchaseOrdersTable::configure($table);

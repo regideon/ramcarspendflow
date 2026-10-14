@@ -11,6 +11,7 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -86,6 +87,7 @@ class PurchaseOrdersTable
                         'purchase_orders' => [$record->purchase_order],
                     ])),
             ])
+            ->recordActionsPosition(RecordActionsPosition::BeforeColumns)
             ->toolbarActions([
                 BulkAction::make('processGrs')
                     ->label('Process GRs')

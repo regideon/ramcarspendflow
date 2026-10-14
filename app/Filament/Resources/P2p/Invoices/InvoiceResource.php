@@ -33,17 +33,17 @@ class InvoiceResource extends Resource
 
     public static function getNavigationLabel(): string
     {
-        return auth()->user()?->hasRole(RoleName::Vendor) ? 'Invoices' : 'Accounts Payables';
+        return 'P2P requests';
     }
 
     public static function getModelLabel(): string
     {
-        return auth()->user()?->hasRole(RoleName::Vendor) ? 'invoice' : 'accounts payable';
+        return 'P2P requests';
     }
 
     public static function getPluralModelLabel(): string
     {
-        return auth()->user()?->hasRole(RoleName::Vendor) ? 'Invoices' : 'Accounts Payables';
+        return 'P2P Requests';
     }
 
     public static function table(Table $table): Table
