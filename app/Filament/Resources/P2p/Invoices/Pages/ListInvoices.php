@@ -4,6 +4,7 @@ namespace App\Filament\Resources\P2p\Invoices\Pages;
 
 use App\Enums\P2pStatus;
 use App\Enums\RoleName;
+use App\Filament\Concerns\HasCommentsChat;
 use App\Filament\Resources\P2p\Invoices\InvoiceResource;
 use App\Filament\Resources\P2p\PurchaseOrders\PurchaseOrderResource;
 use Filament\Actions\Action;
@@ -14,6 +15,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class ListInvoices extends ListRecords
 {
+    use HasCommentsChat;
+
     protected static string $resource = InvoiceResource::class;
 
     protected function getHeaderActions(): array

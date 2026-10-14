@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\P2p\Approvals\Pages;
 
 use App\Enums\P2pStatus;
+use App\Filament\Concerns\HasCommentsChat;
 use App\Filament\Resources\P2p\Approvals\ApprovalResource;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Tabs\Tab;
@@ -11,6 +12,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class ListApprovals extends ListRecords
 {
+    use HasCommentsChat;
+
     protected static string $resource = ApprovalResource::class;
 
     public function getDefaultActiveTab(): string

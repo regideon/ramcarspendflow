@@ -4,6 +4,7 @@ namespace App\Filament\Resources\P2p\Approvals\Tables;
 
 use App\Enums\P2pStatus;
 use App\Enums\RoleName;
+use App\Filament\Actions\OpenCommentsAction;
 use App\Filament\Pages\P2p\BulkAccountsPayable;
 use App\Models\P2p\Invoice;
 use App\Services\P2p\P2pThreeWayMatchService;
@@ -109,6 +110,8 @@ class ApprovalsTable
                     ->toggle(),
             ])
             ->recordActions([
+                OpenCommentsAction::make(),
+
                 Action::make('process')
                     ->label('Review')
                     ->url(fn (Invoice $record): string => BulkAccountsPayable::getUrl(['invoice' => $record->id])),

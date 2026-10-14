@@ -5,6 +5,7 @@ namespace App\Filament\Pages\P2p;
 use App\Enums\P2pInvoiceActionLabel;
 use App\Enums\P2pStatus;
 use App\Enums\RoleName;
+use App\Filament\Concerns\HasCommentsChat;
 use App\Filament\Resources\P2p\Approvals\ApprovalResource;
 use App\Models\P2p\Escalation;
 use App\Models\P2p\EscalationReason;
@@ -63,6 +64,7 @@ use Livewire\Attributes\Url;
  */
 class BulkAccountsPayable extends Page implements HasActions, HasForms
 {
+    use HasCommentsChat;
     use InteractsWithActions;
     use InteractsWithForms;
 
@@ -202,6 +204,14 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             $this->userHasRole(RoleName::Admin->value) => $awaitingProcessor || $awaitingChecker,
             default => $awaitingProcessor,
         };
+    }
+
+    /**
+     * The chat bubble opens the open invoice's thread; without one it shows the inbox.
+     */
+    protected function commentsChatRecord(): ?Invoice
+    {
+        return $this->invoiceModel();
     }
 
     protected function invoiceModel(): ?Invoice

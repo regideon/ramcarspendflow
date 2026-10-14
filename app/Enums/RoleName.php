@@ -62,6 +62,25 @@ enum RoleName: string
     }
 
     /**
+     * Ramcar staff who work P2P invoices (AP, escalation hops, Admin). They may open any
+     * invoice and see internal comments; vendors see only their own invoices.
+     *
+     * @return list<self>
+     */
+    public static function p2pStaff(): array
+    {
+        return [
+            self::Admin,
+            self::ApProcessor,
+            self::ApSupervisor,
+            self::Procurement,
+            self::Warehouse,
+            self::WarehouseRawMaterials,
+            self::WarehouseSpareParts,
+        ];
+    }
+
+    /**
      * Roles that may appear as a step in the RFP approval matrix.
      *
      * @return list<self>

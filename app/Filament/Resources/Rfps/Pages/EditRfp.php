@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Rfps\Pages;
 
 use App\Enums\RfpStatus;
+use App\Filament\Concerns\HasCommentsChat;
 use App\Filament\Resources\Rfps\RfpResource;
 use App\Filament\Resources\Rfps\Widgets\RfpProgress;
 use App\Models\Rfp\Rfp;
@@ -15,6 +16,8 @@ use Illuminate\Validation\ValidationException;
 
 class EditRfp extends EditRecord
 {
+    use HasCommentsChat;
+
     protected static string $resource = RfpResource::class;
 
     protected function getHeaderWidgets(): array

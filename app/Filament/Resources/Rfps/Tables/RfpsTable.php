@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Rfps\Tables;
 
 use App\Enums\RfpRequestType;
 use App\Enums\RfpStatus;
+use App\Filament\Actions\OpenCommentsAction;
 use App\Filament\Resources\Rfps\RfpResource;
 use App\Models\Rfp\Rfp;
 use Filament\Actions\EditAction;
@@ -90,6 +91,7 @@ class RfpsTable
                     ->relationship('company', 'name'),
             ])
             ->recordActions([
+                OpenCommentsAction::make(),
                 ViewAction::make()->iconButton(),
                 EditAction::make()
                     ->iconButton()

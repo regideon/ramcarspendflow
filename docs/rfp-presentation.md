@@ -64,6 +64,8 @@ Our approval flow stays the same:
 **Conversations live on the RFP, not in email.**
 
 - Every RFP has a **Comments** section for the requestor and AP.
+- A **chat bubble** sits at the bottom right of every RFP page. On an RFP it opens that RFP's chat; on the lists it opens your **inbox** of conversations. A **red badge** shows how many new messages you haven't read.
+- Every row in My Requests and RFP Approvals has a **chat icon** with its unread count, so you can answer without opening the RFP.
 - Type **@** to mention someone. They get a **notification** with a link straight to the RFP.
 - Attach PDFs or photos to a comment, for example a missing OR.
 - Only people who can open the RFP can be mentioned.

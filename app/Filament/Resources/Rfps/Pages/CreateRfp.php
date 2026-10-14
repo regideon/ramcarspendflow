@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Rfps\Pages;
 
+use App\Filament\Concerns\HasCommentsChat;
 use App\Filament\Resources\Rfps\RfpResource;
 use App\Filament\Resources\Rfps\Widgets\RfpProgress;
 use App\Models\Rfp\Rfp;
@@ -12,6 +13,8 @@ use Illuminate\Validation\ValidationException;
 
 class CreateRfp extends CreateRecord
 {
+    use HasCommentsChat;
+
     protected static string $resource = RfpResource::class;
 
     protected function getHeaderWidgets(): array

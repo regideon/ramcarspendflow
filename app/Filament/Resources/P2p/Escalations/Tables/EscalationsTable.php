@@ -2,8 +2,10 @@
 
 namespace App\Filament\Resources\P2p\Escalations\Tables;
 
+use App\Filament\Actions\OpenCommentsAction;
 use App\Filament\Pages\P2p\BulkGoodsReceipt;
 use App\Models\P2p\Escalation;
+use App\Models\P2p\Invoice;
 use App\Services\P2p\P2pEscalationRoutingService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Textarea;
@@ -101,6 +103,8 @@ class EscalationsTable
                     ]),
             ])
             ->recordActions([
+                OpenCommentsAction::make(fn (Escalation $record): ?Invoice => $record->invoice),
+
                 self::hopAction(),
 
                 Action::make('resolve')

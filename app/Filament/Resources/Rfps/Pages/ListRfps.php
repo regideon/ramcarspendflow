@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Rfps\Pages;
 
 use App\Enums\RfpStatus;
+use App\Filament\Concerns\HasCommentsChat;
 use App\Filament\Resources\Rfps\RfpResource;
 use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
@@ -11,6 +12,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class ListRfps extends ListRecords
 {
+    use HasCommentsChat;
+
     protected static string $resource = RfpResource::class;
 
     protected function getHeaderActions(): array

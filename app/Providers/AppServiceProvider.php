@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Models\P2p\Invoice;
 use App\Models\Rfp\Rfp;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\ServiceProvider;
@@ -25,6 +26,7 @@ class AppServiceProvider extends ServiceProvider
         // roles and notifications already store full class names for User.
         Relation::morphMap([
             'rfp' => Rfp::class,
+            'p2p_invoice' => Invoice::class,
         ]);
     }
 }

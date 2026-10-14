@@ -19,7 +19,7 @@ We do them **one at a time**, in the order below. Each one ships with Pest tests
 | # | Initiative | Module | Wave | Status |
 |---|---|---|---|---|
 | 0 | Request type names | RFP | — | Done: kept as is |
-| 1 | Comments on the record (with @mentions) | Shared | 1 | RFP done · P2P later |
+| 1 | Comments on the record (with @mentions) | Shared | 1 | RFP done · P2P done |
 | 2 | Return / cancel reason codes | Shared | 1 | Planned |
 | 3 | Notifications at every handoff | Shared | 1 | Planned |
 | 4 | Aging + reminders + escalation | Shared | 1 | Planned |
@@ -53,13 +53,14 @@ We do them **one at a time**, in the order below. Each one ships with Pest tests
 **Why:** today "Return" carries only a remark. Questions go to email or chat, and the RFP comes back incomplete again.
 
 **RFP (done 2026-10-13):**
-- Shared table `comments` (commentable record, user, rich-text body, attachments). Model `App\Models\Comment`; a record opts in with the `HasComments` trait and defines `mentionableUsers()`. RFP's morph alias is `rfp`.
+- Shared table `comments` (commentable record, user, rich-text body, attachments). Model `App\Models\Comment`; a record opts in with the `HasComments` trait and defines `mentionableUsers()`, `commentSubject()` and `commentUrlFor()`. RFP's morph alias is `rfp`.
+- **Chat bubble (2026-10-14):** a floating bubble at the bottom right of every RFP and P2P page (Livewire `App\Livewire\CommentsChat`, added to a page with the `HasCommentsChat` trait). On a record page (RFP view/edit, P2P AP and GR screens with `?invoice=`) it opens that record's thread; on list and create pages it opens an **inbox** of the user's conversations, newest first, with unread counts (`App\Services\Comments\CommentInbox`). Each RFP and P2P table row has a chat icon (`OpenCommentsAction`) with its unread count that opens the row's thread; on Escalations the thread is the escalation's invoice. The bubble checks for new messages every 15 seconds and shows a red unread badge while closed (table `comment_reads`). Posting from the bubble or from **Add comment** goes through `App\Services\Comments\PostComment`.
 - A **Comments** section on the RFP page, both in My Requests and in RFP Approvals, with an **Add comment** button: rich text plus up to 5 PDF/image attachments.
 - Type **@** to mention someone. Only people who can open the RFP can be mentioned: the requestor and Admin/AP roles. Business approvers are added when they get an RFP screen.
 - Mentioned users get an in-app notification with a link to the RFP. Authors are never notified about their own comments.
 - A comment never changes the status. Return and Cancel stay separate actions.
 
-**P2P (later):** add `HasComments` to the invoice model and a morph alias (no new table), plus a "visible to vendor" toggle (internal by default).
+**P2P (done 2026-10-14):** `Invoice` uses `HasComments` (morph alias `p2p_invoice`). Staff (`RoleName::p2pStaff()`: Admin, AP Processor, AP Supervisor, Procurement, Warehouse roles) can open any invoice's thread; a vendor only the invoices they submitted. Staff messages are **Internal** by default (`comments.is_internal`), hidden from vendors and never notified to them; untick Internal to message the vendor. Vendors' own messages are always visible.
 
 ## 2. Return / cancel reason codes
 

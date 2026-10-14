@@ -4,7 +4,10 @@ namespace App\Models\P2p;
 
 use App\Enums\P2pStatus;
 use App\Enums\RoleName;
+use App\Filament\Pages\P2p\BulkAccountsPayable;
+use App\Filament\Pages\P2p\BulkGoodsReceipt;
 use App\Models\Company;
+use App\Models\Concerns\HasComments;
 use App\Models\User;
 use App\Models\Vendor;
 use Database\Factories\P2p\InvoiceFactory;
@@ -34,7 +37,7 @@ use Illuminate\Support\Str;
 class Invoice extends Model
 {
     /** @use HasFactory<InvoiceFactory> */
-    use HasFactory;
+    use HasComments, HasFactory;
 
     /**
      * @var array<string, mixed>
@@ -173,6 +176,62 @@ class Invoice extends Model
     /**
      * @return array<string, string>
      */
+    /**
+     * Staff may open any invoice; a vendor only the invoices they submitted.
+     *
+     * @param  Builder<Invoice>  $query
+     */
+    public function scopeCommentableBy(Builder $query, User $user): void
+    {
+        if (! $user->is_active) {
+            $query->whereRaw('0 = 1');
+        } elseif (! $user->hasAnyRole(RoleName::p2pStaff())) {
+            $user->hasRole(RoleName::Vendor)
+                ? $query->where('user_id', $user->id)
+                : $query->whereRaw('0 = 1');
+        }
+    }
+
+    /**
+     * The vendor who submitted the invoice and the P2P staff.
+     *
+     * @return Builder<User>
+     */
+    public function mentionableUsers(): Builder
+    {
+        return User::query()->where('is_active', true)->where(fn (Builder $query) => $query
+            ->whereKey($this->user_id)
+            ->orWhereHas('roles', fn (Builder $query) => $query->whereIn('name', RoleName::p2pStaff())));
+    }
+
+    public function commentSubject(): string
+    {
+        return $this->invoice_number ? "Invoice {$this->invoice_number}" : $this->grc_number;
+    }
+
+    /**
+     * AP opens the invoice on the AP screen; the vendor, Admin and escalation hops on the GR screen.
+     */
+    public function commentUrlFor(User $user): string
+    {
+        return $user->hasAnyRole([RoleName::ApProcessor, RoleName::ApSupervisor]) && ! $user->hasRole(RoleName::Admin)
+            ? BulkAccountsPayable::getUrl(['invoice' => $this->id])
+            : BulkGoodsReceipt::getUrl(['invoice' => $this->id]);
+    }
+
+    public static function supportsInternalComments(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Vendors never see internal comments.
+     */
+    public static function seesInternalComments(User $user): bool
+    {
+        return $user->hasAnyRole(RoleName::p2pStaff());
+    }
+
     protected function casts(): array
     {
         return [

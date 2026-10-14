@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Rfps\Schemas;
 
 use App\Enums\RfpRequestType;
 use App\Filament\Resources\Rfps\Actions\AddCommentAction;
+use App\Filament\Support\CommentMentions;
 use App\Models\Comment;
 use App\Models\Rfp\Item;
 use App\Models\Rfp\Rfp;
@@ -123,7 +124,7 @@ class RfpInfolist
                                 TextEntry::make('body')
                                     ->hiddenLabel()
                                     ->formatStateUsing(fn (string $state): string => RichContentRenderer::make($state)
-                                        ->mentions([AddCommentAction::mentionProvider()])
+                                        ->mentions([CommentMentions::provider()])
                                         ->toHtml())
                                     ->html()
                                     ->prose(),

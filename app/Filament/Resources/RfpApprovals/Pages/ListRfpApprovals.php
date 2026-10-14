@@ -4,6 +4,7 @@ namespace App\Filament\Resources\RfpApprovals\Pages;
 
 use App\Enums\RfpStatus;
 use App\Enums\RoleName;
+use App\Filament\Concerns\HasCommentsChat;
 use App\Filament\Resources\RfpApprovals\RfpApprovalResource;
 use App\Filament\Resources\RfpApprovals\Widgets\RfpApprovalStats;
 use Filament\Resources\Pages\ListRecords;
@@ -13,6 +14,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class ListRfpApprovals extends ListRecords
 {
+    use HasCommentsChat;
+
     protected static string $resource = RfpApprovalResource::class;
 
     protected static ?string $title = 'RFP Approvals';

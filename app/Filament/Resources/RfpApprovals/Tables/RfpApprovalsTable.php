@@ -4,6 +4,7 @@ namespace App\Filament\Resources\RfpApprovals\Tables;
 
 use App\Enums\RfpRequestType;
 use App\Enums\RfpStatus;
+use App\Filament\Actions\OpenCommentsAction;
 use App\Filament\Resources\RfpApprovals\RfpApprovalResource;
 use App\Models\Rfp\Rfp;
 use Filament\Actions\ViewAction;
@@ -108,6 +109,7 @@ class RfpApprovalsTable
                         ->when($data['created_until'] ?? null, fn (Builder $query, string $date) => $query->whereDate('created_at', '<=', $date))),
             ])
             ->recordActions([
+                OpenCommentsAction::make(),
                 ViewAction::make()->iconButton(),
             ])
             ->recordUrl(fn (Rfp $record): string => RfpApprovalResource::getUrl('view', ['record' => $record]))

@@ -5,6 +5,8 @@ namespace App\Models\Rfp;
 use App\Enums\RfpRequestType;
 use App\Enums\RfpStatus;
 use App\Enums\RoleName;
+use App\Filament\Resources\RfpApprovals\RfpApprovalResource;
+use App\Filament\Resources\Rfps\RfpResource;
 use App\Models\AccountGroup;
 use App\Models\Company;
 use App\Models\Concerns\HasComments;
@@ -136,6 +138,35 @@ class Rfp extends Model
         return User::query()->where('is_active', true)->where(fn (Builder $query) => $query
             ->whereKey($this->requestor_id)
             ->orWhereHas('roles', fn (Builder $query) => $query->whereIn('name', RoleName::rfpApprovalsUsers())));
+    }
+
+    /**
+     * The requestor sees their own RFPs; Admin and AP see all (as My Requests and RFP Approvals).
+     *
+     * @param  Builder<Rfp>  $query
+     */
+    public function scopeCommentableBy(Builder $query, User $user): void
+    {
+        if (! $user->is_active) {
+            $query->whereRaw('0 = 1');
+        } elseif (! $user->hasAnyRole(RoleName::rfpApprovalsUsers())) {
+            $query->where('requestor_id', $user->id);
+        }
+    }
+
+    public function commentSubject(): string
+    {
+        return $this->rfp_number;
+    }
+
+    /**
+     * The requestor opens it under My Requests; AP and Admin under RFP Approvals.
+     */
+    public function commentUrlFor(User $user): string
+    {
+        return $user->id === $this->requestor_id || ! $user->hasAnyRole(RoleName::rfpApprovalsUsers())
+            ? RfpResource::getUrl('view', ['record' => $this])
+            : RfpApprovalResource::getUrl('view', ['record' => $this]);
     }
 
     /**

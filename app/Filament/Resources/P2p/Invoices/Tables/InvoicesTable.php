@@ -4,6 +4,7 @@ namespace App\Filament\Resources\P2p\Invoices\Tables;
 
 use App\Enums\P2pStatus;
 use App\Enums\RoleName;
+use App\Filament\Actions\OpenCommentsAction;
 use App\Filament\Pages\P2p\BulkGoodsReceipt;
 use App\Models\P2p\Invoice;
 use App\Services\P2p\P2pThreeWayMatchService;
@@ -95,6 +96,8 @@ class InvoicesTable
                     ->multiple(),
             ])
             ->recordActions([
+                OpenCommentsAction::make(),
+
                 Action::make('resubmit')
                     ->label('Resubmit')
                     ->icon(Heroicon::OutlinedArrowPath)

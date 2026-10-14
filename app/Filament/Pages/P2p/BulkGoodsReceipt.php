@@ -5,6 +5,7 @@ namespace App\Filament\Pages\P2p;
 use App\Enums\P2pStatus;
 use App\Enums\P2pThreeWayMatchStatus;
 use App\Enums\RoleName;
+use App\Filament\Concerns\HasCommentsChat;
 use App\Filament\Pages\P2p\Actions\ReadInvoiceAction;
 use App\Filament\Resources\P2p\Escalations\EscalationResource;
 use App\Filament\Resources\P2p\Invoices\InvoiceResource;
@@ -68,6 +69,7 @@ use Livewire\Attributes\Url;
  */
 class BulkGoodsReceipt extends Page implements HasActions, HasForms
 {
+    use HasCommentsChat;
     use InteractsWithActions;
     use InteractsWithForms;
 
@@ -1207,6 +1209,14 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
     protected function invoiceQuery(): Builder
     {
         return Invoice::query()->with(['lines.sapItem.goodReceipt', 'vendor', 'company']);
+    }
+
+    /**
+     * The chat bubble opens the open invoice's thread; without one it shows the inbox.
+     */
+    protected function commentsChatRecord(): ?Invoice
+    {
+        return $this->invoiceModel();
     }
 
     protected function invoiceModel(): ?Invoice

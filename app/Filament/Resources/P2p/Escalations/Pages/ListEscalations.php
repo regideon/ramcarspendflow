@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\P2p\Escalations\Pages;
 
+use App\Filament\Concerns\HasCommentsChat;
 use App\Filament\Resources\P2p\Escalations\EscalationResource;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Tabs\Tab;
@@ -9,6 +10,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class ListEscalations extends ListRecords
 {
+    use HasCommentsChat;
+
     protected static string $resource = EscalationResource::class;
 
     public function getTabs(): array

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\RfpApprovals\Pages;
 
+use App\Filament\Concerns\HasCommentsChat;
 use App\Filament\Resources\RfpApprovals\RfpApprovalResource;
 use App\Filament\Resources\Rfps\Widgets\RfpProgress;
 use Filament\Resources\Pages\ViewRecord;
@@ -11,6 +12,8 @@ use Filament\Resources\Pages\ViewRecord;
  */
 class ViewRfpApproval extends ViewRecord
 {
+    use HasCommentsChat;
+
     protected static string $resource = RfpApprovalResource::class;
 
     protected function getHeaderWidgets(): array

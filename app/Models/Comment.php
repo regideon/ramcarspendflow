@@ -11,9 +11,9 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 /**
  * A comment on a record (RFP, later P2P). The body is rich-editor HTML and may @mention users.
- * Never changes the record's status.
+ * Never changes the record's status. Internal comments are hidden from vendors.
  */
-#[Fillable(['user_id', 'body', 'attachments'])]
+#[Fillable(['user_id', 'body', 'attachments', 'is_internal'])]
 class Comment extends Model
 {
     /** @use HasFactory<CommentFactory> */
@@ -61,6 +61,7 @@ class Comment extends Model
     {
         return [
             'attachments' => 'array',
+            'is_internal' => 'boolean',
         ];
     }
 }
