@@ -44,7 +44,7 @@ class KeepingUp extends ChartWidget
                 [
                     'label' => 'Completed by me',
                     'data' => $days->pluck('completed')->all(),
-                    'backgroundColor' => '#f59e0b',
+                    'backgroundColor' => '#0069ff',
                     'borderRadius' => 3,
                 ],
             ],

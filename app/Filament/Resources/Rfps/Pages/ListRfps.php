@@ -4,7 +4,10 @@ namespace App\Filament\Resources\Rfps\Pages;
 
 use App\Enums\RfpStatus;
 use App\Filament\Concerns\HasCommentsChat;
+use App\Filament\Concerns\HasQueueChips;
 use App\Filament\Resources\Rfps\RfpResource;
+use App\Services\Rfp\QueueChip;
+use App\Services\Rfp\RfpQueueChips;
 use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Tabs\Tab;
@@ -13,6 +16,7 @@ use Illuminate\Database\Eloquent\Builder;
 class ListRfps extends ListRecords
 {
     use HasCommentsChat;
+    use HasQueueChips;
 
     protected static string $resource = RfpResource::class;
 
@@ -22,6 +26,14 @@ class ListRfps extends ListRecords
             CreateAction::make()
                 ->label('New request'),
         ];
+    }
+
+    /**
+     * @return list<QueueChip>
+     */
+    protected function queueChips(): array
+    {
+        return RfpQueueChips::forRequests();
     }
 
     /**

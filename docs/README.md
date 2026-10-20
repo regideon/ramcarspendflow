@@ -21,6 +21,7 @@ The two modules share users, roles, companies, vendors and SAP master data. Thei
 | 8 | [Open questions](08-open-questions.md) | Questions still waiting for an answer |
 | 9 | [Legacy RFP import](09-legacy-rfp-import.md) | How `rfp:import-legacy` brings over real RFP Portal data, and how legacy codes map to our tables |
 | 10 | [Premium initiatives](10-premium-initiatives.md) | The feature plan for making RFP and P2P a premium app, and its status |
+| 11 | [Benchmarks](11-benchmarks.md) | Best-in-class tools (Stampli, Coupa, Medius, Concur, …), what we borrow from each, and candidate ideas |
 
 Also: [RFP presentation](rfp-presentation.md), slide-by-slide notes on the new RFP's highlights (kept current as features ship).
 

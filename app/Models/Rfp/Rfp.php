@@ -154,6 +154,11 @@ class Rfp extends Model
         }
     }
 
+    public static function commentTypeLabel(): string
+    {
+        return 'RFP';
+    }
+
     public function commentSubject(): string
     {
         return $this->rfp_number;
@@ -219,6 +224,22 @@ class Rfp extends Model
             ->awaiting($user)
             ->orWhere('current_approver_id', $user->id)
             ->orWhereHas('histories', fn (Builder $query) => $query->where('user_id', $user->id)));
+    }
+
+    /**
+     * "overdue" or "today" while the RFP is still with an approver or Accounting; null otherwise.
+     */
+    public function dueState(): ?string
+    {
+        if (! $this->due_date || ! $this->status?->isAwaitingApproval()) {
+            return null;
+        }
+
+        return match (true) {
+            $this->due_date->isBefore(today()) => 'overdue',
+            $this->due_date->isToday() => 'today',
+            default => null,
+        };
     }
 
     /**

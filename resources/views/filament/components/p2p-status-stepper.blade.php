@@ -13,8 +13,8 @@
     // The canonical forward path on the invoice (before any escalation detour).
     $flow = [
         ['key' => 'vendor', 'label' => 'Vendor'],
-        ['key' => 'processor', 'label' => 'Processor'],
-        ['key' => 'checker', 'label' => 'Checker'],
+        ['key' => 'processor', 'label' => 'AP Processor'],
+        ['key' => 'checker', 'label' => 'AP Supervisor'],
         ['key' => 'sap', 'label' => 'SAP'],
         ['key' => 'completed', 'label' => 'Completed'],
     ];
@@ -76,18 +76,8 @@
         : [];
 @endphp
 
-<div {{ $attributes->merge([
-    'class' => 'rounded-xl bg-white p-4 shadow-sm ring-1 ring-gray-950/5 dark:bg-gray-900 dark:ring-white/10',
-]) }}>
-    <div class="mb-3 flex items-center justify-between gap-2">
-        <p class="text-xs font-semibold uppercase tracking-wide text-[#5a647a] dark:text-gray-400">Workflow Stage</p>
-
-        @if ($current)
-            <span class="inline-block rounded-full px-2.5 py-1 text-[11px] font-bold leading-none {{ $pillClasses }}">
-                {{ $current->getLabel() }}
-            </span>
-        @endif
-    </div>
+{{-- Shown inside the "Workflow Stage" Filament section (heading, icon and status badge come from it). --}}
+<div {{ $attributes }}>
 
     {{-- The forward path. Hidden while the request is out on an escalation, so the
          escalation route(s) below become the primary flow. Dead-end statuses
@@ -104,7 +94,7 @@
             <div class="{{ $loop->last ? 'flex-none' : 'flex-1' }}">
                 <div class="flex items-center">
                     <div class="flex flex-col items-center">
-                        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold {{ $isCurrent ? 'border-[#1E7A47] bg-[#1E7A47] text-white dark:border-green-500 dark:bg-green-500' : ($isDone ? 'border-[#38A169] bg-[#E3F5EA] text-[#1E7A47] dark:border-green-500/60 dark:bg-green-500/10 dark:text-green-400' : 'border-[#D3DAE6] bg-white text-[#94A3B8] dark:border-gray-600 dark:bg-gray-900 dark:text-gray-400') }}">
+                        <div @if ($isCurrent) style="border-color: var(--primary-600); background-color: var(--primary-600);" @endif class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-bold {{ $isCurrent ? 'text-white' : ($isDone ? 'border-[#38A169] bg-[#E3F5EA] text-[#1E7A47] dark:border-green-500/60 dark:bg-green-500/10 dark:text-green-400' : 'border-[#D3DAE6] bg-white text-[#94A3B8] dark:border-gray-600 dark:bg-gray-900 dark:text-gray-400') }}">
                             @if ($isDone)
                                 <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                     <path fill-rule="evenodd" d="M16.704 5.29a1 1 0 0 1 .006 1.414l-7.5 7.5a1 1 0 0 1-1.414 0l-3.5-3.5a1 1 0 0 1 1.414-1.414l2.793 2.793 6.793-6.793a1 1 0 0 1 1.414-.006z" clip-rule="evenodd" />
@@ -115,7 +105,7 @@
                         </div>
 
                         <div class="mt-1.5 pr-1">
-                            <span class="text-[11px] font-semibold leading-tight {{ $isCurrent ? 'text-[#1A2540] dark:text-white' : ($isDone ? 'text-[#1E7A47] dark:text-green-400' : 'text-[#94A3B8] dark:text-gray-500') }}">
+                            <span class="text-xs font-semibold leading-tight {{ $isCurrent ? 'text-gray-950 dark:text-white' : ($isDone ? 'text-[#1E7A47] dark:text-green-400' : 'text-[#94A3B8] dark:text-gray-500') }}">
                                 {{ $step['label'] }}
                             </span>
                         </div>

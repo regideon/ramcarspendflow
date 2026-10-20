@@ -204,6 +204,11 @@ class Invoice extends Model
             ->orWhereHas('roles', fn (Builder $query) => $query->whereIn('name', RoleName::p2pStaff())));
     }
 
+    public static function commentTypeLabel(): string
+    {
+        return 'P2P invoice';
+    }
+
     public function commentSubject(): string
     {
         return $this->invoice_number ? "Invoice {$this->invoice_number}" : $this->grc_number;

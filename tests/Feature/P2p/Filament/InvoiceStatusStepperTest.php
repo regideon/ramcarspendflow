@@ -30,13 +30,14 @@ function renderStepper(P2pStatus $status): string
 it('renders the forward path with the current status highlighted', function () {
     $html = renderStepper(P2pStatus::SubmittedToAp);
 
-    expect($html)->toContain('Workflow Stage')
-        ->and($html)->toContain('Vendor')
-        ->and($html)->toContain('Processor')
-        ->and($html)->toContain('Checker')
+    // The "Workflow Stage" heading and the status badge come from the page's section
+    expect($html)->toContain('Vendor')
+        ->and($html)->toContain('AP Processor')
+        ->and($html)->toContain('AP Supervisor')
+        ->and($html)->not->toContain('Checker')
         ->and($html)->toContain('SAP')
         ->and($html)->toContain('Completed')
-        ->and($html)->toContain(P2pStatus::SubmittedToAp->getLabel());
+        ->and($html)->toContain('var(--primary-600)'); // current step in the brand colour
 });
 
 it('does not mark the terminal node on a normal in-progress invoice', function () {
@@ -67,7 +68,7 @@ it('lights visited steps from the approval history', function () {
 
     // Returned to vendor: the current marker is Vendor, but the trail still shows
     // the steps it reached before coming back (Checker = index 2 => Vendor+Processor done).
-    expect($html)->toContain(P2pStatus::ReturnedToVendor->getLabel())
+    expect(substr_count($html, 'M16.704 5.29'))->toBe(2) // Vendor and AP Processor ticked
         ->and($html)->toContain('Vendor');
 });
 

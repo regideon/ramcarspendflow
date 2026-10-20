@@ -1,6 +1,6 @@
 # The New RFP — Ramcar Spend Flow
 
-_Presentation notes · Last updated: 2026-10-13_
+_Presentation notes · Last updated: 2026-10-14_
 
 > Each `---` below is one slide. Status tags: **✅ Built** (ready to demo) · **🔜 Coming** (planned, not yet built).
 > Keep this file current: when a feature ships, move it from "Coming" to its slide and update the date.
@@ -83,6 +83,9 @@ Our approval flow stays the same:
 - **One tab per step**, in flow order: **1. AP Processor · 2. Matrix Approval · 3. AP Processor · 4. AP Supervisor · 5. AP Manager · 6. Treasury**.
 - Then the outcomes: **Payment Released · Returned to Requestor · Rejected · Cancelled · All**.
 - Search by RFP no., **invoice no.**, payee or requestor. "Currently with" shows who holds each RFP.
+- **Urgency chips** above the tabs, one click to filter: **Overdue · Due today · Urgent**, plus **Back on my desk** (AP Processor), **Waiting 3+ days** (AP Supervisor / Manager), **Foreign currency** (AP Manager) and **Stuck 5+ days** (Admin).
+- A **Due** column that turns **red when overdue** and **amber when due today**.
+- **My Requests** gets its own chips: **Returned to me · Drafts not submitted · In progress · Paid this month** (with PHP totals).
 
 ---
 

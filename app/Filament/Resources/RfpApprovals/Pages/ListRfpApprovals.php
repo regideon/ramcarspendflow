@@ -5,8 +5,10 @@ namespace App\Filament\Resources\RfpApprovals\Pages;
 use App\Enums\RfpStatus;
 use App\Enums\RoleName;
 use App\Filament\Concerns\HasCommentsChat;
+use App\Filament\Concerns\HasQueueChips;
 use App\Filament\Resources\RfpApprovals\RfpApprovalResource;
-use App\Filament\Resources\RfpApprovals\Widgets\RfpApprovalStats;
+use App\Services\Rfp\QueueChip;
+use App\Services\Rfp\RfpQueueChips;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Tabs\Tab;
 use Filament\Support\Icons\Heroicon;
@@ -15,16 +17,20 @@ use Illuminate\Database\Eloquent\Builder;
 class ListRfpApprovals extends ListRecords
 {
     use HasCommentsChat;
+    use HasQueueChips;
 
     protected static string $resource = RfpApprovalResource::class;
 
     protected static ?string $title = 'RFP Approvals';
 
-    protected function getHeaderWidgets(): array
+    /**
+     * Urgency chips instead of stat cards: only what to work on first.
+     *
+     * @return list<QueueChip>
+     */
+    protected function queueChips(): array
     {
-        return [
-            RfpApprovalStats::class,
-        ];
+        return RfpQueueChips::forApprovals(auth()->user());
     }
 
     /**

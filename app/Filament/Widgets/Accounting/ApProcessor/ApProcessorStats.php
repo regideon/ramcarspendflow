@@ -37,7 +37,7 @@ class ApProcessorStats extends StatsOverviewWidget
                 ->descriptionIcon(Heroicon::OutlinedCalculator)
                 ->color($processing['oldest'] > 5 ? 'warning' : 'info'),
             Stat::make('P2P to process', $p2p['count'])
-                ->description(Peso::format($p2p['amount'], compact: true)." · {$p2p['no_match']} No Match")
+                ->description(Peso::format($p2p['amount'], compact: true)." · {$p2p['no_match']} Not Matched")
                 ->descriptionIcon(Heroicon::OutlinedInboxArrowDown)
                 ->color($p2p['no_match'] > 0 ? 'danger' : 'info'),
             Stat::make('Returned to me', $returned['count'])

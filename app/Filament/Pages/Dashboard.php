@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Enums\RfpRequestType;
 use App\Enums\RoleName;
+use App\Filament\Concerns\HasCommentsChat;
 use App\Filament\Resources\P2p\Approvals\ApprovalResource;
 use App\Filament\Resources\P2p\GoodsReceipts\GoodsReceiptResource;
 use App\Filament\Resources\P2p\PurchaseOrders\Actions\SyncFromSapAction;
@@ -25,6 +26,8 @@ use Filament\Support\Icons\Heroicon;
  */
 class Dashboard extends BaseDashboard
 {
+    use HasCommentsChat;
+
     public function getWidgets(): array
     {
         return match ($this->role()) {

@@ -2,6 +2,8 @@
 
 _Last updated: 2026-10-13 · Benchmarks: Stampli (AP Automation, Procurement), Medius, Coupa, SAP Concur_
 
+See [11 – Benchmarks](11-benchmarks.md) for what each product does and for candidate ideas not yet in this list.
+
 **Goal:** make RFP and P2P good enough to compete with the big AP automation tools, without changing Ramcar's process.
 
 ## Ground rules
@@ -54,7 +56,7 @@ We do them **one at a time**, in the order below. Each one ships with Pest tests
 
 **RFP (done 2026-10-13):**
 - Shared table `comments` (commentable record, user, rich-text body, attachments). Model `App\Models\Comment`; a record opts in with the `HasComments` trait and defines `mentionableUsers()`, `commentSubject()` and `commentUrlFor()`. RFP's morph alias is `rfp`.
-- **Chat bubble (2026-10-14):** a floating bubble at the bottom right of every RFP and P2P page (Livewire `App\Livewire\CommentsChat`, added to a page with the `HasCommentsChat` trait). On a record page (RFP view/edit, P2P AP and GR screens with `?invoice=`) it opens that record's thread; on list and create pages it opens an **inbox** of the user's conversations, newest first, with unread counts (`App\Services\Comments\CommentInbox`). Each RFP and P2P table row has a chat icon (`OpenCommentsAction`) with its unread count that opens the row's thread; on Escalations the thread is the escalation's invoice. The bubble checks for new messages every 15 seconds and shows a red unread badge while closed (table `comment_reads`). Posting from the bubble or from **Add comment** goes through `App\Services\Comments\PostComment`.
+- **Chat bubble (2026-10-14):** a floating bubble at the bottom right of every RFP and P2P page (Livewire `App\Livewire\CommentsChat`, added to a page with the `HasCommentsChat` trait). On a record page (RFP view/edit, P2P AP and GR screens with `?invoice=`) it opens that record's thread; on list and create pages and the Dashboard (`/hub`) it opens an **inbox** of the user's conversations, newest first, with unread counts (`App\Services\Comments\CommentInbox`). Each RFP and P2P table row has a chat icon (`OpenCommentsAction`) with its unread count that opens the row's thread; on Escalations the thread is the escalation's invoice. The bubble checks for new messages every 15 seconds and shows a red unread badge while closed (table `comment_reads`). Posting from the bubble or from **Add comment** goes through `App\Services\Comments\PostComment`.
 - A **Comments** section on the RFP page, both in My Requests and in RFP Approvals, with an **Add comment** button: rich text plus up to 5 PDF/image attachments.
 - Type **@** to mention someone. Only people who can open the RFP can be mentioned: the requestor and Admin/AP roles. Business approvers are added when they get an RFP screen.
 - Mentioned users get an in-app notification with a link to the RFP. Authors are never notified about their own comments.

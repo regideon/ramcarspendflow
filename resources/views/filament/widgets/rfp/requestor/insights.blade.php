@@ -6,7 +6,7 @@
 
     $categories = collect($categories);
     $categoryTotal = max($categories->sum('amount'), 1);
-    $palette = ['#f59e0b', '#3b82f6', '#64748b', '#cbd5e1', '#10b981', '#a855f7'];
+    $palette = ['#0069ff', '#38bdf8', '#6366f1', '#94a3b8', '#10b981', '#f59e0b'];
 
     // Donut as a conic gradient: each category takes its share of the circle.
     $start = 0;

@@ -6,6 +6,7 @@ use App\Enums\RfpRequestType;
 use App\Enums\RfpStatus;
 use App\Filament\Actions\OpenCommentsAction;
 use App\Filament\Resources\RfpApprovals\RfpApprovalResource;
+use App\Filament\Resources\Rfps\Tables\RfpsTable;
 use App\Models\Rfp\Rfp;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
@@ -36,9 +37,7 @@ class RfpApprovalsTable
                         ->orWhereHas('items', fn (Builder $query) => $query->where('invoice_number', 'like', "%{$search}%")))
                     ->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderBy('id', $direction))
                     ->weight('medium'),
-                TextColumn::make('due_date')
-                    ->date()
-                    ->sortable(),
+                RfpsTable::dueDateColumn(),
                 TextColumn::make('dueType.name')
                     ->label('Urgency')
                     ->badge()

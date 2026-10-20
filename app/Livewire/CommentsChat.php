@@ -4,6 +4,7 @@ namespace App\Livewire;
 
 use App\Filament\Resources\Rfps\Schemas\RfpForm;
 use App\Filament\Support\CommentMentions;
+use App\Models\Comment;
 use App\Models\Concerns\HasComments;
 use App\Models\User;
 use App\Services\Comments\CommentInbox;
@@ -18,6 +19,7 @@ use Filament\Schemas\Contracts\HasSchemas;
 use Filament\Schemas\Schema;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -71,9 +73,9 @@ class CommentsChat extends Component implements HasActions, HasSchemas
             ->components([
                 RichEditor::make('body')
                     ->hiddenLabel()
-                    ->placeholder('Write a message. Type @ to mention someone.')
+                    ->placeholder('Message… type @ to mention')
                     ->required()
-                    ->toolbarButtons([['bold', 'italic', 'link', 'bulletList']])
+                    ->toolbarButtons([])
                     ->mentions(fn (): array => [CommentMentions::provider($this->thread())]),
                 FileUpload::make('attachments')
                     ->hiddenLabel()
@@ -86,7 +88,7 @@ class CommentsChat extends Component implements HasActions, HasSchemas
                     ->maxFiles(5)
                     ->visible(fn (): bool => $this->showAttachments),
                 Toggle::make('is_internal')
-                    ->label('Internal: hide from the vendor')
+                    ->label('Internal note (hidden from vendor)')
                     ->visible(fn (): bool => $this->canPostInternal()),
             ])
             ->statePath('data');
@@ -154,9 +156,12 @@ class CommentsChat extends Component implements HasActions, HasSchemas
         $thread = $this->thread();
         $inbox = app(CommentInbox::class);
 
+        $comments = $this->open && $thread ? $thread->commentsVisibleTo($this->user())->with('user')->get() : collect();
+
         return view('filament.livewire.comments-chat', [
             'thread' => $thread,
-            'comments' => $this->open && $thread ? $thread->commentsVisibleTo($this->user())->with('user')->get() : collect(),
+            'comments' => $comments,
+            'seenBy' => $thread && $comments->isNotEmpty() ? $this->seenBy($thread, $comments) : collect(),
             'threads' => $this->open && ! $thread ? $inbox->threads($this->user()) : collect(),
             'unread' => match (true) {
                 $this->open => 0,
@@ -165,6 +170,30 @@ class CommentsChat extends Component implements HasActions, HasSchemas
             },
             'canPostInternal' => $this->canPostInternal(),
         ]);
+    }
+
+    /**
+     * Read receipt for the user's own latest message: who else has read up to it.
+     *
+     * @param  Collection<int, Comment>  $comments
+     * @return Collection<int, User>
+     */
+    protected function seenBy(Model $thread, Collection $comments): Collection
+    {
+        $last = $comments->last();
+
+        if ($last === null || $last->user_id !== $this->user()->id) {
+            return collect();
+        }
+
+        return $thread->commentReads()
+            ->with('user')
+            ->whereNot('user_id', $this->user()->id)
+            ->where('last_read_comment_id', '>=', $last->id)
+            ->get()
+            ->pluck('user')
+            ->filter(fn (?User $user): bool => $user !== null && (! $last->is_internal || $thread::seesInternalComments($user)))
+            ->values();
     }
 
     /**

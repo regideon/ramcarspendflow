@@ -47,7 +47,7 @@ class PostComment
 
         $mentioned->each(fn (User $user) => Notification::make()
             ->title("{$author->name} mentioned you on {$record->commentSubject()}")
-            ->body(Str::limit(strip_tags($comment->body), 120))
+            ->body(Str::limit($comment->plainText(), 120))
             ->icon(Heroicon::OutlinedChatBubbleLeftEllipsis)
             ->actions([
                 Action::make('view')->label('Open')->url($record->commentUrlFor($user))->markAsRead(),

@@ -1,3 +1,8 @@
+{{--
+    Read invoice with AI: the review, laid out like the page's "Items for GR" table (same
+    Filament table classes) so it reads the same. A ticked GR line is applied; red rows don't
+    reconcile (Inv Qty differs from what was received, or the invoice line is on no GR line).
+--}}
 @php
     use App\Enums\P2pThreeWayMatchStatus;
 
@@ -5,7 +10,9 @@
     $rows = $rows ?? [];
     $matched = $match['rows'] ?? [];
     $files = $match['files'] ?? [];
+    $statePath = isset($getStatePath) ? $getStatePath() : 'apply'; // the ViewField's state: ticks keyed by GR item id
     $fmt = fn ($v) => rtrim(rtrim(number_format((float) $v, 4, '.', ','), '0'), '.') ?: '0';
+    $price = fn ($v) => is_numeric($v) ? number_format((float) $v, 2) : '—';
     $pageTypes = ['invoice' => 'invoice', 'delivery_receipt' => 'delivery receipt', 'purchase_order' => 'PO copy', 'import_permit' => 'import permit', 'other' => 'other'];
 @endphp
 
@@ -32,21 +39,26 @@
             <div><strong>{{ $file['name'] }}</strong>: {{ collect($file['pages'])->map(fn ($type) => $pageTypes[$type] ?? $type)->implode(', ') ?: 'no pages read' }}</div>
         @endforeach
         @foreach ($match['invoices'] ?? [] as $invoice)
-            <div>Invoice <strong>{{ $invoice['invoice_number'] ?? '—' }}</strong> · {{ $invoice['invoice_date'] ?? 'no date' }} · total {{ $invoice['currency'] ?? '' }} {{ is_numeric($invoice['total_amount'] ?? null) ? number_format((float) $invoice['total_amount'], 2) : '—' }}</div>
+            <div>Invoice <strong>{{ $invoice['invoice_number'] ?? '—' }}</strong> · {{ $invoice['invoice_date'] ?? 'no date' }} · {{ $invoice['currency'] ?? 'currency not printed' }} · total {{ $price($invoice['total_amount'] ?? null) }}</div>
         @endforeach
     </div>
 
-    <div class="p2p-review-table-wrap">
-        <table class="p2p-review-table">
+    <div class="fi-fo-table-repeater p2p-review-table">
+        <table>
             <thead>
                 <tr>
-                    <th>GR / item</th>
-                    <th>Short text</th>
-                    <th>On the invoice</th>
-                    <th class="num">GR Qty</th>
-                    <th class="num">Inv Qty</th>
-                    <th class="num">Price</th>
-                    <th>3-way</th>
+                    <th class="fi-align-center">Apply</th>
+                    <th>PO Number</th>
+                    <th>GR Number</th>
+                    <th>GR Item</th>
+                    <th>SAP Short Text</th>
+                    <th class="is-invoice">On the Invoice</th>
+                    <th class="fi-align-end">PO Qty</th>
+                    <th>Uom</th>
+                    <th class="fi-align-end">GR Qty</th>
+                    <th class="fi-align-end is-invoice">Inv Qty</th>
+                    <th class="fi-align-end">Price</th>
+                    <th class="fi-align-center">3-Way Matching</th>
                 </tr>
             </thead>
             <tbody>
@@ -54,20 +66,38 @@
                     @php
                         $line = $matched[$itemId] ?? null;
                         $status = $line ? P2pThreeWayMatchStatus::from($line['status']) : P2pThreeWayMatchStatus::ForVerification;
+                        $toBill = (float) $row['quantity_remaining'];
+                        $differs = $line === null || (float) $line['quantity'] !== $toBill;
                     @endphp
-                    <tr>
-                        <td>{{ $row['gr_number'] }} · {{ $row['purchase_order_item'] }}</td>
-                        <td>{{ $row['item_name'] }}</td>
-                        <td>{{ $line ? ($line['description'] ?? '—').' ('.($line['invoice_number'] ?? '—').')' : 'Not on the invoice' }}</td>
-                        <td class="num">
-                            {{ $fmt($row['quantity_served'] ?? $row['quantity_remaining']) }} {{ $row['uom'] }}
-                            @if (($row['quantity_served'] ?? $row['quantity_remaining']) > $row['quantity_remaining'])
-                                <div class="p2p-review-reason">{{ $fmt($row['quantity_remaining']) }} left to bill</div>
+                    <tr @class(['is-mismatch' => $differs])>
+                        <td class="fi-align-center">
+                            @if ($line)
+                                <input type="checkbox" class="fi-checkbox-input" wire:model="{{ $statePath }}.{{ $itemId }}" aria-label="Apply GR {{ $row['gr_number'] }} item {{ $row['purchase_order_item'] }}" />
                             @endif
                         </td>
-                        <td @class(['num', 'p2p-review-diff' => $line && (float) $line['quantity'] !== (float) $row['quantity_remaining']])>{{ $line ? $fmt($line['quantity']) : '—' }}</td>
-                        <td class="num">{{ $line && $line['unit_price'] !== null ? ($line['currency'] ?? '').' '.number_format((float) $line['unit_price'], 2) : '—' }}</td>
+                        <td>{{ $row['purchase_order'] }}</td>
+                        <td>{{ $row['gr_number'] }}</td>
+                        <td>{{ $row['purchase_order_item'] }}</td>
+                        <td>{{ $row['item_name'] }}</td>
                         <td>
+                            @if ($line)
+                                {{ $line['description'] ?? '—' }}
+                                <div class="p2p-review-reason">Invoice {{ $line['invoice_number'] ?? '—' }}</div>
+                            @else
+                                <span class="p2p-review-muted">Not on the invoice</span>
+                            @endif
+                        </td>
+                        <td class="fi-align-end">{{ $fmt($row['quantity_po'] ?? 0) }}</td>
+                        <td>{{ $row['uom'] }}</td>
+                        <td class="fi-align-end">
+                            {{ $fmt($row['quantity_served'] ?? $toBill) }}
+                            @if (($row['quantity_served'] ?? $toBill) > $toBill)
+                                <div class="p2p-review-reason">{{ $fmt($toBill) }} left to bill</div>
+                            @endif
+                        </td>
+                        <td class="fi-align-end">{{ $line ? $fmt($line['quantity']) : '—' }}</td>
+                        <td class="fi-align-end">{{ $line ? $price($line['unit_price']) : '—' }}</td>
+                        <td class="fi-align-center">
                             <x-filament::badge :color="$status->getColor()">{{ $status->getLabel() }}</x-filament::badge>
                             @foreach ($line['reasons'] ?? [] as $reason)
                                 <div class="p2p-review-reason">{{ $reason }}</div>
@@ -75,27 +105,36 @@
                         </td>
                     </tr>
                 @endforeach
+
+                {{-- On the invoice but on none of these GR lines: shown, nothing to apply --}}
+                @foreach ($match['unmatched_lines'] ?? [] as $line)
+                    <tr class="is-mismatch">
+                        <td></td>
+                        <td colspan="4" class="p2p-review-muted">Not on the GR lines selected</td>
+                        <td>
+                            {{ $line['description'] ?? '—' }}
+                            <div class="p2p-review-reason">Invoice {{ $line['invoice_number'] ?? '—' }}</div>
+                        </td>
+                        <td></td>
+                        <td></td>
+                        <td class="fi-align-end">—</td>
+                        <td class="fi-align-end">{{ is_numeric($line['quantity'] ?? null) ? $fmt($line['quantity']) : '—' }}</td>
+                        <td class="fi-align-end">{{ $price($line['unit_price'] ?? null) }}</td>
+                        <td class="fi-align-center">
+                            <x-filament::badge color="danger">Not on GR</x-filament::badge>
+                        </td>
+                    </tr>
+                @endforeach
             </tbody>
         </table>
     </div>
-
-    @if (filled($match['unmatched_lines'] ?? []))
-        <div class="p2p-review-box is-danger">
-            <strong>Invoice lines not matched to any GR line</strong>
-            <ul>
-                @foreach ($match['unmatched_lines'] as $line)
-                    <li>{{ $line['invoice_number'] ?? '—' }}: {{ $line['description'] ?? '—' }} · qty {{ $fmt($line['quantity'] ?? 0) }} @ {{ is_numeric($line['unit_price'] ?? null) ? number_format((float) $line['unit_price'], 2) : '—' }}</li>
-                @endforeach
-            </ul>
-        </div>
-    @endif
 
     @if (filled($match['charges'] ?? []))
         <div class="p2p-review-box">
             <strong>Charges not on any PO (shown only)</strong>
             <ul>
                 @foreach ($match['charges'] as $charge)
-                    <li>{{ $charge['invoice_number'] ?? '—' }}: {{ $charge['description'] ?? 'Charge' }} · {{ number_format((float) $charge['amount'], 2) }}</li>
+                    <li>{{ $charge['invoice_number'] ?? '—' }}: {{ $charge['description'] ?? 'Charge' }} · {{ $price($charge['amount']) }}</li>
                 @endforeach
             </ul>
         </div>
@@ -108,16 +147,23 @@
         .p2p-review-box ul { margin: .25rem 0 0; padding-left: 1.125rem; list-style: disc; }
         .p2p-review-box.is-info { background: color-mix(in oklab, var(--info-500) 12%, transparent); }
         .p2p-review-box.is-warning { background: color-mix(in oklab, var(--warning-500) 15%, transparent); }
-        .p2p-review-box.is-danger { background: color-mix(in oklab, var(--danger-500) 12%, transparent); }
         .p2p-review-meta { display: grid; gap: .125rem; color: var(--gray-600); }
         .dark .p2p-review-meta { color: var(--gray-300); }
-        .p2p-review-table-wrap { overflow-x: auto; }
-        .p2p-review-table { width: 100%; border-collapse: collapse; }
-        .p2p-review-table th { text-align: left; font-size: .75rem; text-transform: uppercase; color: var(--gray-500); padding: .375rem .5rem; border-bottom: 1px solid var(--gray-200); white-space: nowrap; }
-        .p2p-review-table td { padding: .5rem; border-bottom: 1px solid var(--gray-100); vertical-align: top; }
-        .dark .p2p-review-table th, .dark .p2p-review-table td { border-color: var(--gray-700); }
-        .p2p-review-table .num { text-align: right; white-space: nowrap; }
-        .p2p-review-diff { font-weight: 600; color: var(--warning-600); }
-        .p2p-review-reason { margin-top: .25rem; font-size: .75rem; color: var(--gray-500); max-width: 18rem; }
+
+        /* Same table as the page; scroll sideways on narrow screens */
+        .p2p-review-table { overflow-x: auto; }
+        .p2p-review-table > table { display: table; min-width: 64rem; }
+        .p2p-review-table > table > thead { display: table-header-group; }
+        .p2p-review-table > table > thead > tr > th { white-space: nowrap; }
+        .p2p-review-table > table > thead > tr > th.is-invoice { background: color-mix(in oklab, var(--warning-500) 22%, transparent); }
+        .p2p-review-table > table > thead > tr > th.fi-align-center { text-align: center; }
+        .p2p-review-table > table > tbody > tr > td { padding: .5rem .75rem; vertical-align: top; border-top: 1px solid var(--gray-200); }
+        .dark .p2p-review-table > table > tbody > tr > td { border-color: color-mix(in oklab, var(--color-white) 10%, transparent); }
+        .p2p-review-table td.fi-align-end { text-align: end; white-space: nowrap; }
+        .p2p-review-table td.fi-align-center { text-align: center; }
+        .p2p-review-table > table > tbody > tr.is-mismatch > td { background: color-mix(in oklab, var(--danger-500) 10%, transparent); }
+        .p2p-review-reason { margin-top: .25rem; font-size: .75rem; color: var(--gray-500); }
+        .p2p-review-table td.fi-align-center .p2p-review-reason { max-width: 16rem; margin-inline: auto; }
+        .p2p-review-muted { color: var(--gray-500); font-style: italic; }
     </style>
 </div>

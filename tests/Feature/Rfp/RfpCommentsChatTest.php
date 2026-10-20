@@ -2,6 +2,7 @@
 
 use App\Enums\RfpStatus;
 use App\Enums\RoleName;
+use App\Filament\Pages\Dashboard;
 use App\Filament\Resources\RfpApprovals\Pages\ListRfpApprovals;
 use App\Filament\Resources\RfpApprovals\Pages\ViewRfpApproval;
 use App\Filament\Resources\Rfps\Pages\CreateRfp;
@@ -157,4 +158,25 @@ it('opens the RFP thread from the edit page', function () {
 
     Livewire::test(CommentsChat::class, ['record' => $this->rfp])
         ->assertSet('type', 'rfp');
+});
+
+it('shows the bubble as an inbox on the dashboard', function () {
+    $this->actingAs($this->requestor);
+
+    Livewire::test(Dashboard::class)->assertSeeLivewire(CommentsChat::class);
+});
+
+it('shows the inbox preview as plain text, without HTML entities', function () {
+    Comment::factory()->for($this->rfp, 'commentable')->for($this->apProcessor)->create([
+        'body' => '<p><span data-type="mention" data-id="1" data-char="@">@Reg</span> I&#039;ll check &amp; revert</p>',
+    ]);
+
+    $this->actingAs($this->requestor);
+
+    Livewire::test(CommentsChat::class)
+        ->call('toggle')
+        ->assertSeeHtml('@Reg I&#039;ll check &amp; revert')
+        ->assertDontSeeHtml('&amp;#039;');
+
+    expect(Comment::sole()->plainText())->toBe("@Reg I'll check & revert");
 });

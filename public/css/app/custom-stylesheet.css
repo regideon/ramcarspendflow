@@ -1,88 +1,45 @@
 /* ---------------------------------------------------------
-   AMBER / CHARCOAL THEME (matches bg-02.jpg)
+   SPEND FLOW BLUE — enterprise navy + blue (DigitalOcean-like)
+   Brand blue is Filament's primary palette (HubPanelProvider::BRAND_BLUE,
+   primary-600 = #0069FF), so these rules use the CSS variables and follow
+   dark mode on their own.
 --------------------------------------------------------- */
+:root {
+    --sf-navy: #031b4e;
+    --sf-navy-2: #0b2a66;
+    --sf-navy-dark: #020c24;
+    --sf-canvas: #f5f7fb;
+    --sf-canvas-dark: #0a1020;
+}
+
 nav.fi-topbar,
 header.fi-sidebar-header {
-    background: linear-gradient(to left, #e8871e 0%, #a4471a 45%, #1f1b1a 100%);    
+    background: linear-gradient(90deg, var(--sf-navy) 0%, var(--sf-navy) 55%, var(--sf-navy-2) 100%);
+    box-shadow: inset 0 -1px 0 rgb(255 255 255 / 0.06);
 }
 .dark nav.fi-topbar,
 .dark header.fi-sidebar-header {
-    background: linear-gradient(to left, #5a2a0c 0%, #2a1710 50%, #121010 100%);
+    background: var(--sf-navy-dark);
 }
 nav.fi-topbar {
     max-height: 6px;
 }
-.fi-ta-ctn:where(.dark, .dark *) {
-    background-color: #1a1614;
-    --tw-ring-color: #ffffff1a;
-}
 .fi-layout {
-    background: linear-gradient(to left, #fbeee0, #f8f3ee, #ffffff);
+    background: var(--sf-canvas);
 }
 .dark .fi-layout {
-    background: linear-gradient(to left, #1f1510 0%, #221a16 50%, #15110f 100%);
+    background: var(--sf-canvas-dark);
 }
 
 .dark .fi-ta-actions > a:hover {
-    color: #f5a623; /* amber */
-    background-color: rgb(245 166 35 / 0.12); /* subtle 12% tint */
-    border-radius: 6px; /* optional: smoother UI */
-}
-.fi-icon-btn {
-    color: #c2410c !important;
-}
-.fi-ta-ctn:where(.dark, .dark *) {
-    color: #f0a35e !important;
-}
-/* ---------------------------------------------------------
-   LIGHT MODE — Neon Blue-Violet Corporate (OKLCH primary)
---------------------------------------------------------- */
-/*
-nav.fi-topbar,
-header.fi-sidebar-header {
-    background: linear-gradient(
-        to left,
-        oklch(0.382 0.244 272.151),
-        #1a2040,
-        #0d1124
-    );
+    color: var(--primary-300);
+    background-color: color-mix(in oklab, var(--primary-500) 14%, transparent);
+    border-radius: 6px;
 }
 
-.fi-layout {
-    background: linear-gradient(to left, #eef1ff, #f6f8ff, #ffffff);
-}
-.dark nav.fi-topbar,
-.dark header.fi-sidebar-header {
-    background: linear-gradient(
-        to left,
-        #0b0f25 0%,
-        #151a37 50%,
-        oklch(0.382 0.244 272.151) 100%
-    );
-}
-.dark .fi-layout {
-    background: linear-gradient(to left, #0b0f25 0%, #141b32 50%, #0b0f25 100%);
-}
-.fi-ta-ctn:where(.dark, .dark *) {
-    background-color: #12172b !important;
-    --tw-ring-color: #ffffff1a;
-}
-.dark .fi-active > a.fi-sidebar-item-btn {
-    background-color: oklch(0.382 0.244 272.151);
-    color: #ffffff;
-}
-.dark a.fi-sidebar-item-btn:hover {
-    background-color: oklch(0.382 0.244 272.151 / 0.65);
-    color: #f0f4ff;
-}
-*/
-/* END Neon Blue-Violet Corporate  */
-
+/* Sign-in pages (login, password reset): photo background */
 .fi-simple-main-ctn {
-    background-image: url(/images/bg/bg-02.jpg);
-    background-repeat: no-repeat;
-    background-size: cover;
-    background-position: center;
+    background: var(--sf-navy-dark) url('../../images/bg/bg-04.png') center / cover no-repeat fixed;
     height: 100vh; /* Ensures the height covers the entire viewport */
     display: flex;
     justify-content: center;
@@ -95,34 +52,42 @@ header.fi-sidebar-header {
     /*margin-bottom: 12px; */
     /* height: 3.2rem !important; */
 }
-.fi-icon-btn {
-    color: #bfbfd4;
+.fi-topbar .fi-icon-btn {
+    color: #b7c4dd;
 }
-.fi-topbar-item.fi-active .fi-topbar-item-btn {
-    background-color: rgba(250, 250, 250, 0.7);
+.fi-topbar .fi-icon-btn:hover {
+    color: #fff;
+}
+.fi-topbar-item .fi-topbar-item-btn {
+    border-radius: 0.5rem;
+    transition: background-color 120ms ease;
 }
 .fi-topbar-item:hover .fi-topbar-item-btn {
-    background-color: rgba(250, 250, 250, 0.5);
+    background-color: rgb(255 255 255 / 0.08);
+}
+.fi-topbar-item.fi-active .fi-topbar-item-btn {
+    background-color: rgb(255 255 255 / 0.12);
+    box-shadow: inset 0 -2px 0 var(--primary-400);
 }
 .fi-active > a.fi-sidebar-item-btn {
-    background-color: #fdf0e3;
-    color: #b45309;
+    background-color: var(--primary-50);
+    color: var(--primary-700);
 }
 .dark .fi-active > a.fi-sidebar-item-btn {
-    background-color: #3a2415; /* dark rust */
-    color: #fbbf77;
+    background-color: color-mix(in oklab, var(--primary-500) 18%, transparent);
+    color: var(--primary-300);
 }
 .dark a.fi-sidebar-item-btn:hover {
-    background-color: #4a2e1a; /* slightly brighter rust */
-    color: #ffd9a8; /* light amber for contrast */
+    background-color: color-mix(in oklab, var(--primary-500) 12%, transparent);
+    color: var(--primary-200);
 }
 
 aside.fi-sidebar.fi-main-sidebar.fi-sidebar-open {
     width: 240px;
-    border-right: 1px solid #f3e4d4;
+    border-right: 1px solid var(--gray-200);
 }
 .dark aside.fi-sidebar.fi-main-sidebar.fi-sidebar-open {
-    border-right: 1px solid #2a1d15;
+    border-right: 1px solid var(--gray-800);
 }
 .text-base {
     font-size: 0.9rem;
@@ -151,8 +116,8 @@ button.fi-icon-btn.fi-size-md.fi-topbar-open-sidebar-btn {
 }
 
 .fi-wi-stats-overview-stat {
-    border-left-color: #e8871e;
-    border-left-width: 4px;
+    border-left-color: var(--primary-600);
+    border-left-width: 3px;
 }
 
 button.fi-icon-btn.fi-size-md.fi-topbar-database-notifications-btn {
@@ -175,17 +140,18 @@ span.fi-ta-header-cell-sort-btn {
     font-size: 0.725rem;
 } */
 
-.fi-topbar-item.fi-active .fi-topbar-item-label {
-    /* color: #ea3254; */
-    /* color: #3532ea; */
-    /* color: #e86d96; */
-    color: #c2410c;
+span.fi-topbar-item-label {
+    color: #cfd8e8;
 }
 svg.fi-icon.fi-size-md.fi-topbar-item-icon {
-    color: #fcd9a8;
+    color: #8fa3c7;
 }
-span.fi-topbar-item-label {
-    color: white;
+.fi-topbar-item:hover .fi-topbar-item-label,
+.fi-topbar-item.fi-active .fi-topbar-item-label {
+    color: #fff;
+}
+.fi-topbar-item.fi-active svg.fi-icon.fi-topbar-item-icon {
+    color: var(--primary-300);
 }
 span.fi-topbar-item-labelL:hover {
     color: black;
@@ -198,8 +164,11 @@ header.fi-header {
 
 /* widget */
 span.fi-wi-stats-overview-stat-label {
-    color: #222;
+    color: var(--gray-700);
     font-size: 1rem;
+}
+.dark span.fi-wi-stats-overview-stat-label {
+    color: var(--gray-300);
 }
 
 /* toggle */
@@ -255,7 +224,8 @@ span.font-semibold.text-sm.text-custom-600.dark\:text-custom-400.group-hover\/li
 main.fi-simple-main.fi-width-lg {
     /* background: rgba(0, 0, 0, 0.525); */
     /* background: rgb(122 122 122 / 53%); */
-    background: rgb(255 255 255 / 30%);
+    background: rgb(255 255 255 / 96%);
+    box-shadow: 0 24px 48px -12px rgb(2 12 36 / 0.45);
 }
 
 /* flowforge */
@@ -278,7 +248,7 @@ span.fi-sc-text {
 }
 
 a.fi-sidebar-item-btn:hover {
-    background-color: #fdf3e8;
+    background-color: var(--gray-100);
 }
 
 button.fi-color.fi-color-primary.fi-bg-color-400.hover\:fi-bg-color-300.dark\:fi-bg-color-600.dark\:hover\:fi-bg-color-500.fi-text-color-900.hover\:fi-text-color-800.dark\:fi-text-color-950.dark\:hover\:fi-text-color-950.fi-btn.fi-disabled.fi-size-md.fi-ac-btn-action,
@@ -351,7 +321,7 @@ h3.text-sm.font-medium.text-gray-700.dark\:text-gray-200 {
     }
 }
 button.fi-icon-btn.fi-size-md.fi-topbar-open-sidebar-btn {
-    color: #f5c38a !important;
+    color: #cfd8e8 !important;
 }
 
 /* ---------------------------------------------------------

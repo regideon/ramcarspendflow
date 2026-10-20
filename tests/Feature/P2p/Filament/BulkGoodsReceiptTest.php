@@ -157,6 +157,11 @@ it('opens a submitted invoice read-only', function () {
 
     $component = Livewire::test(BulkGoodsReceipt::class, ['invoice' => $invoice->id]);
 
+    $component->assertSee('Workflow Stage')
+        ->assertSee('AP Processor')
+        ->assertSee('AP Supervisor')
+        ->assertSee(P2pStatus::SubmittedToAp->getLabel());
+
     expect($component->instance()->isViewOnly)->toBeTrue()
         ->and($component->instance()->goods_receipts)->toHaveCount(1)
         ->and($component->instance()->goods_receipts[0]['goodReceiptItems'])->toHaveCount(1)

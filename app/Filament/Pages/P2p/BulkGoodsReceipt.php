@@ -45,6 +45,7 @@ use Filament\Pages\Page;
 use Filament\Schemas\Components\Actions;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Components\View;
@@ -212,8 +213,18 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         $hidePricing = $this->hidePricing();
 
         return $schema->components([
-            View::make('filament.components.p2p-status-stepper')
-                ->viewData(fn (): array => $this->stepperData())
+            // A Filament section, styled like the RFP form's sections
+            Section::make('Workflow Stage')
+                ->description('Where this invoice is in the approval flow')
+                ->icon(Heroicon::OutlinedArrowPathRoundedSquare)
+                ->compact()
+                ->afterHeader(fn (): array => ($status = $this->invoiceModel()?->status)
+                    ? [Text::make($status->getLabel())->badge()->color($status->getColor())]
+                    : [])
+                ->schema([
+                    View::make('filament.components.p2p-status-stepper')
+                        ->viewData(fn (): array => $this->stepperData()),
+                ])
                 ->columnSpanFull(),
 
             Section::make('Goods Receipt Information')
@@ -312,6 +323,13 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                                     TextEntry::make('gr_number')->hiddenLabel(),
                                     TextEntry::make('purchase_order_item')->hiddenLabel(),
                                     TextEntry::make('item_name')->hiddenLabel(),
+                                    // The vendor's invoice line this GR line was matched to (Read invoice with AI)
+                                    TextEntry::make('invoice_line')
+                                        ->hiddenLabel()
+                                        ->state(fn (Get $get): ?string => is_array($ai = $get('ai'))
+                                            ? ($ai['description'] ?? 'On invoice').(filled($ai['invoice_number'] ?? null) ? " ({$ai['invoice_number']})" : '')
+                                            : null)
+                                        ->placeholder('—'),
                                     TextEntry::make('quantity_po')->hiddenLabel(),
                                     TextEntry::make('uom')->hiddenLabel(),
                                     TextEntry::make('quantity_served')->hiddenLabel(),
@@ -372,7 +390,9 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                 $this->returnEscalationAction(),
 
                 Action::make('submit')
-                    ->label('Submit to AP')
+                    // Says so on the button when a ticked line is not 3-way matched
+                    ->label(fn (): string => $this->hasUnmatchedLines() ? 'Submit to AP (not all lines 3-way matched)' : 'Submit to AP')
+                    ->color(fn (): string => $this->hasUnmatchedLines() ? 'danger' : 'primary')
                     ->icon(Heroicon::OutlinedPaperAirplane)
                     ->visible(! $this->isViewOnly)
                     // Lines that don't match the invoice can still be submitted; AP is warned
@@ -560,7 +580,8 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             TableColumn::make('PO Number'),
             TableColumn::make('GR Number'),
             TableColumn::make('GR Item'),
-            TableColumn::make('Short Text'),
+            TableColumn::make('SAP Short Text'),
+            TableColumn::make('On the Invoice'),
             TableColumn::make('PO Qty'),
             TableColumn::make('Uom'),
             TableColumn::make('GR Qty'),
@@ -876,6 +897,14 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
     }
 
     /**
+     * Whether a ticked line does not match the invoice (or was not checked against one).
+     */
+    public function hasUnmatchedLines(): bool
+    {
+        return $this->matchFlags() !== [];
+    }
+
+    /**
      * Selected lines the AP Processor should check, with why.
      *
      * @return list<array{gr_number: ?string, purchase_order: ?string, purchase_order_item: ?string, item_name: ?string, reasons: list<string>}>
@@ -974,7 +1003,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
     /**
      * GR lines on screen keyed by mirror item id, for the review.
      *
-     * @return array<int, array{gr_number: ?string, purchase_order: ?string, purchase_order_item: ?string, item_name: ?string, uom: ?string, quantity_served: int, quantity_remaining: int}>
+     * @return array<int, array{gr_number: ?string, purchase_order: ?string, purchase_order_item: ?string, item_name: ?string, uom: ?string, quantity_po: int, quantity_served: int, quantity_remaining: int}>
      */
     public function rowLabels(): array
     {
@@ -986,6 +1015,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                 'purchase_order_item' => $item['purchase_order_item'] ?? null,
                 'item_name' => $item['item_name'] ?? null,
                 'uom' => $item['uom'] ?? null,
+                'quantity_po' => (int) ($item['quantity_po'] ?? 0),
                 'quantity_served' => (int) ($item['quantity_served'] ?? 0),
                 'quantity_remaining' => (int) ($item['quantity_remaining'] ?? 0),
             ]])
@@ -1013,20 +1043,22 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
      * said for the badge, and add the invoice numbers and date.
      *
      * @param  array<string, mixed>  $match  P2pInvoiceMatcher::match() result
+     * @param  list<int>|null  $only  GR item ids the vendor ticked in the review (null: every matched line)
      */
-    public function applyInvoiceMatch(array $match): void
+    public function applyInvoiceMatch(array $match, ?array $only = null): void
     {
         $rows = $match['rows'] ?? [];
+
+        if ($only !== null) {
+            $rows = array_intersect_key($rows, array_flip(array_map('intval', $only)));
+        }
 
         foreach ($this->goods_receipts as $g => $goodsReceipt) {
             foreach ($goodsReceipt['goodReceiptItems'] ?? [] as $i => $item) {
                 $row = $rows[$item['p2p_sap_good_receipt_item_id']] ?? null;
 
+                // Not ticked or not on the invoice: the line is left as it is
                 if ($row === null) {
-                    // Not on the invoice: no longer linked to an invoice line
-                    $this->goods_receipts[$g]['goodReceiptItems'][$i]['ai'] = null;
-                    $this->goods_receipts[$g]['goodReceiptItems'][$i]['quantity_edited'] = false;
-
                     continue;
                 }
 

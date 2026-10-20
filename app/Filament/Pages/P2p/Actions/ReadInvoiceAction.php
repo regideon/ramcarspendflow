@@ -8,9 +8,9 @@ use App\Services\P2p\P2pInvoiceScanner;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Utilities\Get;
-use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\RateLimiter;
@@ -41,21 +41,32 @@ class ReadInvoiceAction
                 && config('services.invoice_reader.enabled')
                 && filled(config('ai.providers.openai.key')))
             ->modalHeading('Review what was read from your invoice')
-            ->modalDescription('Each GR line is matched to a line on your invoice. Nothing changes until you apply it; you can still edit Inv Qty afterwards.')
+            ->modalDescription('Each GR line is matched to a line on your invoice. Tick the lines to apply; red lines don\'t reconcile. You can still edit Inv Qty afterwards.')
             ->modalIcon(Heroicon::OutlinedDocumentMagnifyingGlass)
             ->modalWidth('7xl')
             ->modalSubmitActionLabel('Apply to the GR lines')
             ->mountUsing(fn (Action $action, ?Schema $schema, FileUpload $component, BulkGoodsReceipt $livewire) => static::read($action, $schema, $component, $livewire))
             ->schema([
                 Hidden::make('match'),
-                View::make('filament.p2p.invoice-match-review')
+                // The ticks: GR lines to apply, keyed by GR item id
+                ViewField::make('apply')
+                    ->hiddenLabel()
+                    ->view('filament.p2p.invoice-match-review')
                     ->viewData(fn (Get $get, BulkGoodsReceipt $livewire): array => [
                         'match' => $get('match') ?? [],
                         'rows' => $livewire->rowLabels(),
                     ]),
             ])
             ->action(function (array $data, BulkGoodsReceipt $livewire): void {
-                $livewire->applyInvoiceMatch((array) ($data['match'] ?? []));
+                $selected = array_keys(array_filter((array) ($data['apply'] ?? [])));
+
+                if ($selected === []) {
+                    Notification::make()->title('No GR lines ticked')->body('Nothing was applied.')->warning()->send();
+
+                    return;
+                }
+
+                $livewire->applyInvoiceMatch((array) ($data['match'] ?? []), $selected);
 
                 Notification::make()
                     ->title('Invoice applied')
@@ -126,7 +137,10 @@ class ReadInvoiceAction
 
         $match = app(P2pInvoiceMatcher::class)->match($invoices, $livewire->itemsOnScreen(), $livewire->currentInvoice());
 
-        $schema?->fill(['match' => [...$match, 'files' => $read]]);
+        $schema?->fill([
+            'match' => [...$match, 'files' => $read],
+            'apply' => array_fill_keys(array_keys($match['rows']), true), // every matched line ticked
+        ]);
     }
 
     /**

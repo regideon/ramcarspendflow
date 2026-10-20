@@ -7,6 +7,7 @@ use App\Models\CommentRead;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Support\Str;
 
 /**
  * A record people can comment on (RFP, P2P invoice). Comments are deleted with the record,
@@ -97,6 +98,14 @@ trait HasComments
      * Where the given user opens this record.
      */
     abstract public function commentUrlFor(User $user): string;
+
+    /**
+     * The kind of record, shown in the chat (e.g. "RFP", "P2P invoice").
+     */
+    public static function commentTypeLabel(): string
+    {
+        return Str::headline(class_basename(static::class));
+    }
 
     public function canBeCommentedOnBy(User $user): bool
     {

@@ -38,6 +38,15 @@ class Comment extends Model
     }
 
     /**
+     * The body as plain text for previews and notifications: no tags, entities decoded
+     * (so "I&#039;ll" reads "I'll"). Escape it again when printing.
+     */
+    public function plainText(): string
+    {
+        return trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags(str_replace('</p><p>', '</p> <p>', $this->body)), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+    }
+
+    /**
      * Ids of the users @mentioned in the body.
      *
      * @return list<int>

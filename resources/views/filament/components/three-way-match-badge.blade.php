@@ -20,7 +20,8 @@
     $fmt = fn ($v) => rtrim(rtrim(number_format((float) $v, 2, '.', ''), '0'), '.') ?: '0';
 @endphp
 
-<div x-data="{ open: false }" style="display:flex; justify-content:center;">
+{{-- data-three-way lets the row turn red when the line is not matched (see style below) --}}
+<div x-data="{ open: false }" data-three-way="{{ $status }}" style="display:flex; justify-content:center;">
     <button
         type="button"
         x-on:click="open = true"
@@ -107,3 +108,11 @@
         </div>
     </template>
 </div>
+
+@once
+    <style>
+        .fi-fo-table-repeater tr:has([data-three-way="no_match"]) > td {
+            background-color: color-mix(in oklab, var(--danger-500) 10%, transparent);
+        }
+    </style>
+@endonce

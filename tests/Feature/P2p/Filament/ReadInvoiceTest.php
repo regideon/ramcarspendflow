@@ -223,7 +223,52 @@ it('shows the review with each GR line, unmatched invoice lines and charges', fu
         ->assertSee('No new AI call was made')
         ->assertSeeText('SOR-71734.pdf: import permit, invoice')
         ->assertSee('Price 72.00 is not the PO price 70.00.')
-        ->assertSee('No Match')
+        ->assertSee('Not Matched')
         ->assertSee('Charges not on any PO')
         ->assertSee('Inland freight and courier');
+});
+
+it('applies only the GR lines ticked in the review', function () {
+    VendorInvoiceReader::fake([sorfinRead()]);
+
+    $page = processPage()->mountAction(readInvoiceAction());
+
+    // Every matched line starts ticked
+    expect($page->get('mountedActions.0.data.apply'))->toEqual([$this->cylinder->id => true, $this->pulley->id => true]);
+
+    $page->setActionData(['apply' => [$this->cylinder->id => false, $this->pulley->id => true]])
+        ->callMountedAction();
+
+    expect($page->get('goods_receipts.0.goodReceiptItems.0.include'))->toBeFalse()
+        ->and($page->get('goods_receipts.0.goodReceiptItems.0.ai'))->toBeNull()
+        ->and($page->get('goods_receipts.1.goodReceiptItems.0.quantity'))->toBe(8);
+});
+
+it('shows the invoice line on the page and says when not every line is 3-way matched', function () {
+    VendorInvoiceReader::fake([sorfinRead(pulleyPrice: 72.00)]);
+
+    $page = processPage()->callAction(readInvoiceAction());
+
+    expect($page->html())
+        ->toContain('SAP Short Text')
+        ->toContain('On the Invoice')
+        ->toContain('P/N E-10924 V-BELT PULLEY UHMW (SOR-71734)')
+        ->toContain('Not Matched')
+        ->toContain('data-three-way="no_match"')
+        ->toContain('Submit to AP (not all lines 3-way matched)');
+});
+
+it('lists invoice lines that are on none of the GR lines, without a tick', function () {
+    $this->view('filament.p2p.invoice-match-review', [
+        'match' => [
+            'rows' => [],
+            'unmatched_lines' => [['invoice_number' => 'SOR-71734', 'description' => 'FLEX HEAD STANDARD', 'quantity' => 6, 'unit_price' => 15.5, 'reason' => '']],
+            'invoices' => [], 'warnings' => [], 'charges' => [], 'files' => [],
+        ],
+        'rows' => [],
+    ])
+        ->assertSee('Not on the GR lines selected')
+        ->assertSee('FLEX HEAD STANDARD')
+        ->assertSee('Not on GR')
+        ->assertDontSee('type="checkbox"', escape: false);
 });

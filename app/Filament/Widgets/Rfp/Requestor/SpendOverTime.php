@@ -32,13 +32,13 @@ class SpendOverTime extends ChartWidget
                 [
                     'label' => 'Submitted',
                     'data' => $months->pluck('submitted')->all(),
-                    'backgroundColor' => '#f59e0b',
+                    'backgroundColor' => '#9cc3ff',
                     'borderRadius' => 4,
                 ],
                 [
                     'label' => 'Paid',
                     'data' => $months->pluck('paid')->all(),
-                    'backgroundColor' => '#3b82f6',
+                    'backgroundColor' => '#0069ff',
                     'borderRadius' => 4,
                 ],
             ],

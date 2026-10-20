@@ -21,7 +21,7 @@ enum P2pThreeWayMatchStatus: string implements HasColor, HasLabel
             self::ForVerification => 'For Verification',
             self::Matched => 'Matched',
             self::OpenPo => 'Open PO',
-            self::NoMatch => 'No Match',
+            self::NoMatch => 'Not Matched',
         };
     }
 

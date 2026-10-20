@@ -13,7 +13,7 @@
             @if (filled($path))
                 <a href="{{ Storage::disk('public')->url($path) }}" target="_blank"
                     title="{{ $name ?? basename($path) }}"
-                    style="color:#3b82f6; font-size:0.875rem; display:inline-flex; align-items:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:200px;">
+                    style="color:var(--primary-600); font-size:0.875rem; display:inline-flex; align-items:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:200px;">
                     {{ $name ?? basename($path) }}
                 </a>
             @endif

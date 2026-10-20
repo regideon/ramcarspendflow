@@ -9,6 +9,7 @@ use App\Filament\Resources\Rfps\RfpResource;
 use App\Models\Rfp\Rfp;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -62,9 +63,7 @@ class RfpsTable
                     ->label('VP')
                     ->boolean()
                     ->toggleable(isToggledHiddenByDefault: true),
-                TextColumn::make('due_date')
-                    ->date()
-                    ->sortable(),
+                static::dueDateColumn(),
                 TextColumn::make('requestor.name')
                     ->label('Requestor')
                     ->toggleable(isToggledHiddenByDefault: true),
@@ -102,5 +101,31 @@ class RfpsTable
             ->recordUrl(fn (Rfp $record): string => RfpResource::getUrl('view', ['record' => $record]))
             ->searchPlaceholder('Search RFP no., invoice no. or payee')
             ->striped();
+    }
+
+    /**
+     * Due date, red when overdue and amber when due today (only while it is still being processed).
+     */
+    public static function dueDateColumn(): TextColumn
+    {
+        return TextColumn::make('due_date')
+            ->label('Due')
+            ->date()
+            ->sortable()
+            ->color(fn (Rfp $record): ?string => match ($record->dueState()) {
+                'overdue' => 'danger',
+                'today' => 'warning',
+                default => null,
+            })
+            ->icon(fn (Rfp $record): ?Heroicon => match ($record->dueState()) {
+                'overdue' => Heroicon::OutlinedExclamationTriangle,
+                'today' => Heroicon::OutlinedClock,
+                default => null,
+            })
+            ->description(fn (Rfp $record): ?string => match ($record->dueState()) {
+                'overdue' => 'Overdue by '.trans_choice('{1} :count day|[2,*] :count days', (int) $record->due_date->diffInDays(today())),
+                'today' => 'Due today',
+                default => null,
+            });
     }
 }
