@@ -1,6 +1,6 @@
 # Premium Initiatives (RFP + P2P)
 
-_Last updated: 2026-10-13 · Benchmarks: Stampli (AP Automation, Procurement), Medius, Coupa, SAP Concur_
+_Last updated: 2026-10-20 · Benchmarks: Stampli (AP Automation, Procurement), Medius, Coupa, SAP Concur_
 
 See [11 – Benchmarks](11-benchmarks.md) for what each product does and for candidate ideas not yet in this list.
 
@@ -24,7 +24,7 @@ We do them **one at a time**, in the order below. Each one ships with Pest tests
 | 1 | Comments on the record (with @mentions) | Shared | 1 | RFP done · P2P done |
 | 2 | Return / cancel reason codes | Shared | 1 | Planned |
 | 3 | Notifications at every handoff | Shared | 1 | Planned |
-| 4 | Aging + reminders + escalation | Shared | 1 | Planned |
+| 4 | Aging + reminders + escalation | Shared | 1 | Partly there: RFP queue chips (Overdue, Due today, Waiting 3+ days, Stuck 5+ days) and the colored Due column · reminders and escalation planned |
 | 5 | Duplicate flagging | Shared | 1 | Planned |
 | 6 | Route preview before submit | RFP | 2 | Partly there: the submit modal and the RFP page show the approval route |
 | 7 | Bulk approve | Shared | 2 | Planned |
@@ -36,6 +36,45 @@ We do them **one at a time**, in the order below. Each one ships with Pest tests
 | 13 | Vendor "Where's my payment?" | P2P | 3 | Planned |
 | 14 | Bottleneck dashboard | Shared | 3 | Planned |
 | 15 | Budget context for approvers | Shared | 3 | Planned (needs budget data) |
+
+**Prerequisite:** most initiatives need the RFP approval actions (roadmap 2.4–2.9: approve, return, cancel and reject at each step) to exist first. Reason codes (#2) are built into those actions, not added later.
+
+### Waves
+
+| Wave | Theme | Initiatives |
+|---|---|---|
+| 1 | **Foundation:** everything else builds on these | #1 comments, #2 reason codes, #3 notifications, #4 aging + reminders, #5 duplicate flagging |
+| 2 | **Speed:** fewer clicks for approvers and AP | #6 route preview, #7 bulk approve, #8 delegation, #9 email/mobile approval, #10 Treasury release + payment advice |
+| 3 | **Differentiation:** what global tools don't do for Ramcar | #11 EWT + BIR 2307, #12 DP linked to the P2P invoice, #13 vendor "Where's my payment?", #14 bottleneck dashboard, #15 budget context |
+
+## Plan by step
+
+The same initiatives, seen from each step of the flow. ✅ = built.
+
+### RFP
+
+| Step | Premium features |
+|---|---|
+| 1. Requestor | ✅ Approval route preview (#6), ✅ AI receipt reading with duplicate warning, ✅ mass upload, ✅ "Where's my request?" progress tracker, ✅ My Requests chips (Returned to me, Drafts, In progress, Paid this month); forms that change by type, attachments required by type and amount, duplicate warning on submit (#5) |
+| 2. AP Processor (review) | ✅ Comments to the requestor instead of returning (#1), ✅ queue chips; review checklist (attachments, payee, amounts), duplicate panel (#5), return with a reason (#2) |
+| 3. Matrix approvers | Email/mobile approval (#9), delegation (#8), reminders (#4), bulk approve (#7), budget context (#15) |
+| 4. AP Processor (processing) | Process Tax Codes page with a fast tax grid (100+ lines), GL and tax coding with automatic EWT and BIR 2307 (#11); Pre-approved returns skip the matrix unless the amount changes |
+| 5. AP Supervisor / Manager | Bulk approve (#7), side-by-side view of processing details and attachments, foreign-currency flags, return to the AP Processor with a reason (#2) |
+| 6. Treasury | Payment batches by due date, release reference (check no. / bank ref / date) (#10); bank file export later |
+| 7. Payment released | Payment advice email to the employee or vendor (#10), audit trail exportable to PDF |
+
+### P2P
+
+P2P purchasing data (PO, GR, items) comes from SAP and is read-only, so P2P features focus on the vendor submission and the AP side.
+
+| Step | Premium features |
+|---|---|
+| Vendor submission (choose synced GRs) | Guided submission, invoice duplicate check (#5), vendor portal "Where's my payment?" (#13) |
+| Down payment link | The P2P invoice deducts a DP already paid via RFP and links both records (#12) |
+| 3-way match | Tolerance rules in a table, exception queue with comments (#1), invoice beside the PO/GR |
+| AP approval chain | Reminders and aging (#4), bulk approve (#7), return reasons (#2) |
+| Payment | Treasury batches, release record, payment advice to the vendor (#10) |
+
 
 ---
 

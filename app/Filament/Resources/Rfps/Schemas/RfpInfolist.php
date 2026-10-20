@@ -13,6 +13,7 @@ use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\Alignment;
@@ -108,54 +109,58 @@ class RfpInfolist
                                     ->placeholder('None'),
                             ]),
                     ]),
-                Section::make('Comments')
-                    ->key('comments')
-                    ->compact()
-                    ->description('Questions and answers on this RFP. Posting a comment does not change the status.')
-                    ->headerActions([AddCommentAction::make()])
+                // History and Comments side by side (stacked on small screens)
+                Grid::make(['default' => 1, 'lg' => 2])
                     ->schema([
-                        RepeatableEntry::make('comments')
-                            ->hiddenLabel()
+                        Section::make('History')
+                            ->compact()
                             ->schema([
-                                TextEntry::make('user.name')
+                                RepeatableEntry::make('histories')
                                     ->hiddenLabel()
-                                    ->weight(FontWeight::SemiBold)
-                                    ->belowContent(fn (Comment $record): string => $record->created_at->format('M j, Y g:i A')),
-                                TextEntry::make('body')
-                                    ->hiddenLabel()
-                                    ->formatStateUsing(fn (string $state): string => RichContentRenderer::make($state)
-                                        ->mentions([CommentMentions::provider()])
-                                        ->toHtml())
-                                    ->html()
-                                    ->prose(),
-                                TextEntry::make('attachments')
-                                    ->hiddenLabel()
-                                    ->listWithLineBreaks()
-                                    ->formatStateUsing(fn (string $state): HtmlString => static::fileLink($state))
-                                    ->visible(fn (Comment $record): bool => filled($record->attachments)),
-                            ])
-                            ->placeholder('No comments yet'),
-                    ]),
-                Section::make('History')
-                    ->compact()
-                    ->schema([
-                        RepeatableEntry::make('histories')
-                            ->hiddenLabel()
-                            ->table([
-                                TableColumn::make('When'),
-                                TableColumn::make('By'),
-                                TableColumn::make('Action'),
-                                TableColumn::make('Status'),
-                                TableColumn::make('Remarks'),
-                            ])
+                                    ->table([
+                                        TableColumn::make('When'),
+                                        TableColumn::make('By'),
+                                        TableColumn::make('Action'),
+                                        TableColumn::make('Status'),
+                                        TableColumn::make('Remarks'),
+                                    ])
+                                    ->schema([
+                                        TextEntry::make('created_at')->dateTime('M j, Y g:i A'),
+                                        TextEntry::make('user.name')->placeholder('System'),
+                                        TextEntry::make('action')->placeholder('—'),
+                                        TextEntry::make('to_status')->badge()->placeholder('—'),
+                                        TextEntry::make('remarks')->placeholder('—'),
+                                    ])
+                                    ->placeholder('No activity yet'),
+                            ]),
+                        Section::make('Comments')
+                            ->key('comments')
+                            ->compact()
+                            ->description('Questions and answers on this RFP. Posting a comment does not change the status.')
+                            ->headerActions([AddCommentAction::make()])
                             ->schema([
-                                TextEntry::make('created_at')->dateTime('M j, Y g:i A'),
-                                TextEntry::make('user.name')->placeholder('System'),
-                                TextEntry::make('action')->placeholder('—'),
-                                TextEntry::make('to_status')->badge()->placeholder('—'),
-                                TextEntry::make('remarks')->placeholder('—'),
-                            ])
-                            ->placeholder('No activity yet'),
+                                RepeatableEntry::make('comments')
+                                    ->hiddenLabel()
+                                    ->schema([
+                                        TextEntry::make('user.name')
+                                            ->hiddenLabel()
+                                            ->weight(FontWeight::SemiBold)
+                                            ->belowContent(fn (Comment $record): string => $record->created_at->format('M j, Y g:i A')),
+                                        TextEntry::make('body')
+                                            ->hiddenLabel()
+                                            ->formatStateUsing(fn (string $state): string => RichContentRenderer::make($state)
+                                                ->mentions([CommentMentions::provider()])
+                                                ->toHtml())
+                                            ->html()
+                                            ->prose(),
+                                        TextEntry::make('attachments')
+                                            ->hiddenLabel()
+                                            ->listWithLineBreaks()
+                                            ->formatStateUsing(fn (string $state): HtmlString => static::fileLink($state))
+                                            ->visible(fn (Comment $record): bool => filled($record->attachments)),
+                                    ])
+                                    ->placeholder('No comments yet'),
+                            ]),
                     ]),
             ]);
     }
