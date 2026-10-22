@@ -48,6 +48,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
 use Livewire\Attributes\Url;
+use Throwable;
 
 /**
  * The AP processing screen, ported from the legacy BulkAccountsPayable page.
@@ -840,13 +841,19 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             ];
         }
 
-        if ($this->isViewOnly) {
-            return [$this->backAction()];
-        }
-
         $invoice = $this->invoiceModel();
 
         if ($invoice === null) {
+            return [$this->backAction()];
+        }
+
+        // A failed SOAP park leaves the invoice at 21 with the error recorded; the
+        // supervisor can retry without returning it to the processor.
+        if ($invoice->status === P2pStatus::PendingPost && $this->isSupervisor()) {
+            return [$this->retryParkAction(), $this->backAction()];
+        }
+
+        if ($this->isViewOnly) {
             return [$this->backAction()];
         }
 
@@ -1014,6 +1021,44 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             ->action(fn (array $data) => $this->approve($data));
     }
 
+    protected function retryParkAction(): Action
+    {
+        return Action::make('retryPark')
+            ->label('Retry SAP parking')
+            ->color('warning')
+            ->icon(Heroicon::OutlinedArrowPath)
+            ->schema([
+                Textarea::make('remarks_checker')
+                    ->label('Remarks')
+                    ->default('Retry SAP parking.')
+                    ->required(),
+            ])
+            ->action(function (array $data): void {
+                try {
+                    $parked = app(P2pInvoiceParkingService::class)->retry(
+                        $this->invoiceModel(),
+                        $this->currentUser(),
+                        (string) ($data['remarks_checker'] ?? 'Retry SAP parking.'),
+                    );
+
+                    Notification::make()
+                        ->title('Invoice parked')
+                        ->body('SAP document '.($parked->invoice_number ?? '—').'.')
+                        ->success()
+                        ->send();
+                } catch (Throwable $exception) {
+                    Notification::make()
+                        ->title('SAP parking failed')
+                        ->body($exception->getMessage())
+                        ->danger()
+                        ->persistent()
+                        ->send();
+                }
+
+                $this->redirectBack();
+            });
+    }
+
     protected function returnToApProcessorAction(): Action
     {
         return Action::make('returnToApProcessor')
@@ -1130,13 +1175,26 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             return;
         }
 
-        app(P2pInvoiceParkingService::class)->park($invoice, $this->currentUser(), $remarks);
+        try {
+            $parked = app(P2pInvoiceParkingService::class)->park($invoice, $this->currentUser(), $remarks);
 
-        Notification::make()
-            ->title('Approved')
-            ->body('The invoice has been queued for parking in SAP.')
-            ->success()
-            ->send();
+            $message = $parked->status === P2pStatus::InvoiceParked
+                ? 'Invoice parked in SAP'.($parked->invoice_number ? " (doc {$parked->invoice_number})" : '').'.'
+                : 'The invoice is queued for parking in SAP (Pending Post).';
+
+            Notification::make()
+                ->title('Approved')
+                ->body($message)
+                ->success()
+                ->send();
+        } catch (Throwable $exception) {
+            Notification::make()
+                ->title('SAP parking failed')
+                ->body($exception->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+        }
 
         $this->redirectBack();
     }

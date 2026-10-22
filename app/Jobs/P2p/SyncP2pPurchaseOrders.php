@@ -40,7 +40,9 @@ class SyncP2pPurchaseOrders implements ShouldQueue
 
     public static function pendingKey(array $filters): string
     {
-        return 'p2p-po-sync:pending:'.($filters['vendor'] ?? 'all');
+        $vendor = trim((string) ($filters['lifnr'] ?? $filters['vendor'] ?? ''));
+
+        return 'p2p-po-sync:pending:'.($vendor !== '' ? $vendor : md5(json_encode($filters)));
     }
 
     /**

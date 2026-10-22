@@ -24,9 +24,10 @@ class SyncFromSapAction
                 $user = auth()->user();
 
                 $queued = SyncP2pPurchaseOrders::dispatchUnlessPending([
-                    'vendor' => $user->vendor?->code,
-                    'changed_from' => now()->subDays(3)->format('Ymd'),
-                    'changed_to' => now()->format('Ymd'),
+                    'changed_only_history' => true,
+                    'lifnr' => $user->vendor?->code,
+                    'cpudt_from' => now()->subDays(3)->format('Ymd'),
+                    'cpudt_to' => now()->format('Ymd'),
                 ], $user->id, 'user-sync');
 
                 Notification::make()

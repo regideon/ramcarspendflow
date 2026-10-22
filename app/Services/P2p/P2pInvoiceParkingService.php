@@ -2,26 +2,34 @@
 
 namespace App\Services\P2p;
 
+use App\Contracts\P2p\SapInvoiceParkingGateway;
 use App\Enums\P2pStatus;
 use App\Models\P2p\ApprovalHistory;
 use App\Models\P2p\Invoice;
+use App\Models\P2p\SapApiLog;
 use App\Models\User;
 use App\Services\P2p\Sap\P2pSapApiLogsService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 /**
  * Parks an approved invoice in SAP (the AP Supervisor's "Approve" step).
  *
- * **The SAP write side is not built yet** (docs/p2p/07-sap-integration.md). This
- * records the supervisor's decision, logs the payload that will be sent, and moves
- * the invoice to `PendingPost` — the ACDOCA poll later confirms the parked document
- * number (`BELNR`) and advances it to Posted/Completed. When the AL11/SOAP
- * interface lands, the parked call replaces the log call here.
+ * Ported from the legacy BulkAccountsPayable posting flow:
+ * - the invoice first moves to PendingPost (21), the legacy "sent to SAP" status;
+ * - the SOAP RFC returns INVOICEDOCNUMBER / FISCALYEAR, then the invoice moves to
+ *   InvoiceParked (13);
+ * - a SOAP failure leaves it at 21 with the error recorded, so AP can retry.
+ *
+ * The legacy call was synchronous inside the Livewire action; this keeps that
+ * behavior for parity, but the transport is isolated in the gateway so it can be
+ * moved to a queued job without changing the workflow.
  */
 class P2pInvoiceParkingService
 {
     public function __construct(
+        private readonly SapInvoiceParkingGateway $gateway,
         private readonly P2pSapApiLogsService $sapLogs,
     ) {}
 
@@ -37,7 +45,7 @@ class P2pInvoiceParkingService
             ]);
         }
 
-        return DB::transaction(function () use ($invoice, $by, $remarks): Invoice {
+        $invoice = DB::transaction(function () use ($invoice, $by, $remarks): Invoice {
             /** @var Invoice $invoice */
             $invoice = Invoice::query()->whereKey($invoice->getKey())->lockForUpdate()->firstOrFail();
             $from = $invoice->status;
@@ -45,14 +53,9 @@ class P2pInvoiceParkingService
             $invoice->forceFill([
                 'status' => P2pStatus::PendingPost,
                 'processed' => true,
+                'sap_park_attempts' => ((int) $invoice->sap_park_attempts) + 1,
+                'sap_park_error' => null,
             ])->save();
-
-            $this->sapLogs->log(
-                $invoice,
-                'park_invoice',
-                json_encode($this->payloadFor($invoice), JSON_THROW_ON_ERROR),
-                'pending',
-            );
 
             ApprovalHistory::query()->create([
                 'p2p_invoice_id' => $invoice->id,
@@ -66,25 +69,136 @@ class P2pInvoiceParkingService
 
             return $invoice->fresh();
         });
+
+        if (! config('p2p.sap.enabled')) {
+            $this->sapLogs->log(
+                invoice: $invoice,
+                endpoint: 'park_invoice',
+                request: [
+                    'purchase_order' => $invoice->po_numbers,
+                    'goods_receipts' => $invoice->gr_numbers,
+                    'tax_code' => $invoice->tax_code,
+                    'withholding_tax_code' => $invoice->withholding_tax_code,
+                    'total' => $invoice->total,
+                ],
+                response: 'SAP integration is disabled; invoice left in Pending Post (21).',
+                type: SapApiLog::TYPE_SOAP,
+            );
+
+            return $invoice;
+        }
+
+        $result = $this->gateway->park($invoice);
+
+        if (! ($result['success'] ?? false)) {
+            $this->recordFailure($invoice, (string) ($result['error'] ?? 'SAP parking failed.'));
+
+            throw new RuntimeException((string) ($result['error'] ?? 'SAP parking failed.'));
+        }
+
+        $invoiceNumber = trim((string) ($result['invoice_number'] ?? ''));
+
+        if ($invoiceNumber === '') {
+            $message = trim((string) ($result['message'] ?? ''));
+            $error = 'SAP did not return an invoice number.'.($message !== '' ? ' '.$message : '');
+
+            $this->recordFailure($invoice, $error);
+
+            throw new RuntimeException($error);
+        }
+
+        return DB::transaction(function () use ($invoice, $by, $remarks, $result, $invoiceNumber): Invoice {
+            /** @var Invoice $invoice */
+            $invoice = Invoice::query()->whereKey($invoice->getKey())->lockForUpdate()->firstOrFail();
+            $from = $invoice->status;
+
+            $invoice->forceFill([
+                'status' => P2pStatus::InvoiceParked,
+                'invoice_number' => $invoiceNumber,
+                'fiscal_year' => is_numeric($result['fiscal_year'] ?? null) ? (int) $result['fiscal_year'] : null,
+                'sap_parked_at' => now(),
+                'sap_park_error' => null,
+            ])->save();
+
+            ApprovalHistory::query()->create([
+                'p2p_invoice_id' => $invoice->id,
+                'actioned_by' => $by->id,
+                'from_status' => $from,
+                'to_status' => P2pStatus::InvoiceParked,
+                'remarks' => trim($remarks.' '.($result['message'] ?? '')),
+                'is_visible_to_vendor' => false,
+                'is_visible_to_admin' => true,
+            ]);
+
+            return $invoice->fresh();
+        });
     }
 
     /**
-     * The header SAP will receive. Mirrors the legacy payload shape so the eventual
-     * integration is a swap, not a redesign.
-     *
-     * @return array<string, mixed>
+     * Retry a park that previously failed. The status is already PendingPost.
      */
-    protected function payloadFor(Invoice $invoice): array
+    public function retry(Invoice $invoice, User $by, string $remarks = 'Retry SAP parking.'): Invoice
     {
-        return [
-            'ACTION' => 'PARK',
-            'REF_DOC_NO' => implode(', ', array_unique($invoice->reference_number ?? [])),
-            'DOC_DATE' => now()->format('Y-m-d'),
-            'GROSS_AMOUNT' => (string) $invoice->total,
-            'TAX_CODE' => $invoice->tax_code,
-            'WI_TAX_CODE' => $invoice->withholding_tax_code,
-            'PO_NUMBERS' => $invoice->po_numbers ?? [],
-            'GR_NUMBERS' => $invoice->gr_numbers ?? [],
-        ];
+        if ($invoice->status !== P2pStatus::PendingPost) {
+            throw ValidationException::withMessages([
+                'status' => 'Only a Pending Post invoice can be retried.',
+            ]);
+        }
+
+        return $this->parkFromPendingPost($invoice, $by, $remarks);
+    }
+
+    protected function parkFromPendingPost(Invoice $invoice, User $by, string $remarks): Invoice
+    {
+        $result = $this->gateway->park($invoice);
+
+        if (! ($result['success'] ?? false)) {
+            $this->recordFailure($invoice, (string) ($result['error'] ?? 'SAP parking failed.'));
+
+            throw new RuntimeException((string) ($result['error'] ?? 'SAP parking failed.'));
+        }
+
+        $invoiceNumber = trim((string) ($result['invoice_number'] ?? ''));
+
+        if ($invoiceNumber === '') {
+            $message = trim((string) ($result['message'] ?? ''));
+            $error = 'SAP did not return an invoice number.'.($message !== '' ? ' '.$message : '');
+
+            $this->recordFailure($invoice, $error);
+
+            throw new RuntimeException($error);
+        }
+
+        return DB::transaction(function () use ($invoice, $by, $remarks, $result, $invoiceNumber): Invoice {
+            /** @var Invoice $invoice */
+            $invoice = Invoice::query()->whereKey($invoice->getKey())->lockForUpdate()->firstOrFail();
+            $from = $invoice->status;
+
+            $invoice->forceFill([
+                'status' => P2pStatus::InvoiceParked,
+                'invoice_number' => $invoiceNumber,
+                'fiscal_year' => is_numeric($result['fiscal_year'] ?? null) ? (int) $result['fiscal_year'] : null,
+                'sap_parked_at' => now(),
+                'sap_park_error' => null,
+                'sap_park_attempts' => ((int) $invoice->sap_park_attempts) + 1,
+            ])->save();
+
+            ApprovalHistory::query()->create([
+                'p2p_invoice_id' => $invoice->id,
+                'actioned_by' => $by->id,
+                'from_status' => $from,
+                'to_status' => P2pStatus::InvoiceParked,
+                'remarks' => trim($remarks.' '.($result['message'] ?? '')),
+                'is_visible_to_vendor' => false,
+                'is_visible_to_admin' => true,
+            ]);
+
+            return $invoice->fresh();
+        });
+    }
+
+    protected function recordFailure(Invoice $invoice, string $error): void
+    {
+        $invoice->forceFill(['sap_park_error' => $error])->save();
     }
 }

@@ -30,9 +30,10 @@ class P2pSyncDailyPurchaseOrders extends Command
 
         foreach ($vendors as $vendor) {
             $queued = SyncP2pPurchaseOrders::dispatchUnlessPending([
-                'vendor' => $vendor,
-                'changed_from' => $from->format('Ymd'),
-                'changed_to' => $to->format('Ymd'),
+                'changed_only_history' => true,
+                'lifnr' => $vendor,
+                'cpudt_from' => $from->format('Ymd'),
+                'cpudt_to' => $to->format('Ymd'),
             ], queue: 'daily');
 
             $dispatched += $queued ? 1 : 0;
