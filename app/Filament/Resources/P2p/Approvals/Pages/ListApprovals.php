@@ -4,6 +4,7 @@ namespace App\Filament\Resources\P2p\Approvals\Pages;
 
 use App\Enums\P2pStatus;
 use App\Filament\Concerns\HasCommentsChat;
+use App\Filament\Concerns\HasInvoiceSplitView;
 use App\Filament\Resources\P2p\Approvals\ApprovalResource;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Tabs\Tab;
@@ -13,8 +14,11 @@ use Illuminate\Database\Eloquent\Builder;
 class ListApprovals extends ListRecords
 {
     use HasCommentsChat;
+    use HasInvoiceSplitView;
 
     protected static string $resource = ApprovalResource::class;
+
+    protected string $view = 'filament.p2p.split-list';
 
     public function mount(): void
     {

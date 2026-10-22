@@ -5,6 +5,7 @@ namespace App\Filament\Resources\P2p\Invoices\Tables;
 use App\Enums\P2pStatus;
 use App\Enums\RoleName;
 use App\Filament\Actions\OpenCommentsAction;
+use App\Filament\Pages\P2p\BulkAccountsPayable;
 use App\Filament\Pages\P2p\BulkGoodsReceipt;
 use App\Models\P2p\Invoice;
 use App\Services\P2p\P2pThreeWayMatchService;
@@ -15,6 +16,7 @@ use Filament\Tables\Columns\ViewColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Livewire\Component;
 
 class InvoicesTable
 {
@@ -100,6 +102,16 @@ class InvoicesTable
             ->recordActions([
                 OpenCommentsAction::make(),
 
+                Action::make('review')
+                    ->label('Review')
+                    ->icon(Heroicon::OutlinedClipboardDocumentCheck)
+                    ->visible(fn (): bool => auth()->user()?->hasAnyRole([
+                        RoleName::ApProcessor,
+                        RoleName::ApSupervisor,
+                        RoleName::Admin,
+                    ]) ?? false)
+                    ->url(fn (Invoice $record): string => BulkAccountsPayable::getUrl(['invoice' => $record->id])),
+
                 Action::make('resubmit')
                     ->label('Resubmit')
                     ->icon(Heroicon::OutlinedArrowPath)
@@ -111,26 +123,12 @@ class InvoicesTable
                     ->icon(Heroicon::Eye)
                     ->color('gray')
                     ->iconButton()
-                    ->visible(fn (Invoice $record): bool => self::viewUrl($record) !== null)
-                    ->url(fn (Invoice $record): ?string => self::viewUrl($record)),
+                    ->action(fn (Invoice $record, Component $livewire) => $livewire->selectRecord($record->getKey())),
             ])
-            ->recordUrl(fn (Invoice $record): ?string => self::viewUrl($record))
+            ->recordAction('view')
+            ->recordUrl(null)
             ->searchPlaceholder('Search GRC no., invoice no. or vendor')
             ->striped();
-    }
-
-    /**
-     * Vendors and admins open a submission in the bulk goods-receipt screen (read-only
-     * unless the invoice was returned to the vendor). AP processors have no detail
-     * screen, so their rows stay unlinked.
-     */
-    private static function viewUrl(Invoice $record): ?string
-    {
-        if (auth()->user()?->hasAnyRole([RoleName::Vendor, RoleName::Admin])) {
-            return BulkGoodsReceipt::getUrl(['invoice' => $record->id]);
-        }
-
-        return null;
     }
 
     /**

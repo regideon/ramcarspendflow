@@ -9,12 +9,14 @@ use App\Filament\Pages\P2p\BulkAccountsPayable;
 use App\Models\P2p\Invoice;
 use App\Services\P2p\P2pThreeWayMatchService;
 use Filament\Actions\Action;
+use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Livewire\Component;
 
 /**
  * The AP processor queue. The columns mirror the Invoices list so the two read
@@ -114,12 +116,20 @@ class ApprovalsTable
             ->recordActions([
                 OpenCommentsAction::make(),
 
+                Action::make('view')
+                    ->label('View')
+                    ->icon(Heroicon::Eye)
+                    ->color('gray')
+                    ->iconButton()
+                    ->action(fn (Invoice $record, Component $livewire) => $livewire->selectRecord($record->getKey())),
+
                 Action::make('process')
                     ->label('Review')
                     ->url(fn (Invoice $record): string => BulkAccountsPayable::getUrl(['invoice' => $record->id])),
             ])
             ->recordActionsPosition(RecordActionsPosition::BeforeColumns)
-            ->recordUrl(fn (Invoice $record): string => BulkAccountsPayable::getUrl(['invoice' => $record->id]))
+            ->recordAction('view')
+            ->recordUrl(null)
             ->searchPlaceholder('Search GRC no., invoice no. or vendor')
             ->emptyStateHeading('Nothing to action')
             ->emptyStateDescription('Submissions waiting on you will appear here.')

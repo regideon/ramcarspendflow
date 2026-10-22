@@ -5,6 +5,7 @@ use App\Enums\RoleName;
 use App\Filament\Pages\P2p\BulkGoodsReceipt;
 use App\Filament\Resources\P2p\Invoices\Pages\ListInvoices;
 use App\Filament\Resources\P2p\PurchaseOrders\PurchaseOrderResource;
+use App\Livewire\P2p\InvoiceRecordPane;
 use App\Models\Company;
 use App\Models\P2p\Invoice;
 use App\Models\User;
@@ -65,7 +66,7 @@ it('shows the company name for an invoice whose company has no short name', func
         ->assertTableColumnStateSet('company.name', 'Ramcar Inc', $invoice);
 });
 
-it('opens a submission in the bulk goods-receipt screen for vendors', function () {
+it('opens a submission in the split view and keeps the process-screen link for vendors', function () {
     $user = invoiceListVendor();
     $this->actingAs($user);
 
@@ -74,19 +75,32 @@ it('opens a submission in the bulk goods-receipt screen for vendors', function (
 
     $component = Livewire::test(ListInvoices::class);
 
-    $component->assertTableActionHasUrl('view', $url, $invoice);
-    expect($component->instance()->getTable()->getRecordUrl($invoice))->toBe($url);
+    $component->assertTableActionVisible('view', $invoice);
+    expect($component->instance()->getTable()->getRecordAction($invoice))->toBe('view')
+        ->and($component->instance()->getTable()->getRecordUrl($invoice))->toBeNull();
+
+    Livewire::test(InvoiceRecordPane::class, ['invoiceId' => $invoice->id])
+        ->assertSeeHtml('href="'.$url.'"');
+
+    $component->call('selectRecord', $invoice->id)
+        ->assertSet('selectedRecordId', $invoice->id)
+        ->assertDispatched('p2p-record-selected', id: $invoice->id);
 });
 
-it('leaves AP processor rows unlinked now the detail page is gone', function () {
+it('opens AP processor rows in the split view', function () {
     $this->actingAs(invoiceListProcessor());
 
     $invoice = invoiceListInvoice(User::factory()->create());
 
     $component = Livewire::test(ListInvoices::class);
 
-    $component->assertTableActionHidden('view', $invoice);
-    expect($component->instance()->getTable()->getRecordUrl($invoice))->toBeNull();
+    $component->assertTableActionVisible('view', $invoice);
+    expect($component->instance()->getTable()->getRecordAction($invoice))->toBe('view')
+        ->and($component->instance()->getTable()->getRecordUrl($invoice))->toBeNull();
+
+    $component->call('selectRecord', $invoice->id)
+        ->assertSet('selectedRecordId', $invoice->id)
+        ->assertDispatched('p2p-record-selected', id: $invoice->id);
 });
 
 it('links the Process header action to purchase orders for vendors', function () {

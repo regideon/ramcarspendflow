@@ -5,19 +5,29 @@ namespace App\Filament\Resources\P2p\Invoices\Pages;
 use App\Enums\P2pStatus;
 use App\Enums\RoleName;
 use App\Filament\Concerns\HasCommentsChat;
+use App\Filament\Concerns\HasInvoiceSplitView;
 use App\Filament\Resources\P2p\Invoices\InvoiceResource;
 use App\Filament\Resources\P2p\PurchaseOrders\PurchaseOrderResource;
 use Filament\Actions\Action;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Tabs\Tab;
+use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Builder;
 
 class ListInvoices extends ListRecords
 {
     use HasCommentsChat;
+    use HasInvoiceSplitView;
 
     protected static string $resource = InvoiceResource::class;
+
+    protected string $view = 'filament.p2p.split-list';
+
+    public function getMaxContentWidth(): Width|string|null
+    {
+        return Width::MaxContent;
+    }
 
     protected function getHeaderActions(): array
     {
