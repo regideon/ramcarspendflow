@@ -87,7 +87,7 @@ it('syncs a purchase order and its goods receipt from SAP OData', function () {
     $company = Company::factory()->create(['code' => '1000']);
     $vendor = Vendor::factory()->create(['code' => '200000']);
 
-    $synced = app(P2pPurchaseOrderSyncService::class)->run(
+    $result = app(P2pPurchaseOrderSyncService::class)->run(
         app(ODataSapPurchaseOrderSource::class),
         [
             'changed_only_history' => true,
@@ -102,7 +102,8 @@ it('syncs a purchase order and its goods receipt from SAP OData', function () {
     $item = SapGoodReceiptItem::query()->firstOrFail();
     $state = GoodReceiptState::query()->firstOrFail();
 
-    expect($synced)->toBe(1)
+    expect($result['synced'])->toBe(1)
+        ->and($result['discovered'])->toBe(1)
         ->and($purchaseOrder->company_code)->toBe('1000')
         ->and($purchaseOrder->vendor_code)->toBe('200000')
         ->and($purchaseOrder->currency_key)->toBe('PHP')

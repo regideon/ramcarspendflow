@@ -17,8 +17,10 @@ remains only a future option.
 `config/p2p.php` (env-driven; never `env()` outside config). The `sap` block holds
 `SAP_ENABLED`, `SAP_BASE_URL`, `SAP_CLIENT`, `SAP_USERNAME`, `SAP_PASSWORD`, the
 invoice endpoint + credentials, `SAP_VERIFY_TLS`, `SAP_TIMEOUT`,
-`SAP_LOG_ODATA` and `SAP_ACDOCA_POLL_LIMIT`. `SAP_ENABLED=false` binds the null
-source/gateway and makes no network calls.
+`SAP_LOG_ODATA`, `SAP_ACDOCA_POLL_LIMIT` and `SAP_UNKNOWN_VENDORS`
+(`skip` by default; `create` adds an inactive stub vendor for an unknown LIFNR).
+`SAP_ENABLED=false` binds the null source/gateway and makes no network calls.
+The test suite forces `SAP_ENABLED=false`; tests must never reach SAP.
 
 Transport: `P2pSapClient` (injects `$format=json` + `sap-client`, Basic auth,
 normalises to `['success','data','status']`, logs, retries OData GETs with
@@ -66,17 +68,31 @@ Rebuild requirements:
 - **Batch** OData reads (one CDS call with joins instead of per-item MSEG/EKET).
 - **Cap/reduce fan-out**; skip vendors with no activity; `--all-vendors` single query for base loads.
 - **Retry/backoff** and a **circuit breaker**; separate worker/queue for ACDOCA.
-- Atomic per-vendor dedup (`Cache::add()`), keyed `p2p-po-sync:pending:{vendor}`.
+- Atomic dedup (`Cache::add()`): one key per vendor for targeted runs, one shared `all` key for the daily all-vendor run.
 - Two discovery sources unioned (EKBE history + EKKO header); bail only if both fail.
 - Staging → working: mirror rows in `p2p_sap_*`, then refresh derived GR state.
 
 **Implemented:** `ODataSapPurchaseOrderSource` does the two-source discovery and
 `P2pSapPurchaseOrderReader` fetches MSEG/EKET once per PO (no per-item fan-out).
-`P2pPurchaseOrderSyncService` guards in-flow GR states, and
-`P2pSapReversalResolver` ports the EKBE `BWART 101/102` reversal rule. `tries` is
-still 1 on the sync job (legacy parity); move it to 3 with backoff when the
-production SAP endpoint is confirmed. ACDOCA runs every five minutes via
+`P2pPurchaseOrderSyncService` resolves the vendor/company, guards in-flow GR
+states, and counts skipped unknown vendors/companies. `P2pSapReversalResolver`
+ports the EKBE `BWART 101/102` reversal rule. ACDOCA runs every five minutes via
 `p2p:poll-sap-invoice-status` (batch 50).
+
+### Commands
+
+| Command | Behaviour |
+|---|---|
+| `p2p:sync-daily-purchase-orders` | **One all-vendor job** by default (not one per vendor). `--vendors=` for a targeted run; `--sync` to run inline; `--date`, `--from`, `--to`, `--months` for the window |
+| `p2p:sync-purchase-order {po}` | Fetch one PO directly (no vendor/date discovery). `--create-vendor` for an unknown LIFNR; `--queue` to dispatch |
+| `p2p:poll-sap-invoice-status` | ACDOCA 21 → 13 → 14 → 6 |
+| `p2p:sap-logs:prune` | Delete SAP logs older than 90 days |
+
+Each sync writes a `p2p_sap_sync_runs` row with **discovered, synced, skipped
+unknown vendor, skipped unknown company, created vendors, reversals and errors**.
+The job notification repeats that summary, so “0 synced” can be told apart from
+“nothing discovered”. The sync job still has `tries = 1`; the OData client retries
+transient GET failures internally.
 
 ## 5. Withholding-tax resolution chain
 

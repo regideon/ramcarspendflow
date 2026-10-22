@@ -12,6 +12,7 @@ use App\Models\P2p\SapPurchaseOrder;
 use App\Models\Vendor;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Applies a batch of SAP purchase-order data (from a {@see SapPurchaseOrderSource})
@@ -29,36 +30,124 @@ class P2pPurchaseOrderSyncService
 
     /**
      * @param  array<string, mixed>  $filters
-     * @return int number of purchase orders processed
+     * @return array{
+     *     discovered: int,
+     *     synced: int,
+     *     skipped_unknown_vendor: int,
+     *     skipped_unknown_company: int,
+     *     created_vendors: int,
+     *     reversals: int,
+     *     errors: int
+     * }
      */
-    public function run(SapPurchaseOrderSource $source, array $filters = []): int
+    public function run(SapPurchaseOrderSource $source, array $filters = []): array
     {
         $purchaseOrders = $source->changedPurchaseOrders($filters);
-        $synced = 0;
+
+        $stats = [
+            'discovered' => count($purchaseOrders),
+            'synced' => 0,
+            'skipped_unknown_vendor' => 0,
+            'skipped_unknown_company' => 0,
+            'created_vendors' => 0,
+            'reversals' => 0,
+            'errors' => 0,
+        ];
 
         foreach ($purchaseOrders as $data) {
-            DB::transaction(function () use ($data): void {
-                $this->syncPurchaseOrder($data);
-            });
+            try {
+                $data = $this->withResolvedIds($data, $stats);
 
-            $synced++;
-
-            // Reversals are resolved per PO after its GRs are in the mirror so the
-            // original GR can be found. A failure here must not roll back the sync.
-            if ($source instanceof SapReversalSource) {
-                try {
-                    $detected = $source->reversalsForPurchaseOrder((string) $data['purchase_order']);
-                    $this->reversals->detect($detected['reversed'], $detected['replacements']);
-                } catch (\Throwable $exception) {
-                    Log::error('[P2pSap] Reversal detection failed.', [
-                        'purchase_order' => $data['purchase_order'] ?? null,
-                        'error' => $exception->getMessage(),
-                    ]);
+                if ($data === null) {
+                    continue;
                 }
+
+                DB::transaction(function () use ($data): void {
+                    $this->syncPurchaseOrder($data);
+                });
+
+                $stats['synced']++;
+
+                // Reversals are resolved per PO after its GRs are in the mirror so
+                // the original GR can be found. A failure must not roll back the PO.
+                if ($source instanceof SapReversalSource) {
+                    try {
+                        $detected = $source->reversalsForPurchaseOrder((string) $data['purchase_order']);
+                        $stats['reversals'] += $this->reversals->detect($detected['reversed'], $detected['replacements']);
+                    } catch (Throwable $exception) {
+                        Log::error('[P2pSap] Reversal detection failed.', [
+                            'purchase_order' => $data['purchase_order'] ?? null,
+                            'error' => $exception->getMessage(),
+                        ]);
+                    }
+                }
+            } catch (Throwable $exception) {
+                $stats['errors']++;
+
+                Log::error('[P2pSap] Purchase-order sync failed.', [
+                    'purchase_order' => $data['purchase_order'] ?? null,
+                    'error' => $exception->getMessage(),
+                ]);
             }
         }
 
-        return $synced;
+        return $stats;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  array<string, int>  $stats
+     * @return array<string, mixed>|null
+     */
+    protected function withResolvedIds(array $data, array &$stats): ?array
+    {
+        $vendorCode = trim((string) ($data['vendor_code'] ?? ''));
+        $vendorId = $data['vendor_id'] ?? $this->idForVendor($vendorCode);
+
+        if ($vendorId === null) {
+            if ($vendorCode !== '' && config('p2p.sap.unknown_vendors', 'skip') === 'create') {
+                $vendor = Vendor::query()->firstOrCreate(
+                    ['code' => $vendorCode],
+                    ['name' => $vendorCode, 'is_active' => false],
+                );
+
+                $vendorId = $vendor->id;
+                $stats['created_vendors']++;
+
+                Log::info('[P2pSap] Created an inactive stub vendor for an unknown SAP vendor.', [
+                    'vendor' => $vendorCode,
+                    'purchase_order' => $data['purchase_order'] ?? null,
+                ]);
+            } else {
+                $stats['skipped_unknown_vendor']++;
+
+                Log::warning('[P2pSap] Skipped PO with an unknown vendor.', [
+                    'vendor' => $vendorCode,
+                    'purchase_order' => $data['purchase_order'] ?? null,
+                ]);
+
+                return null;
+            }
+        }
+
+        $companyCode = trim((string) ($data['company_code'] ?? ''));
+        $companyId = $data['company_id'] ?? $this->idForCompany($companyCode);
+
+        if ($companyId === null) {
+            $stats['skipped_unknown_company']++;
+
+            Log::warning('[P2pSap] Skipped PO with an unknown company.', [
+                'company' => $companyCode,
+                'purchase_order' => $data['purchase_order'] ?? null,
+            ]);
+
+            return null;
+        }
+
+        $data['vendor_id'] = $vendorId;
+        $data['company_id'] = $companyId;
+
+        return $data;
     }
 
     /**
@@ -66,8 +155,8 @@ class P2pPurchaseOrderSyncService
      */
     protected function syncPurchaseOrder(array $data): void
     {
-        $companyId = $data['company_id'] ?? $this->idForCompany($data['company_code'] ?? null);
-        $vendorId = $data['vendor_id'] ?? $this->idForVendor($data['vendor_code'] ?? null);
+        $companyId = $data['company_id'];
+        $vendorId = $data['vendor_id'];
         $grNumbers = $data['gr_numbers'] ?? array_keys($data['good_receipts'] ?? []);
 
         $po = SapPurchaseOrder::query()->updateOrCreate(

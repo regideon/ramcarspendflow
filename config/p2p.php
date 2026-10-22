@@ -49,5 +49,7 @@ return [
         'timeout' => (int) env('SAP_TIMEOUT', 60),
         'log_odata' => env('SAP_LOG_ODATA', true),
         'acdoca_poll_limit' => (int) env('SAP_ACDOCA_POLL_LIMIT', 50),
+        // skip: leave POs for unknown vendors out; create: add an inactive stub vendor.
+        'unknown_vendors' => env('SAP_UNKNOWN_VENDORS', 'skip'),
     ],
 ];

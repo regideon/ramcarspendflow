@@ -4,8 +4,6 @@ namespace App\Services\P2p\Sap;
 
 use App\Contracts\P2p\SapPurchaseOrderSource;
 use App\Contracts\P2p\SapReversalSource;
-use App\Models\Company;
-use App\Models\Vendor;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -57,11 +55,7 @@ class ODataSapPurchaseOrderSource implements SapPurchaseOrderSource, SapReversal
         $mapped = [];
 
         foreach ($result['data'] as $purchaseOrder) {
-            $payload = $this->mapPurchaseOrder($purchaseOrder);
-
-            if ($payload !== null) {
-                $mapped[] = $payload;
-            }
+            $mapped[] = $this->mapPurchaseOrder($purchaseOrder);
         }
 
         return $mapped;
@@ -118,25 +112,12 @@ class ODataSapPurchaseOrderSource implements SapPurchaseOrderSource, SapReversal
 
     /**
      * @param  array<string, mixed>  $purchaseOrder
-     * @return array<string, mixed>|null
+     * @return array<string, mixed>
      */
-    protected function mapPurchaseOrder(array $purchaseOrder): ?array
+    protected function mapPurchaseOrder(array $purchaseOrder): array
     {
         $vendorCode = trim((string) ($purchaseOrder['vendor'] ?? ''));
         $companyCode = trim((string) ($purchaseOrder['company_code'] ?? ''));
-
-        $vendor = $vendorCode !== '' ? Vendor::query()->where('code', $vendorCode)->first() : null;
-        $company = $companyCode !== '' ? Company::query()->where('code', $companyCode)->first() : null;
-
-        if ($vendor === null || $company === null) {
-            Log::warning('[P2pSap] Skipping PO with an unknown vendor or company.', [
-                'purchase_order' => $purchaseOrder['po_number'] ?? null,
-                'vendor' => $vendorCode,
-                'company' => $companyCode,
-            ]);
-
-            return null;
-        }
 
         $deliveredByItem = $purchaseOrder['delivered_by_item'] ?? [];
         $receipts = [];
@@ -196,9 +177,7 @@ class ODataSapPurchaseOrderSource implements SapPurchaseOrderSource, SapReversal
         return [
             'purchase_order' => (string) $purchaseOrder['po_number'],
             'company_code' => $companyCode,
-            'company_id' => $company->id,
             'vendor_code' => $vendorCode,
-            'vendor_id' => $vendor->id,
             'currency_key' => $purchaseOrder['currency'] ?: null,
             'total_amount' => (float) ($purchaseOrder['total_amount'] ?? 0),
             'purchase_order_date' => $this->parseDate($purchaseOrder['po_date'] ?? null)?->toDateString(),

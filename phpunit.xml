@@ -32,6 +32,10 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- Tests must never call the real SAP system. -->
+        <env name="SAP_ENABLED" value="false"/>
+        <env name="SAP_VERIFY_TLS" value="false"/>
+        <env name="SAP_LOG_ODATA" value="false"/>
         <!-- Add this line: -->
         <ini name="memory_limit" value="-1" />
     </php>

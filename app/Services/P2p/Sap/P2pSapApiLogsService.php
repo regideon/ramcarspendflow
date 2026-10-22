@@ -5,6 +5,8 @@ namespace App\Services\P2p\Sap;
 use App\Models\P2p\Invoice;
 use App\Models\P2p\SapApiLog;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Persists an audit row for every SAP call (SOAP writes and OData reads).
@@ -29,7 +31,7 @@ class P2pSapApiLogsService
         string $type = SapApiLog::TYPE_SOAP,
         ?int $userId = null,
     ): SapApiLog {
-        return SapApiLog::query()->create([
+        $attributes = [
             'type' => $type,
             'endpoint' => $endpoint,
             'request' => $this->sanitize($request),
@@ -39,7 +41,19 @@ class P2pSapApiLogsService
             'execution_time' => $executionTime,
             'user_id' => $userId ?? Auth::id(),
             'p2p_invoice_id' => $invoice instanceof Invoice ? $invoice->id : $invoice,
-        ]);
+        ];
+
+        try {
+            return SapApiLog::query()->create($attributes);
+        } catch (Throwable $exception) {
+            // A logging failure must never hide the SAP error or fail a sync.
+            Log::error('[P2pSap] Could not write the SAP API log.', [
+                'endpoint' => $endpoint,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return new SapApiLog($attributes);
+        }
     }
 
     /**
