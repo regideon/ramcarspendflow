@@ -7,6 +7,7 @@ use App\Models\P2p\ApprovalHistory;
 use App\Models\P2p\Invoice;
 use App\Models\P2p\SapPurchaseOrder;
 use App\Services\P2p\Sap\P2pAcdocaService;
+use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -36,7 +37,11 @@ class P2pInvoiceStatusPollService
     {
         $invoices = Invoice::query()
             ->with('company')
-            ->whereIn('status', [P2pStatus::PendingPost, P2pStatus::InvoiceParked, P2pStatus::InvoicePosted])
+            ->whereIn('status', [
+                P2pStatus::PendingPost->value,
+                P2pStatus::InvoiceParked->value,
+                P2pStatus::InvoicePosted->value,
+            ])
             ->whereNotNull('invoice_number')
             ->orderBy('updated_at')
             ->limit(max(1, $limit))
@@ -121,7 +126,7 @@ class P2pInvoiceStatusPollService
         $augbl = trim((string) ($row['AUGBL'] ?? ''));
 
         return match ($invoice->status) {
-            P2pStatus::PendingPost => $this->advance($invoice, P2pStatus::InvoiceParked, null, 'SAP ACDOCA: parked document confirmed.'),
+            P2pStatus::PendingPost => $this->advance($invoice, P2pStatus::InvoiceParked, [], 'SAP ACDOCA: parked document confirmed.'),
             P2pStatus::InvoiceParked => $belnr !== ''
                 ? $this->advance($invoice, P2pStatus::InvoicePosted, ['fi_doc_no' => $belnr], "SAP ACDOCA: FI document {$belnr}.")
                 : null,
@@ -169,6 +174,20 @@ class P2pInvoiceStatusPollService
                 ->whereIn('purchase_order', $invoice->po_numbers ?? [])
                 ->get()
                 ->each(fn (SapPurchaseOrder $po) => $this->purchaseOrderStatus->recalculate($po));
+
+            if ($invoice->user !== null) {
+                $title = match ($to) {
+                    P2pStatus::InvoiceParked => 'Invoice parked in SAP',
+                    P2pStatus::InvoicePosted => 'Invoice posted in SAP',
+                    default => 'Invoice cleared in SAP',
+                };
+
+                Notification::make()
+                    ->title($title)
+                    ->body("{$invoice->grc_number}: {$remarks}")
+                    ->success()
+                    ->sendToDatabase($invoice->user);
+            }
 
             return match ($to) {
                 P2pStatus::InvoiceParked => 'parked',

@@ -122,7 +122,7 @@ class P2pPurchaseOrderSyncService
                         'gr' => $item['gr'] ?? null,
                         'unit_cost' => $item['unit_cost'] ?? null,
                         'net_price' => $item['net_price'] ?? null,
-                        'price_unit' => $item['price_unit'] ?? null,
+                        'price_unit' => $item['price_unit'] ?? 1,
                         'currency' => $item['currency'] ?? null,
                         'amount' => $item['amount'] ?? null,
                         'quantity_po_balance' => $item['quantity_po_balance'] ?? null,

@@ -6,16 +6,23 @@ _Last updated: 2026-10-10 · Sources: `../p2p/docs/03-sap-integration.md`, `../p
 > starts by choosing synced GRs. Golden rule: **Read = OData (GET); Write = parked
 > invoice only.**
 
-**This pass scope (decision #1/#5):** build against **generic demo data**. The SAP
-layer below is documented for the build but **not in scope** until the checker/park
-blocker clears. Services are stubbed behind interfaces so we can swap in real SAP later.
+**Implementation status (2026-10-22):** the OData reader, SOAP parking and ACDOCA
+poll are ported and sit behind `SAP_ENABLED` (default `false`). With the flag off
+the app runs on demo data through the null source/gateway. The write side is
+**SOAP** (`ZMM_FM_P2P_INCOMINGINVOICE`, `ACTION=PARK`); **AL11 is not used** and
+remains only a future option.
 
 ## 1. Connection & config
 
-`config/p2p.php` (env-driven; never `env()` outside config): `SAP_BASE_URL`,
-`SAP_CLIENT`, `SAP_USERNAME`, `SAP_PASSWORD`, invoice endpoint + credentials.
-Read service base: `P2pSapBaseService` (injects `$format=json` + `sap-client`, Basic
-auth, normalises to `['success','data','status']`, logs).
+`config/p2p.php` (env-driven; never `env()` outside config). The `sap` block holds
+`SAP_ENABLED`, `SAP_BASE_URL`, `SAP_CLIENT`, `SAP_USERNAME`, `SAP_PASSWORD`, the
+invoice endpoint + credentials, `SAP_VERIFY_TLS`, `SAP_TIMEOUT`,
+`SAP_LOG_ODATA` and `SAP_ACDOCA_POLL_LIMIT`. `SAP_ENABLED=false` binds the null
+source/gateway and makes no network calls.
+
+Transport: `P2pSapClient` (injects `$format=json` + `sap-client`, Basic auth,
+normalises to `['success','data','status']`, logs, retries OData GETs with
+backoff; SOAP POSTs are never retried).
 
 ## 2. Read — OData v2 CDS (GET) to port
 
@@ -33,16 +40,21 @@ auth, normalises to `['success','data','status']`, logs).
 
 ## 3. Write — invoice park
 
-| Item | Legacy |
+| Item | Implementation |
 |---|---|
 | RFC | `ZMM_FM_P2P_INCOMINGINVOICE`, `ACTION = PARK` |
-| Transport | SOAP (raw cURL, XML by string interpolation) |
-| Response | `INVOICEDOCNUMBER`, `FISCALYEAR`, `MESSAGE` |
-| Audit | every call → `p2p_sap_api_logs` (passwords redacted) |
+| Transport | SOAP over the Laravel HTTP client; XML built with `DOMDocument` (escaped) |
+| Response | `INVOICEDOCNUMBER`, `FISCALYEAR`, `MESSAGE`; SOAP faults are surfaced |
+| Audit | every call → `p2p_sap_api_logs` (passwords/authorization redacted) |
+| Status flow | `4 SubmittedToChecker → 21 PendingPost → 13 InvoiceParked → 14 InvoicePosted → 6 Completed` |
 
-**Planned (plan 261001):** asynchronous **AL11 file interface** — portal writes a CSV,
-pushes over SFTP keyed `{VENDOR-CODE}-{COMPANY-CODE}-{GRC-NUMBER}`; SAP polls; status
-advances `21 Pending Post → 13 Parked → 14 Posted → 6 Completed`.
+The supervisor's approval moves the invoice to **21 PendingPost** before the SOAP
+call. A successful call with an `INVOICEDOCNUMBER` moves it to **13**; a failure
+stays at **21** with `sap_park_error` set and a **Retry SAP parking** action.
+ACDOCA advances `13 → 14` on `BELNR` and `14 → 6` on `AUGBL`, one step per poll.
+
+**AL11 is not the current path.** The asynchronous AL11 file interface (plan 261001)
+remains a future option only; P2P uses SOAP while SAP confirms the transport.
 
 ## 4. Sync design (must fix legacy bloat)
 
@@ -58,6 +70,14 @@ Rebuild requirements:
 - Two discovery sources unioned (EKBE history + EKKO header); bail only if both fail.
 - Staging → working: mirror rows in `p2p_sap_*`, then refresh derived GR state.
 
+**Implemented:** `ODataSapPurchaseOrderSource` does the two-source discovery and
+`P2pSapPurchaseOrderReader` fetches MSEG/EKET once per PO (no per-item fan-out).
+`P2pPurchaseOrderSyncService` guards in-flow GR states, and
+`P2pSapReversalResolver` ports the EKBE `BWART 101/102` reversal rule. `tries` is
+still 1 on the sync job (legacy parity); move it to 3 with backoff when the
+production SAP endpoint is confirmed. ACDOCA runs every five minutes via
+`p2p:poll-sap-invoice-status` (batch 50).
+
 ## 5. Withholding-tax resolution chain
 
 `LFBW (vendor, BUKRS, WITHT) → WT_WITHCD → T001 (BUKRS → LAND1) → T059Z (WITHT, WITHCD, LAND1 → QSATZ)`.
@@ -67,8 +87,8 @@ Falls back to the statutory table (`02/19/44` = 5%, `04/28/41` = 2%, `09/42` = 1
 
 | Legacy issue | Fix |
 |---|---|
-| TLS verification disabled (`verify => false`) | Verify TLS |
-| XML built by string interpolation | Use the HTTP client + escaped/validated payloads |
+| TLS verification disabled (`verify => false`) | Verify TLS (`SAP_VERIFY_TLS=true` by default) |
+| XML built by string interpolation | Use `DOMDocument` + escaped/validated payloads |
 | Unauthenticated routes (`/db/fresh`, `/insert-*`, `/purchase-orders/*`, `routes/tax.php`) | None exist; all routes authenticated/signed |
 | Hardcoded BCC | Config-driven, no secrets in code |
 | `canAccessPanel()` returns `true` for all | Panel access respects active users/roles |

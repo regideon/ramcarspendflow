@@ -195,7 +195,7 @@ class P2pSapPurchaseOrderReader
                 'purchase_order_type' => trim((string) ($header['BSART'] ?? '')),
                 'changed_on' => $header['AEDAT'] ?? null,
                 'created_by' => trim((string) ($header['ERNAM'] ?? '')),
-                'gr_numbers' => array_keys($grRows),
+                'gr_numbers' => array_map(static fn ($number): string => (string) $number, array_keys($grRows)),
                 'gr_count' => count($grRows),
                 'total_amount' => round($totalAmount, 2),
                 'total_po_balance' => round($totalPoBalance, 2),
@@ -357,7 +357,7 @@ class P2pSapPurchaseOrderReader
             : new DateTime($date);
 
         if ($parsed === false) {
-            $parsed = new DateTime();
+            $parsed = new DateTime;
         }
 
         return "datetime'{$parsed->format('Y-m-d')}T".($endOfDay ? '23:59:59' : '00:00:00')."'";

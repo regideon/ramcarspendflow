@@ -37,9 +37,13 @@ class P2pSoapInvoiceGateway implements SapInvoiceParkingGateway
         $result = $this->client->postSoap($endpoint, $xml, self::SOAP_ACTION, $invoice->id);
 
         if (! $result['success']) {
+            // SAP often returns a SOAP fault with a non-2xx status; surface the
+            // fault message rather than the generic HTTP error.
+            $parsedFault = $this->parseResponse((string) ($result['body'] ?? ''));
+
             return [
                 'success' => false,
-                'error' => $result['error'] ?? 'SAP SOAP request failed.',
+                'error' => $parsedFault['error'] ?? $result['error'] ?? 'SAP SOAP request failed.',
                 'http_status' => $result['status'] ?? null,
             ];
         }
