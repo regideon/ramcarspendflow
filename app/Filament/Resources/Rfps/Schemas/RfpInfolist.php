@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Rfps\Schemas;
 
 use App\Enums\RfpRequestType;
+use App\Enums\RfpStatus;
 use App\Filament\Resources\Rfps\Actions\AddCommentAction;
 use App\Filament\Support\CommentMentions;
 use App\Models\Comment;
@@ -13,6 +14,7 @@ use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Schemas\Components\Callout;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -28,6 +30,10 @@ class RfpInfolist
         return $schema
             ->columns(1)
             ->components([
+                Callout::make('Returned for revision')
+                    ->description(fn (Rfp $record): string => static::revisionNote($record))
+                    ->warning()
+                    ->visible(fn (Rfp $record): bool => $record->status === RfpStatus::ForRevision),
                 Section::make()
                     ->compact()
                     ->columns(['default' => 2, 'md' => 4])
@@ -39,6 +45,12 @@ class RfpInfolist
                             ->color(fn (Rfp $record): string => $record->dueType?->code === 'urgent' ? 'danger' : 'gray'),
                         TextEntry::make('due_date')->date(),
                         TextEntry::make('request_type')->label('RFP type')->badge()->color('gray'),
+                        TextEntry::make('is_ids')
+                            ->label('Payment type')
+                            ->state(fn (Rfp $record): string => $record->is_ids ? 'IDS' : 'Non-IDS (manual)')
+                            ->badge()
+                            ->color('gray')
+                            ->visible(fn (Rfp $record): bool => in_array($record->status, [RfpStatus::ForTreasury, RfpStatus::Completed], true)),
                         TextEntry::make('company.name')->label('Paying company'),
                         TextEntry::make('accountGroup.description')->label('Account group')->placeholder('—'),
                         TextEntry::make('vendor.name')
@@ -109,6 +121,51 @@ class RfpInfolist
                                     ->placeholder('None'),
                             ]),
                     ]),
+                Section::make('Tax entries')
+                    ->description('Booked by AP at processing. Amounts are in each line\'s currency.')
+                    ->compact()
+                    ->visible(fn (Rfp $record): bool => $record->items->contains(fn (Item $item): bool => $item->tax_code_id !== null))
+                    ->schema([
+                        RepeatableEntry::make('items')
+                            ->hiddenLabel()
+                            ->table([
+                                TableColumn::make('Invoice'),
+                                TableColumn::make('Gross')->alignment(Alignment::End),
+                                TableColumn::make('Input tax'),
+                                TableColumn::make('Withholding tax'),
+                                TableColumn::make('VAT')->alignment(Alignment::End),
+                                TableColumn::make('Net of VAT')->alignment(Alignment::End),
+                                TableColumn::make('Withholding')->alignment(Alignment::End),
+                                TableColumn::make('Net of WHT')->alignment(Alignment::End),
+                            ])
+                            ->schema([
+                                TextEntry::make('invoice_number')->placeholder('—'),
+                                TextEntry::make('amount')
+                                    ->state(fn (Item $record): string => $record->currency?->code.' '.number_format((float) $record->amount, 2))
+                                    ->alignEnd(),
+                                TextEntry::make('taxCode.code')
+                                    ->belowContent(fn (Item $record): ?string => $record->taxCode?->description)
+                                    ->placeholder('—'),
+                                TextEntry::make('withholdingTaxCode.code')
+                                    ->belowContent(fn (Item $record): ?string => $record->withholdingTaxCode
+                                        ? "{$record->withholdingTaxCode->description} · {$record->withholdingTaxType?->code}"
+                                        : null)
+                                    ->placeholder('—'),
+                                TextEntry::make('vat_amount')->numeric(decimalPlaces: 2)->alignEnd()->placeholder('—'),
+                                TextEntry::make('net_of_vat_amount')->numeric(decimalPlaces: 2)->alignEnd()->placeholder('—'),
+                                TextEntry::make('withholding_tax_amount')->numeric(decimalPlaces: 2)->alignEnd()->placeholder('—'),
+                                TextEntry::make('net_of_withholding_tax_amount')->numeric(decimalPlaces: 2)->weight(FontWeight::Bold)->alignEnd()->placeholder('—'),
+                            ]),
+                        TextEntry::make('net_of_withholding_totals')
+                            ->label('Total net of withholding tax')
+                            ->state(fn (Rfp $record): array => $record->items
+                                ->groupBy(fn (Item $item): string => (string) $item->currency?->code)
+                                ->map(fn ($items, string $code): string => $code.' '.number_format((float) $items->reduce(fn (string $sum, Item $item): string => bcadd($sum, (string) ($item->net_of_withholding_tax_amount ?? '0'), 2), '0.00'), 2))
+                                ->values()
+                                ->all())
+                            ->listWithLineBreaks()
+                            ->weight(FontWeight::Bold),
+                    ]),
                 // History and Comments side by side (stacked on small screens)
                 Grid::make(['default' => 1, 'lg' => 2])
                     ->schema([
@@ -172,5 +229,16 @@ class RfpInfolist
             e(Storage::disk('local')->temporaryUrl($path, now()->addMinutes(30))),
             e(basename($path)),
         ));
+    }
+
+    /**
+     * Who returned the RFP and why, from the latest return in its history.
+     */
+    protected static function revisionNote(Rfp $rfp): string
+    {
+        $return = $rfp->histories()->where('to_status', RfpStatus::ForRevision)->latest('id')->with('user')->first();
+
+        return trim(($return?->user?->name ? "{$return->user->name}: " : '').($return?->remarks ?? ''))
+            .' Fix the request, then resubmit it.';
     }
 }

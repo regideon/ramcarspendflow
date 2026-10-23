@@ -2,10 +2,15 @@
 
 use App\Enums\RfpRequestType;
 use App\Enums\RoleName;
+use App\Filament\Clusters\RfpSettings\Resources\ApprovalRules\Widgets\ApprovalMatrixDiagram;
+use App\Models\Company;
 use App\Models\Rfp\ApprovalRule;
+use App\Models\User;
+use Database\Seeders\CompanySeeder;
 use Database\Seeders\Rfp\ApprovalMatrixSeeder;
 use Database\Seeders\RoleAndUserSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Livewire;
 
 pest()->use(RefreshDatabase::class);
 
@@ -71,4 +76,36 @@ it('ignores inactive tiers', function () {
 
     expect(approverChain(RfpRequestType::Reimbursement, 500))
         ->toBe([RoleName::LineManager->value, RoleName::DepartmentHead->value]);
+});
+
+it('draws each tier with its range, approver chain and who holds each role', function () {
+    $this->seed(CompanySeeder::class);
+    $companyA = Company::firstWhere('code', '1000');
+    $companyB = Company::firstWhere('code', '2000');
+    User::firstWhere('email', RoleAndUserSeeder::emailFor(RoleName::LineManager))
+        ->syncCompanyRoles([['role' => RoleName::LineManager, 'companies' => [$companyA->id]]]);
+
+    Livewire::test(ApprovalMatrixDiagram::class)
+        ->set('previewCompanyId', $companyA->id)
+        ->assertSeeInOrder(['Reimbursement', 'Up to PHP 10,000', 'Line Manager', 'Demo Line Manager', 'PHP 10,000.01 to 100,000', 'Above PHP 100,000'])
+        ->assertSeeInOrder(['Direct to VP', 'any request type', 'Division Head'])
+        ->assertDontSee('Matches')
+        ->set('previewCompanyId', $companyB->id)
+        ->assertSee('Nobody in this company');
+});
+
+it('highlights the tier an amount falls in, with a limit belonging to the lower tier', function () {
+    $this->seed(CompanySeeder::class);
+
+    $component = Livewire::test(ApprovalMatrixDiagram::class)->set('previewAmount', '10000');
+    $reimbursement = collect($component->instance()->groups())->firstWhere('label', 'Reimbursement');
+
+    expect(collect($reimbursement['tiers'])->where('matches', true)->pluck('to')->all())->toBe(['10000.00']);
+});
+
+it('leaves inactive tiers out of the picture', function () {
+    $this->seed(CompanySeeder::class);
+    ApprovalRule::query()->where('is_direct_to_vp', true)->update(['is_active' => false]);
+
+    Livewire::test(ApprovalMatrixDiagram::class)->assertDontSee('Direct to VP');
 });

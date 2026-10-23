@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\RoleName;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
@@ -11,9 +12,11 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Traits\HasRoles;
 
 #[Fillable(['name', 'email', 'password', 'company_id', 'vendor_id', 'is_active'])]
@@ -53,6 +56,75 @@ class User extends Authenticatable implements FilamentUser
     public function companies(): BelongsToMany
     {
         return $this->belongsToMany(Company::class)->withTimestamps();
+    }
+
+    /**
+     * Approval roles the user holds, per company.
+     *
+     * @return HasMany<CompanyRole, $this>
+     */
+    public function companyRoles(): HasMany
+    {
+        return $this->hasMany(CompanyRole::class);
+    }
+
+    /**
+     * The approval roles the user holds in a company.
+     *
+     * @return list<string>
+     */
+    public function rolesIn(?int $companyId): array
+    {
+        if ($companyId === null) {
+            return [];
+        }
+
+        return $this->companyRoles()->where('company_id', $companyId)->pluck('role')
+            ->map(fn (RoleName $role): string => $role->value)
+            ->all();
+    }
+
+    /**
+     * Replace the user's approval roles per company, and keep their Spatie roles in step:
+     * they hold an approval role's screens when they hold that role in any company.
+     *
+     * @param  list<array{role: RoleName|string, companies: list<int|string>}>  $rows
+     */
+    public function syncCompanyRoles(array $rows): void
+    {
+        $assignments = collect($rows)
+            ->flatMap(fn (array $row): array => array_map(fn (int|string $companyId): array => [
+                'company_id' => (int) $companyId,
+                'role' => $row['role'] instanceof RoleName ? $row['role']->value : $row['role'],
+            ], $row['companies'] ?? []))
+            ->unique(fn (array $assignment): string => $assignment['company_id'].'|'.$assignment['role'])
+            ->values();
+
+        DB::transaction(function () use ($assignments): void {
+            $this->companyRoles()->delete();
+            $this->companyRoles()->createMany($assignments->all());
+
+            $companyScoped = array_map(fn (RoleName $role): string => $role->value, RoleName::companyScoped());
+
+            $this->syncRoles([
+                ...$this->getRoleNames()->diff($companyScoped)->all(),
+                ...$assignments->pluck('role')->unique()->all(),
+            ]);
+        });
+    }
+
+    /**
+     * The user's approval roles as form rows: one per role, with its companies.
+     *
+     * @return list<array{role: string, companies: list<int>}>
+     */
+    public function companyRoleRows(): array
+    {
+        return $this->companyRoles()->orderBy('role')->get()
+            ->groupBy(fn (CompanyRole $assignment): string => $assignment->role->value)
+            ->map(fn ($assignments, string $role): array => ['role' => $role, 'companies' => $assignments->pluck('company_id')->all()])
+            ->values()
+            ->all();
     }
 
     /**

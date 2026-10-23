@@ -62,6 +62,8 @@ class RoleAndUserSeeder extends Seeder
 
             foreach ([
                 // RFP transactions belong to users, so they go too.
+                'rfp_approval_steps',
+                'company_role_user',
                 'rfp_histories',
                 'rfp_items',
                 'rfps',
@@ -141,6 +143,10 @@ class RoleAndUserSeeder extends Seeder
         $user->forceFill(['email_verified_at' => now()])->save();
         $user->assignRole($roleName);
         $user->companies()->sync($companies->pluck('id'));
+
+        if (in_array($roleName, RoleName::companyScoped(), true)) {
+            $user->syncCompanyRoles([['role' => $roleName, 'companies' => $companies->pluck('id')->all()]]);
+        }
 
         return $user;
     }

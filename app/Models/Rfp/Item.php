@@ -9,7 +9,10 @@ use App\Models\CostCenter;
 use App\Models\Currency;
 use App\Models\ExchangeRate;
 use App\Models\GlAccount;
+use App\Models\TaxCode;
 use App\Models\Vendor;
+use App\Models\WithholdingTaxCode;
+use App\Models\WithholdingTaxType;
 use Database\Factories\Rfp\ItemFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Table;
@@ -25,7 +28,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable([
     'rfp_id', 'sort', 'company_id', 'vendor_type', 'vendor_id', 'rfp_one_time_vendor_id', 'rfp_subcategory_id',
     'cost_center_id', 'invoice_number', 'invoice_date', 'po_number', 'description', 'currency_id', 'amount', 'attachments',
-    'receipt_scan',
+    'receipt_scan', 'tax_code_id', 'withholding_tax_code_id', 'withholding_tax_type_id',
+    'vat_amount', 'net_of_vat_amount', 'withholding_tax_amount', 'net_of_withholding_tax_amount',
 ])]
 class Item extends Model
 {
@@ -73,6 +77,32 @@ class Item extends Model
         $this->php_amount = bcadd(bcmul((string) $this->amount, $rate, 6), '0.005', 2); // round half up
 
         return $this;
+    }
+
+    /**
+     * Input tax code booked by AP at Step 4.
+     *
+     * @return BelongsTo<TaxCode, $this>
+     */
+    public function taxCode(): BelongsTo
+    {
+        return $this->belongsTo(TaxCode::class);
+    }
+
+    /**
+     * @return BelongsTo<WithholdingTaxCode, $this>
+     */
+    public function withholdingTaxCode(): BelongsTo
+    {
+        return $this->belongsTo(WithholdingTaxCode::class);
+    }
+
+    /**
+     * @return BelongsTo<WithholdingTaxType, $this>
+     */
+    public function withholdingTaxType(): BelongsTo
+    {
+        return $this->belongsTo(WithholdingTaxType::class);
     }
 
     /**
@@ -167,6 +197,10 @@ class Item extends Model
             'php_amount' => 'decimal:2',
             'attachments' => 'array',
             'receipt_scan' => 'array',
+            'vat_amount' => 'decimal:2',
+            'net_of_vat_amount' => 'decimal:2',
+            'withholding_tax_amount' => 'decimal:2',
+            'net_of_withholding_tax_amount' => 'decimal:2',
         ];
     }
 }

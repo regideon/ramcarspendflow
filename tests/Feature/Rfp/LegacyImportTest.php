@@ -1,26 +1,35 @@
 <?php
 
 use App\Console\Commands\ImportLegacyRfps;
+use App\Enums\RfpApprovalStepState;
 use App\Enums\RfpRequestType;
 use App\Enums\RfpStatus;
 use App\Enums\RfpVendorType;
 use App\Enums\RoleName;
+use App\Filament\Clusters\RfpSettings\Pages\LegacyImport;
+use App\Jobs\Rfp\RunLegacyImport;
 use App\Models\CostCenter;
 use App\Models\Rfp\History;
 use App\Models\Rfp\Item;
+use App\Models\Rfp\LegacyImportRun;
 use App\Models\Rfp\Rfp;
 use App\Models\User;
 use App\Models\Vendor;
+use App\Services\Rfp\ApprovalEngine;
 use Database\Seeders\AccountGroupSeeder;
 use Database\Seeders\CompanySeeder;
 use Database\Seeders\CurrencySeeder;
 use Database\Seeders\PaymentMethodSeeder;
+use Database\Seeders\Rfp\ApprovalMatrixSeeder;
 use Database\Seeders\Rfp\DueTypeSeeder;
+use Database\Seeders\Rfp\WorkflowSeeder;
 use Database\Seeders\RoleAndUserSeeder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Livewire\Livewire;
 
 pest()->use(RefreshDatabase::class);
 
@@ -201,7 +210,7 @@ it('maps legacy statuses and history codes', function (int $statusNo, int $level
     expect(ImportLegacyRfps::status($statusNo, $level))->toBe($status);
 })->with([
     'draft' => [0, 0, RfpStatus::Draft],
-    'pending' => [1, 0, RfpStatus::ForApproval],
+    'pending (AP first review)' => [1, 0, RfpStatus::ForApReview],
     'processing' => [2, 0, RfpStatus::ForApproval],
     'accounting personnel' => [11, 1, RfpStatus::ForApProcessing],
     'accounting supervisor' => [11, 2, RfpStatus::ForAccountingApproval],
@@ -212,3 +221,97 @@ it('maps legacy statuses and history codes', function (int $statusNo, int $level
     'completed' => [15, 0, RfpStatus::Completed],
     'SAP posted' => [21, 0, RfpStatus::Completed],
 ]);
+
+it('gives RFPs still in approval their route, picked up where they are', function () {
+    $this->seed([ApprovalMatrixSeeder::class, WorkflowSeeder::class]);
+
+    $this->artisan('rfp:import-legacy', ['--force' => true])->assertSuccessful();
+
+    $withSupervisor = Rfp::find(12120);
+    $states = $withSupervisor->approvalSteps->mapWithKeys(fn ($step): array => ["{$step->sequence} {$step->label}" => $step->state])->all();
+
+    expect($states)->toBe([
+        '1 AP Processor' => RfpApprovalStepState::Approved,
+        '2 Line Manager' => RfpApprovalStepState::Approved,
+        '3 AP Processor' => RfpApprovalStepState::Approved,
+        '4 AP Supervisor' => RfpApprovalStepState::Active,
+        '5 AP Manager' => RfpApprovalStepState::Pending,
+        '6 Treasury' => RfpApprovalStepState::Pending,
+    ])
+        ->and($withSupervisor->histories()->where('action', 'like', 'Submitted%')->exists())->toBeFalse()
+        ->and(Rfp::find(12122)->approvalSteps->firstWhere('state', RfpApprovalStepState::Active)->label)->toBe('Line Manager')
+        ->and(Rfp::find(12121)->approvalSteps)->toBeEmpty(); // rejected: nothing left to approve
+});
+
+it('lets the AP Supervisor of the company act on an imported RFP', function () {
+    $this->seed([ApprovalMatrixSeeder::class, WorkflowSeeder::class]);
+    $this->artisan('rfp:import-legacy', ['--force' => true])->assertSuccessful();
+
+    $rfp = Rfp::find(12120);
+    $supervisor = User::factory()->create();
+    $supervisor->syncCompanyRoles([['role' => RoleName::ApSupervisor, 'companies' => [$rfp->company_id]]]);
+
+    app(ApprovalEngine::class)->approve($rfp, $supervisor);
+
+    expect($rfp->refresh()->current_approver_role)->toBe(RoleName::ApManager);
+});
+
+it('is locked once the legacy import is turned off', function () {
+    config(['rfp.legacy_import_enabled' => false]);
+
+    $this->artisan('rfp:import-legacy', ['--force' => true])->assertFailed();
+
+    expect(Rfp::count())->toBe(0)
+        ->and(LegacyImport::canAccess())->toBeFalse();
+
+    $this->actingAs(User::firstWhere('email', RoleAndUserSeeder::OWNER_EMAIL))
+        ->get(LegacyImport::getUrl())
+        ->assertForbidden();
+});
+
+it('keeps the import page to Admins', function () {
+    $this->actingAs(User::firstWhere('email', RoleAndUserSeeder::emailFor(RoleName::ApManager)))
+        ->get(LegacyImport::getUrl())
+        ->assertForbidden();
+});
+
+it('shows Admins the legacy source before they import', function () {
+    $this->actingAs(User::firstWhere('email', RoleAndUserSeeder::OWNER_EMAIL))
+        ->get(LegacyImport::getUrl())
+        ->assertOk()
+        ->assertSee('Connected · 3 RFPs')
+        ->assertSee('replaces every RFP in this system', escape: false);
+});
+
+it('starts the import from the page only after IMPORT is typed', function () {
+    Bus::fake();
+    $this->actingAs(User::firstWhere('email', RoleAndUserSeeder::OWNER_EMAIL));
+
+    Livewire::test(LegacyImport::class)
+        ->callAction('runImport', ['confirmation' => 'import'])
+        ->assertHasActionErrors(['confirmation']);
+
+    Bus::assertNothingDispatched();
+
+    Livewire::test(LegacyImport::class)
+        ->callAction('runImport', ['confirmation' => 'IMPORT'])
+        ->assertHasNoActionErrors()
+        ->assertNotified('Import started')
+        ->assertActionDisabled('runImport');
+
+    Bus::assertDispatchedAfterResponse(RunLegacyImport::class);
+    expect(LegacyImportRun::sole()->status)->toBe(LegacyImportRun::RUNNING);
+});
+
+it('records the outcome of a run and tells whoever started it', function () {
+    $owner = User::firstWhere('email', RoleAndUserSeeder::OWNER_EMAIL);
+    $run = LegacyImportRun::create(['started_by' => $owner->name, 'status' => LegacyImportRun::RUNNING]);
+
+    (new RunLegacyImport($run->id, $owner->email))->handle();
+
+    expect($run->refresh())
+        ->status->toBe(LegacyImportRun::SUCCEEDED)
+        ->finished_at->not->toBeNull()
+        ->output->toContain('RFPs')
+        ->and($owner->notifications()->first()->data['title'])->toBe('Legacy RFP import finished');
+});

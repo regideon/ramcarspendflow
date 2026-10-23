@@ -26,6 +26,7 @@ use Database\Seeders\DemoMasterDataSeeder;
 use Database\Seeders\PaymentMethodSeeder;
 use Database\Seeders\Rfp\ApprovalMatrixSeeder;
 use Database\Seeders\Rfp\DueTypeSeeder;
+use Database\Seeders\Rfp\WorkflowSeeder;
 use Database\Seeders\RoleAndUserSeeder;
 use Filament\Forms\Components\Repeater;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -38,7 +39,7 @@ pest()->use(RefreshDatabase::class);
 beforeEach(function () {
     $this->seed([
         CompanySeeder::class, CurrencySeeder::class, AccountGroupSeeder::class, PaymentMethodSeeder::class,
-        DemoMasterDataSeeder::class, RoleAndUserSeeder::class, ApprovalMatrixSeeder::class, DueTypeSeeder::class,
+        DemoMasterDataSeeder::class, RoleAndUserSeeder::class, ApprovalMatrixSeeder::class, DueTypeSeeder::class, WorkflowSeeder::class,
     ]);
 
     Storage::fake('local');
@@ -129,6 +130,31 @@ it('saves a draft with line items, totals, a number and a due date', function ()
         ->and($rfp->items)->toHaveCount(2)
         ->and($rfp->items->first()->gl_account_id)->toBe($this->officeSupplies->gl_account_id)
         ->and($rfp->items->pluck('sort')->all())->toBe([1, 2]);
+});
+
+it('records who created an RFP and who last updated it, and lists them', function () {
+    Livewire::test(CreateRfp::class)
+        ->fillForm(rfpFormData())
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $rfp = Rfp::sole();
+
+    expect($rfp->created_by_id)->toBe($this->requestor->id)
+        ->and($rfp->updated_by_id)->toBe($this->requestor->id);
+
+    $apProcessor = User::firstWhere('email', 'ap.processor@ramcar.com');
+    $this->actingAs($apProcessor);
+    $rfp->update(['purpose' => 'Office supplies for Q1']);
+
+    expect($rfp->fresh()->created_by_id)->toBe($this->requestor->id)
+        ->and($rfp->fresh()->updated_by_id)->toBe($apProcessor->id);
+
+    $this->actingAs($this->requestor);
+
+    Livewire::test(ListRfps::class)
+        ->assertSee('by '.$this->requestor->name)
+        ->assertSee('by '.$apProcessor->name);
 });
 
 it('converts each line to PHP at its own currency rate', function () {

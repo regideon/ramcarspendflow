@@ -60,8 +60,8 @@ class EditRfp extends EditRecord
     public function saveAndSubmitAction(): Action
     {
         return Action::make('saveAndSubmit')
-            ->label('Save & submit')
-            ->visible(fn (): bool => $this->getRecord()->status === RfpStatus::Draft)
+            ->label(fn (): string => $this->getRecord()->status === RfpStatus::ForRevision ? 'Save & resubmit' : 'Save & submit')
+            ->visible(fn (): bool => $this->getRecord()->status->isEditableByRequestor())
             ->action(function (): void {
                 $this->save(shouldRedirect: false, shouldSendSavedNotification: false);
 

@@ -52,13 +52,14 @@ enum RoleName: string
     }
 
     /**
-     * Roles that use the RFP Approvals page (decided 2026-10-12: Admin and AP only).
+     * Roles that use the RFP Approvals page (decided 2026-10-12: Admin and AP; Treasury
+     * added 2026-10-23 to release payments).
      *
      * @return list<self>
      */
     public static function rfpApprovalsUsers(): array
     {
-        return [self::Admin, self::ApProcessor, self::ApSupervisor, self::ApManager];
+        return [self::Admin, self::ApProcessor, self::ApSupervisor, self::ApManager, self::Treasury];
     }
 
     /**
@@ -99,5 +100,16 @@ enum RoleName: string
             self::President,
             self::ExcomChairman,
         ];
+    }
+
+    /**
+     * Approval roles held per company (company_role_user): every role that can be a
+     * stage of the RFP approval workflow or a step of the matrix.
+     *
+     * @return list<self>
+     */
+    public static function companyScoped(): array
+    {
+        return [...self::rfpAccounting(), ...self::rfpApprovers()];
     }
 }

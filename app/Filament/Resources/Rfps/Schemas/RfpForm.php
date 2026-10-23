@@ -11,12 +11,11 @@ use App\Models\CostCenter;
 use App\Models\Currency;
 use App\Models\ExchangeRate;
 use App\Models\PaymentMethod;
-use App\Models\Rfp\ApprovalRule;
-use App\Models\Rfp\ApprovalRuleStep;
 use App\Models\Rfp\Category;
 use App\Models\Rfp\DueType;
 use App\Models\Rfp\Subcategory;
 use App\Models\Vendor;
+use App\Services\Rfp\ApprovalEngine;
 use App\Services\Rfp\ReceiptScanner;
 use App\Services\Rfp\RfpItemsSpreadsheet;
 use Filament\Actions\Action;
@@ -52,11 +51,6 @@ use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
  */
 class RfpForm
 {
-    /**
-     * Fixed accounting steps around the Step 3 matrix (docs/03-rfp-approval-flow.md).
-     */
-    public const array ACCOUNTING_TAIL = ['AP Processor', 'AP Supervisor', 'AP Manager', 'Treasury'];
-
     /**
      * Supporting documents: PDF, images, CSV, Excel and Word.
      */
@@ -556,24 +550,11 @@ class RfpForm
     }
 
     /**
-     * Full route preview: AP Processor → matrix approvers → accounting tail.
+     * Full route preview from the approval workflow, with the matrix tier expanded.
      */
     public static function approvalRoute(?RfpRequestType $requestType, string $amountInPhp, bool $isDirectToVp, bool $isPreApproved = false): string
     {
-        if ($isPreApproved) {
-            return implode(' → ', ['AP Processor', 'Pre-approved (no matrix)', ...self::ACCOUNTING_TAIL]);
-        }
-
-        $rule = $requestType ? ApprovalRule::findFor($requestType, $amountInPhp, $isDirectToVp) : null;
-
-        $matrix = $rule === null
-            ? '(no matching tier)'
-            : $rule->steps
-                ->groupBy('step_order')
-                ->map(fn ($steps): string => $steps->map(fn (ApprovalRuleStep $step): string => $step->role->name)->implode(' + '))
-                ->implode(' → ');
-
-        return implode(' → ', ['AP Processor', $matrix, ...self::ACCOUNTING_TAIL]);
+        return implode(' → ', app(ApprovalEngine::class)->preview($requestType, $amountInPhp, $isDirectToVp, $isPreApproved));
     }
 
     /**

@@ -1,6 +1,6 @@
 # The New RFP — Ramcar Spend Flow
 
-_Presentation notes · Last updated: 2026-10-14_
+_Presentation notes · Last updated: 2026-10-23_
 
 > Each `---` below is one slide. Status tags: **✅ Built** (ready to demo) · **🔜 Coming** (planned, not yet built).
 > Keep this file current: when a feature ships, move it from "Coming" to its slide and update the date.
@@ -94,6 +94,7 @@ Our approval flow stays the same:
 - **Progress tracker** on each RFP: New request → AP review → Approval → AP processing → Accounting approval → Treasury → Completed.
 - **Full history:** who did what, when, with remarks.
 - **My Requests** shows each requestor only their own RFPs.
+- The list shows **who created** each RFP and **who last updated** it, under the Created and Last update dates.
 
 ---
 
@@ -109,7 +110,9 @@ Our approval flow stays the same:
 
 Admins change these in **Settings**, with no developer needed:
 
-- **Approval matrix:** tiers, amounts and approver roles.
+- **Approval workflow:** add, remove or reorder the stages from AP review to Treasury, with a **live flow diagram** showing who approves in each company and warning where nobody would. Safety rules keep AP review first and Treasury last, and requests already submitted keep their route.
+- **Approval roles by company:** the same person can approve for several companies, or hold different roles in different companies.
+- **Approval matrix:** tiers, amounts and approver roles, with a **visual matrix at a glance**: each tier's approver chain, who holds each role in a chosen company, and the tier a sample amount falls in.
 - **Due types:** processing days.
 - **Expense categories and sub categories**, mapped to G/L accounts.
 - **Master data:** companies, vendors, cost centers, G/L, tax codes, exchange rates.
@@ -122,7 +125,7 @@ Also built: the **legacy RFP Portal data is imported**, so history is not lost, 
 
 | Feature | What it does |
 |---|---|
-| **Approval actions** (Steps 2–6) | Approve, return, cancel and reject at every step, following the matrix |
+| **Approval actions** (Steps 3–6) | Approve, return, cancel and reject at the remaining steps. **Built: Step 2 AP review** (Endorse / Return for revision) **Step 4 AP processing** (tax codes per line with live VAT and withholding, zero-variance check, Return for revision, Cancel) **Step 5 AP Supervisor** (review or correct the tax codes, Return to AP Processor) **Step 6 AP Manager** (final review, IDS / Non-IDS, Complete, Cancel, Return) and **Treasury** (Release payment → Completed), with in-app notifications |
 | **Return reason codes** | Standard reasons for returns and cancellations, so we can see why RFPs come back |
 | **Email + in-app notifications** | At every handoff, plus "Payment released" |
 | **Aging, reminders, escalation** | "3 days with Dept Head", automatic reminders, escalation to AP |

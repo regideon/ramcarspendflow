@@ -4,6 +4,8 @@ _Last updated: 2026-10-06 · Source: "RFP 2026" flow agreed with the business_
 
 **Summary:** Requestor → AP Processor → Approvers (matrix) → AP Processor → AP Supervisor → AP Manager → Treasury
 
+> Since 2026-10-23 this is the **default** of a configurable workflow (RFP Settings → Approval Workflow). See [12-rfp-dynamic-workflow.md](12-rfp-dynamic-workflow.md).
+
 ## 1. Flow diagram
 
 ```mermaid

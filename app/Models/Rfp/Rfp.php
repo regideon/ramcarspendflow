@@ -2,6 +2,7 @@
 
 namespace App\Models\Rfp;
 
+use App\Enums\RfpApprovalStepState;
 use App\Enums\RfpRequestType;
 use App\Enums\RfpStatus;
 use App\Enums\RoleName;
@@ -9,10 +10,12 @@ use App\Filament\Resources\RfpApprovals\RfpApprovalResource;
 use App\Filament\Resources\Rfps\RfpResource;
 use App\Models\AccountGroup;
 use App\Models\Company;
+use App\Models\CompanyRole;
 use App\Models\Concerns\HasComments;
 use App\Models\PaymentMethod;
 use App\Models\User;
 use App\Models\Vendor;
+use App\Services\Rfp\ApprovalEngine;
 use Database\Factories\Rfp\RfpFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -45,6 +48,7 @@ class Rfp extends Model
         'total_php_amount' => '0.00',
         'is_direct_to_vp' => false,
         'is_pre_approved' => false,
+        'is_ids' => true,
     ];
 
     protected static function booted(): void
@@ -53,6 +57,16 @@ class Rfp extends Model
             if ($rfp->isDirty('rfp_due_type_id') || $rfp->due_date === null) {
                 $rfp->due_date = $rfp->dueType?->dueDateFrom();
             }
+
+            // The signed-in user, unless the caller already set who acted (e.g. transitionTo)
+            if (! $rfp->isDirty('updated_by_id') && auth()->id() !== null) {
+                $rfp->updated_by_id = auth()->id();
+            }
+        });
+
+        static::creating(function (Rfp $rfp): void {
+            $rfp->created_by_id ??= auth()->id() ?? $rfp->requestor_id;
+            $rfp->updated_by_id ??= $rfp->created_by_id;
         });
 
         static::created(function (Rfp $rfp): void {
@@ -75,6 +89,22 @@ class Rfp extends Model
     public function requestor(): BelongsTo
     {
         return $this->belongsTo(User::class, 'requestor_id');
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by_id');
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function updater(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'updated_by_id');
     }
 
     /**
@@ -175,6 +205,16 @@ class Rfp extends Model
     }
 
     /**
+     * The RFP's own approval route, across every round.
+     *
+     * @return HasMany<ApprovalStep, $this>
+     */
+    public function approvalSteps(): HasMany
+    {
+        return $this->hasMany(ApprovalStep::class)->orderBy('round')->orderBy('sequence')->orderBy('id');
+    }
+
+    /**
      * The person who must act next, when one is assigned (otherwise anyone with current_approver_role).
      *
      * @return BelongsTo<User, $this>
@@ -194,29 +234,45 @@ class Rfp extends Model
     }
 
     /**
-     * RFPs waiting for the user: assigned to them, or unassigned and waiting for one of their roles.
+     * RFPs waiting for the user: assigned to them, or unassigned and waiting for a role
+     * they hold in the RFP's company (including any role of a parallel matrix step).
      */
     #[Scope]
     protected function awaiting(Builder $query, User $user): void
     {
+        $rolesHeldInRfpCompany = fn () => CompanyRole::query()
+            ->select('role')
+            ->where('user_id', $user->id)
+            ->whereColumn('company_role_user.company_id', 'rfps.company_id');
+
         $query->whereNotIn('status', [RfpStatus::Draft, RfpStatus::ForRevision, ...RfpStatus::final()])
             ->where(fn (Builder $query) => $query
                 ->where('current_approver_id', $user->id)
                 ->orWhere(fn (Builder $query) => $query
                     ->whereNull('current_approver_id')
-                    ->whereIn('current_approver_role', $user->getRoleNames())));
+                    ->where(fn (Builder $query) => $query
+                        ->whereIn('current_approver_role', $rolesHeldInRfpCompany())
+                        ->orWhereHas('approvalSteps', fn (Builder $query) => $query
+                            ->where('state', RfpApprovalStepState::Active)
+                            ->whereIn('role', $rolesHeldInRfpCompany())))));
     }
 
     /**
-     * RFP Approvals: Admins and Accounting see every submitted RFP; business approvers
-     * see what waits for them and what they have acted on.
+     * RFP Approvals: Admins see every submitted RFP, Accounting those of the companies they
+     * hold a role in; business approvers see what waits for them and what they have acted on.
      */
     #[Scope]
     protected function inApprovalsOf(Builder $query, User $user): void
     {
         $query->where('status', '!=', RfpStatus::Draft);
 
-        if ($user->hasAnyRole([RoleName::Admin, ...RoleName::rfpAccounting()])) {
+        if ($user->hasRole(RoleName::Admin)) {
+            return;
+        }
+
+        if ($user->hasAnyRole(RoleName::rfpAccounting())) {
+            $query->whereIn('company_id', $user->companyRoles()->select('company_id'));
+
             return;
         }
 
@@ -289,7 +345,7 @@ class Rfp extends Model
     }
 
     /**
-     * Submit a draft to AP Processor review (Step 2).
+     * Submit a draft, or resubmit a revised RFP, into its approval route.
      *
      * @throws ValidationException
      */
@@ -307,7 +363,7 @@ class Rfp extends Model
                 ->implode(', ');
 
             $errors = array_filter([
-                'status' => $rfp->status === RfpStatus::Draft ? null : 'Only a draft can be submitted.',
+                'status' => $rfp->status->isEditableByRequestor() ? null : 'Only a draft or a returned request can be submitted.',
                 'rfp_due_type_id' => $rfp->rfp_due_type_id ? null : 'Choose a due type.',
                 'items' => $rfp->items->isNotEmpty() ? null : 'Add at least one line item.',
                 'total_php_amount' => bccomp($rfp->total_php_amount, '0', 2) > 0 ? null : 'The total amount must be greater than zero.',
@@ -320,10 +376,15 @@ class Rfp extends Model
                 throw ValidationException::withMessages($errors);
             }
 
-            $rfp->submitted_at = now();
-            $rfp->current_approver_role = RoleName::ApProcessor; // Step 2: AP first review
-            $rfp->due_date = $rfp->dueType->dueDateFrom($rfp->submitted_at); // counts from submission, not from the draft
-            $rfp->transitionTo(RfpStatus::ForApReview, $by);
+            $engine = app(ApprovalEngine::class);
+
+            if ($rfp->status === RfpStatus::ForRevision) {
+                $engine->resubmit($rfp, $by);
+            } else {
+                $rfp->submitted_at = now();
+                $rfp->due_date = $rfp->dueType->dueDateFrom($rfp->submitted_at); // counts from submission, not from the draft
+                $engine->start($rfp, $by);
+            }
 
             $this->setRawAttributes($rfp->getAttributes(), sync: true);
         });
@@ -332,15 +393,17 @@ class Rfp extends Model
     /**
      * Change status and record it in the history. Call inside a transaction.
      */
-    public function transitionTo(RfpStatus $to, ?User $by, ?string $remarks = null): void
+    public function transitionTo(RfpStatus $to, ?User $by, ?string $remarks = null, ?string $action = null): void
     {
         $from = $this->status;
 
         $this->status = $to;
+        $this->updated_by_id = $by?->id ?? $this->updated_by_id;
         $this->save();
 
         $this->histories()->create([
             'user_id' => $by?->id,
+            'action' => $action,
             'from_status' => $from,
             'to_status' => $to,
             'remarks' => $remarks,
@@ -360,8 +423,11 @@ class Rfp extends Model
             'due_date' => 'date',
             'is_direct_to_vp' => 'boolean',
             'is_pre_approved' => 'boolean',
+            'is_ids' => 'boolean',
             'pre_approval_documents' => 'array',
             'submitted_at' => 'datetime',
+            'approval_round' => 'integer',
+            'routed_php_amount' => 'decimal:2',
         ];
     }
 }

@@ -1,6 +1,6 @@
 # Legacy RFP import
 
-_Last updated: 2026-10-12_
+_Last updated: 2026-10-23_
 
 `php artisan rfp:import-legacy` copies the legacy **RFP Portal** database into Spend Flow so we work with real data. It reads the `legacy_rfp` connection (`LEGACY_RFP_DB_*` in `.env`; defaults to the `rfp-portal` database on the same MySQL server).
 
@@ -14,6 +14,17 @@ php artisan rfp:import-legacy       # asks first; add --force to skip the questi
 - Runs in one transaction: it imports everything or nothing.
 - **Run it again after `RoleAndUserSeeder`**: that seeder truncates users and their RFPs.
 - Attachment **paths** are copied; the files themselves stay on the legacy server.
+
+## Running it
+
+- **RFP Settings → Legacy Import** (Admin only) shows the legacy connection and the recent runs. **Run import** needs **IMPORT** typed to confirm. It runs after the page responds, so no queue worker is needed, and notifies whoever started it when done. Or run `php artisan rfp:import-legacy`.
+- ⚠️ It **replaces every RFP here**, including ones created or approved in the new system.
+- **Lock after go-live:** set `RFP_LEGACY_IMPORT_ENABLED=false` (the default when `APP_ENV=production`). The page disappears and the command refuses to run.
+- **Approval routes:** RFPs still in approval (For AP Review … For Treasury) get their route from the current workflow, picked up where they are:
+  - earlier steps are marked done ("Done in the legacy RFP Portal before the import"; the imported history says by whom);
+  - the current step is active, so its approvers can act here;
+  - later steps are pending.
+  - RFPs that cannot be routed (e.g. no matrix tier matches) are listed as notes and stay visible without actions.
 
 ## What is imported
 
@@ -38,7 +49,8 @@ Not imported yet: AP tax entries on items (input tax, EWT, VAT; roadmap 2.7), th
 | Legacy | Ours |
 |---|---|
 | 0 Draft | Draft |
-| 1 Pending, 2 For Approval | For Approval (legacy used the old Manager → Dept Head → VP → Controller chain) |
+| 1 Pending | For AP Review (the Accounting Personnel's first review, legacy "Endorse / Revise"; corrected 2026-10-23) |
+| 2 For Approval | For Approval (legacy used the old Manager → Dept Head → VP → Controller chain) |
 | 11 For Accounting Processing, level 0–1 (Accounting Personnel) | For AP Processing |
 | 11, level 2–3 (Accounting Supervisor / Manager) | For Accounting Approval |
 | 11, level 4 | For Treasury |
