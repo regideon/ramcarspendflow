@@ -59,6 +59,16 @@ class Vendor extends Model
     }
 
     /**
+     * Logins explicitly assigned to this vendor code (multi-vendor pivot).
+     *
+     * @return BelongsToMany<User, $this>
+     */
+    public function assignedUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'vendor_user')->withTimestamps();
+    }
+
+    /**
      * @return array<string, string>
      */
     protected function casts(): array

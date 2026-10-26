@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Models\Vendor;
 use App\Services\P2p\P2pGoodReceiptReturnService;
 use App\Services\P2p\P2pGoodReceiptSubmissionService;
+use Filament\Actions\Testing\TestAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use Livewire\Livewire;
@@ -98,6 +99,41 @@ it('processes multiple GRs across POs into one submission', function () {
         ->and($invoice->attachments)->toBe(['attachments-pdf/invoice.pdf'])
         ->and($invoice->lines()->count())->toBe(2)
         ->and($invoice->amount_submitted)->toBe('2000.00');
+});
+
+it('shows the SAP short text and the material number separately', function () {
+    $c = bulkContext();
+    $c['items'][0]->forceFill([
+        'item_name' => 'OS01050',
+        'item_description' => 'CLNMATL GLASS CLEANER, MR.MUSCLE 500ML*',
+    ])->save();
+
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->assertSee('SAP Short Text')
+        ->assertSee('CLNMATL GLASS CLEANER')
+        ->assertSee('OS01050');
+});
+
+it('does not leave a draft invoice when the submission is rejected', function () {
+    $c = bulkContext();
+
+    // No served quantity: any billed quantity exceeds what is available.
+    $c['items'][0]->forceFill(['quantity_served' => 0])->save();
+
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->set('goods_receipts.0.goodReceiptItems.0.include', true)
+        ->set('goods_receipts.0.goodReceiptItems.0.quantity', 1)
+        ->set('invoiceAt', now()->toDateString())
+        ->set('reference_number', ['DR-1'])
+        ->set('attachments', ['attachments-pdf/invoice.pdf'])
+        ->call('submit')
+        ->assertNotified('Could not submit');
+
+    expect(Invoice::query()->count())->toBe(0);
 });
 
 it('requires a reference number before submitting', function () {
@@ -293,4 +329,45 @@ it('blocks submitting when no line is selected', function () {
         ->assertNotified('Select at least one line with a quantity.');
 
     expect(Invoice::query()->where('status', P2pStatus::SubmittedToAp)->exists())->toBeFalse();
+});
+
+it('shows the field errors instead of the confirmation modal when the invoice is not ready', function () {
+    $c = bulkContext();
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->set('goods_receipts.0.goodReceiptItems.0.include', true)
+        ->set('goods_receipts.0.goodReceiptItems.0.quantity', 10)
+        ->set('reference_number', [])
+        ->set('attachments', [])
+        // Ticked by hand with no invoice, so this submission would ask for confirmation
+        ->callAction(TestAction::make('submit')->schemaComponent('formActions', schema: 'content'))
+        ->assertHasErrors(['reference_number' => 'required', 'attachments' => 'required'])
+        ->assertActionNotMounted()
+        ->assertNotified('Could not submit');
+
+    expect(Invoice::query()->count())->toBe(0);
+});
+
+it('submits flagged lines from the confirmation modal with the vendor remarks', function () {
+    $c = bulkContext();
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->set('goods_receipts.0.goodReceiptItems.0.include', true)
+        ->set('goods_receipts.0.goodReceiptItems.0.quantity', 10)
+        ->set('invoiceAt', now()->toDateString())
+        ->set('reference_number', ['DR-1'])
+        ->set('attachments', ['attachments-pdf/invoice.pdf'])
+        ->callAction(
+            TestAction::make('submit')->schemaComponent('formActions', schema: 'content'),
+            data: ['match_remarks' => 'Price increase approved by Purchasing'],
+        )
+        ->assertHasNoErrors();
+
+    $invoice = Invoice::query()->sole();
+
+    expect($invoice->status)->toBe(P2pStatus::SubmittedToAp)
+        ->and($invoice->invoice_match['vendor_remarks'])->toBe('Price increase approved by Purchasing')
+        ->and($invoice->match_flag_count)->toBe(1);
 });

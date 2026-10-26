@@ -9,6 +9,7 @@ use App\Filament\Concerns\HasCommentsChat;
 use App\Filament\Resources\P2p\Approvals\ApprovalResource;
 use App\Models\P2p\Escalation;
 use App\Models\P2p\EscalationReason;
+use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
 use App\Models\P2p\SapGoodReceiptItem;
@@ -47,6 +48,7 @@ use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Url;
 use Throwable;
 
@@ -301,6 +303,16 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             ->with('sapItem.goodReceipt')
             ->get();
 
+        // Escalations point at p2p_good_receipt_states — not at the SAP receipt behind
+        // it — so map each GR on the invoice to its state row by GR number (falling
+        // back to the SAP receipt id) before the rows are built.
+        $states = GoodReceiptState::query()
+            ->whereIn('good_receipt_number', collect($invoice->gr_numbers ?? [])->filter()->values()->all())
+            ->get(['id', 'good_receipt_number', 'p2p_sap_good_receipt_id']);
+
+        $stateIdsByGrNumber = $states->pluck('id', 'good_receipt_number');
+        $stateIdsBySapReceiptId = $states->pluck('id', 'p2p_sap_good_receipt_id');
+
         // One pass for every mirror GR item on the invoice's POs, so the 3-way
         // breakdown is derived from in-memory data instead of a query per line
         // (which the query detector reports as an N+1).
@@ -317,9 +329,11 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
         return $lines
             ->groupBy(fn (InvoiceLine $line): string => (string) ($line->sapItem?->goodReceipt?->good_receipt_number ?? $line->purchase_order))
-            ->map(function (Collection $grLines, string $grNumber) use ($matchService, $itemsByPoLine, $reversedGoodReceiptIds, $billedByItem, &$matchByLine, $escalatedGrIds): array {
+            ->map(function (Collection $grLines, string $grNumber) use ($matchService, $itemsByPoLine, $reversedGoodReceiptIds, $billedByItem, &$matchByLine, $escalatedGrIds, $stateIdsByGrNumber, $stateIdsBySapReceiptId): array {
                 $first = $grLines->first();
-                $stateId = (int) ($first?->sapItem?->goodReceipt?->id ?? 0);
+                $stateId = (int) ($stateIdsByGrNumber[$grNumber]
+                    ?? $stateIdsBySapReceiptId[(int) ($first?->sapItem?->p2p_sap_good_receipt_id ?? 0)]
+                    ?? 0);
                 $isEscalated = in_array($stateId, $escalatedGrIds, true);
 
                 $rows = $grLines->map(function (InvoiceLine $line) use ($matchService, $itemsByPoLine, $reversedGoodReceiptIds, $billedByItem, &$matchByLine, $isEscalated): array {
@@ -341,7 +355,7 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                         'material_doc_item' => $line->sapItem?->material_doc_item,
                         'escalation_status' => $isEscalated ? 'Escalated' : 'Not escalated',
                         'item_name' => $line->item_name,
-                        'item_description' => $line->item_name,
+                        'item_description' => $line->item_description ?: $line->sapItem?->item_description ?: $line->item_name,
                         'quantity_po' => (int) $line->quantity_po,
                         'uom' => $line->uom,
                         'quantity_served' => (int) ($line->sapItem?->quantity_served ?? $line->quantity_po),
@@ -1300,13 +1314,24 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
         $this->persistTax($invoice);
 
-        app(P2pEscalationRoutingService::class)->start(
-            $invoice,
-            $reason,
-            $stateIds,
-            $this->currentUser(),
-            $remarks,
-        );
+        try {
+            app(P2pEscalationRoutingService::class)->start(
+                $invoice,
+                $reason,
+                $stateIds,
+                $this->currentUser(),
+                $remarks,
+            );
+        } catch (ValidationException $exception) {
+            Notification::make()
+                ->title('Escalation failed')
+                ->body($exception->validator?->errors()->first() ?? $exception->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+
+            return;
+        }
 
         Notification::make()
             ->title('Escalated')

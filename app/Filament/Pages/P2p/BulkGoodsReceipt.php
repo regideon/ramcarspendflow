@@ -53,7 +53,9 @@ use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Url;
 
@@ -301,7 +303,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                     Hidden::make('good_receipt_number'),
 
                     Section::make('Items')
-                        ->heading(fn (Get $get): string => 'Items for GR #'.($get('good_receipt_number') ?? 'N/A'))
+                        ->heading(fn (Get $get): string => 'Items for GR #'.($get('good_receipt_number') ?? 'N/A').' · PO '.($get('purchase_order') ?? 'N/A'))
                         ->description('The items selected for purchase')
                         ->icon(Heroicon::OutlinedShoppingBag)
                         ->schema([
@@ -314,22 +316,25 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
                                     Hidden::make('p2p_sap_good_receipt_item_id'),
                                     Hidden::make('purchase_order_item'),
+                                    Hidden::make('purchase_order'),
+                                    Hidden::make('gr_number'),
                                     Hidden::make('unit_cost'),
                                     Hidden::make('quantity_remaining'),
                                     Hidden::make('ai'), // the invoice line it was matched to (Read invoice with AI)
                                     Hidden::make('quantity_edited'),
 
-                                    TextEntry::make('purchase_order')->hiddenLabel(),
-                                    TextEntry::make('gr_number')->hiddenLabel(),
                                     TextEntry::make('purchase_order_item')->hiddenLabel(),
+                                    TextEntry::make('item_short_text')->hiddenLabel(),
                                     TextEntry::make('item_name')->hiddenLabel(),
                                     // The vendor's invoice line this GR line was matched to (Read invoice with AI)
-                                    TextEntry::make('invoice_line')
-                                        ->hiddenLabel()
-                                        ->state(fn (Get $get): ?string => is_array($ai = $get('ai'))
-                                            ? ($ai['description'] ?? 'On invoice').(filled($ai['invoice_number'] ?? null) ? " ({$ai['invoice_number']})" : '')
-                                            : null)
-                                        ->placeholder('—'),
+                                    ...($this->hasInvoiceMatches() ? [
+                                        TextEntry::make('invoice_line')
+                                            ->hiddenLabel()
+                                            ->state(fn (Get $get): ?string => is_array($ai = $get('ai'))
+                                                ? ($ai['description'] ?? 'On invoice').(filled($ai['invoice_number'] ?? null) ? " ({$ai['invoice_number']})" : '')
+                                                : null)
+                                            ->placeholder('—'),
+                                    ] : []),
                                     TextEntry::make('quantity_po')->hiddenLabel(),
                                     TextEntry::make('uom')->hiddenLabel(),
                                     TextEntry::make('quantity_served')->hiddenLabel(),
@@ -402,13 +407,36 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                     ->modalIcon(Heroicon::OutlinedExclamationTriangle)
                     ->modalIconColor('warning')
                     ->modalSubmitActionLabel('Submit anyway')
+                    // Check the invoice date, reference and PDF before the confirmation modal
+                    // opens: its overlay hides the page's field errors, so a missing document
+                    // would otherwise look like the button did nothing.
+                    ->mountUsing(function (): void {
+                        try {
+                            $this->validateSubmissionForm();
+                        } catch (ValidationException $exception) {
+                            $this->notifyValidationFailure($exception);
+
+                            // Filament unmounts the action and rethrows, so the page shows
+                            // the field errors and the modal never opens.
+                            throw $exception;
+                        }
+                    })
                     ->schema(fn (): array => $this->matchFlags() === [] ? [] : [
                         Textarea::make('match_remarks')
                             ->label('Remarks for AP (optional)')
                             ->placeholder('e.g. Price increase approved by Purchasing')
                             ->rows(2),
                     ])
-                    ->action(fn (array $data) => $this->submit($data['match_remarks'] ?? null)),
+                    ->action(function (array $data): void {
+                        try {
+                            $this->submit($data['match_remarks'] ?? null);
+                        } catch (ValidationException $exception) {
+                            // Close the modal so the field errors underneath are visible.
+                            $this->unmountAction();
+
+                            $this->notifyValidationFailure($exception);
+                        }
+                    }),
 
                 $this->escalateAction(),
 
@@ -435,7 +463,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         $user = auth()->user();
 
         if ($user !== null && $user->hasRole(RoleName::Vendor) && ! $user->hasRole(RoleName::Admin)) {
-            $query->where('vendor_id', $user->vendor_id);
+            $query->whereIn('vendor_id', $user->vendorIds());
         }
 
         return $query->get();
@@ -480,11 +508,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             return;
         }
 
-        $this->validate([
-            'invoiceAt' => ['required', 'date'],
-            'reference_number' => ['required', 'array', 'min:1'],
-            'attachments' => ['required', 'array', 'min:1'],
-        ]);
+        $this->validateSubmissionForm();
 
         $lines = $this->selectedLines();
 
@@ -497,25 +521,60 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         $user = auth()->user();
         $service = app(P2pGoodReceiptSubmissionService::class);
 
-        $invoice = $this->invoiceModel() ?? $service->start($user, array_map('intval', $this->ids));
-
         $flags = $this->matchFlags();
 
-        $service->submit($invoice, $lines, $user, [
-            'invoice_at' => $this->invoiceAt,
-            'reference_number' => array_values(array_filter($this->reference_number)),
-            'attachments' => $this->persistedAttachments(),
-            'invoice_match' => [
-                ...$this->invoiceMatch,
-                'flags' => $flags,
-                'vendor_remarks' => filled($matchRemarks) ? $matchRemarks : null,
-            ],
-            'match_flag_count' => count($flags),
-        ]);
+        try {
+            DB::transaction(function () use ($lines, $user, $flags, $matchRemarks, $service): void {
+                $invoice = $this->invoiceModel() ?? $service->start($user, array_map('intval', $this->ids));
+
+                $service->submit($invoice, $lines, $user, [
+                    'invoice_at' => $this->invoiceAt,
+                    'reference_number' => array_values(array_filter($this->reference_number)),
+                    'attachments' => $this->persistedAttachments(),
+                    'invoice_match' => [
+                        ...$this->invoiceMatch,
+                        'flags' => $flags,
+                        'vendor_remarks' => filled($matchRemarks) ? $matchRemarks : null,
+                    ],
+                    'match_flag_count' => count($flags),
+                ]);
+            });
+        } catch (ValidationException $exception) {
+            $this->notifyValidationFailure($exception);
+
+            return;
+        }
 
         Notification::make()->title('Invoice submitted to AP')->success()->send();
 
         $this->redirectBack();
+    }
+
+    /**
+     * Every submission needs an invoice date, at least one reference number and the
+     * invoice PDF.
+     */
+    protected function validateSubmissionForm(): void
+    {
+        $this->validate([
+            'invoiceAt' => ['required', 'date'],
+            'reference_number' => ['required', 'array', 'min:1'],
+            'attachments' => ['required', 'array', 'min:1'],
+        ]);
+    }
+
+    /**
+     * Tell the vendor what stopped the submission; the field itself also keeps its
+     * validation error, so the message stays visible once the modal is gone.
+     */
+    protected function notifyValidationFailure(ValidationException $exception): void
+    {
+        Notification::make()
+            ->title('Could not submit')
+            ->body($exception->validator?->errors()->first() ?? $exception->getMessage())
+            ->danger()
+            ->persistent()
+            ->send();
     }
 
     /**
@@ -577,11 +636,16 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         }
 
         $columns = array_merge($columns, [
-            TableColumn::make('PO Number'),
-            TableColumn::make('GR Number'),
             TableColumn::make('GR Item'),
             TableColumn::make('SAP Short Text'),
-            TableColumn::make('On the Invoice'),
+            TableColumn::make('Material'),
+        ]);
+
+        if ($this->hasInvoiceMatches()) {
+            $columns[] = TableColumn::make('On the Invoice');
+        }
+
+        $columns = array_merge($columns, [
             TableColumn::make('PO Qty'),
             TableColumn::make('Uom'),
             TableColumn::make('GR Qty'),
@@ -596,6 +660,22 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         $columns[] = TableColumn::make('3-Way Matching');
 
         return $columns;
+    }
+
+    /**
+     * Whether any row has an invoice line linked (Read invoice with AI). The
+     * "On the Invoice" column is mostly empty until a PDF is read, so keep it
+     * out of the table until it has something to show.
+     */
+    protected function hasInvoiceMatches(): bool
+    {
+        if (collect($this->invoiceMatch['invoices'] ?? [])->isNotEmpty()) {
+            return true;
+        }
+
+        return collect($this->goods_receipts ?? [])
+            ->flatMap(fn (array $gr): array => $gr['goodReceiptItems'] ?? [])
+            ->contains(fn (array $item): bool => is_array($item['ai'] ?? null));
     }
 
     /**
@@ -679,6 +759,8 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                         'gr_number' => $state->good_receipt_number,
                         'material_doc_item' => $item->material_doc_item,
                         'item_name' => $item->item_name,
+                        'item_description' => $item->item_description,
+                        'item_short_text' => $item->item_description ?: $item->item_name,
                         'uom' => $item->uom,
                         'quantity_po' => (int) $item->quantity_po,
                         'quantity_served' => (int) ($item->quantity_served ?? $item->quantity_po),
@@ -724,6 +806,10 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                         'gr_number' => $grNumber,
                         'material_doc_item' => $line->sapItem?->material_doc_item,
                         'item_name' => $line->item_name,
+                        'item_description' => $line->item_description ?: $line->sapItem?->item_description,
+                        'item_short_text' => $line->item_description
+                            ?: $line->sapItem?->item_description
+                            ?: $line->item_name,
                         'uom' => $line->uom,
                         'quantity_po' => (int) $line->quantity_po,
                         'quantity_served' => (int) ($line->sapItem?->quantity_served ?? $line->quantity_po),
@@ -1266,7 +1352,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
         if ($user?->hasRole(RoleName::Vendor) && ! $user->hasRole(RoleName::Admin)) {
             abort_unless(
-                (int) $invoice->vendor_id === (int) $user->vendor_id,
+                in_array((int) $invoice->vendor_id, $user->vendorIds(), true),
                 403,
                 'You are not authorized to view this record.',
             );

@@ -25,6 +25,8 @@ The two modules share users, roles, companies, vendors and SAP master data. Thei
 
 Also: [RFP presentation](rfp-presentation.md), slide-by-slide notes on the new RFP's highlights (kept current as features ship).
 
+Also: [Feature & enhancement catalogue](new-feats.md), the net-new P2P + RFP features, excluding parity already in the base systems.
+
 Also see [TECH_STACK.md](../TECH_STACK.md) for the installed packages and versions.
 
 ## Ground rules

@@ -135,11 +135,25 @@ class ODataSapPurchaseOrderSource implements SapPurchaseOrderSource, SapReversal
                     continue;
                 }
 
-                $quantity = (float) ($mseg['MENGE'] ?? $mseg['ERFMG'] ?? 0);
+                $quantity = (float) ($mseg['MENGE'] ?? 0);
+
+                // Service/order items carry the quantity in ERFMG (e.g. 1 SET)
+                // while MENGE stays 0.000. Falling back only on a missing key
+                // would keep 0 and make the GR unbillable.
+                if (abs($quantity) < 0.0001 && isset($mseg['ERFMG'])) {
+                    $quantity = (float) $mseg['ERFMG'];
+                }
+
                 $lineAmount = (float) ($mseg['DMBTR'] ?? 0);
                 $poItem = trim((string) ($mseg['EBELP'] ?? $item['EBELP'] ?? ''));
                 $poQuantity = (float) ($item['MENGE'] ?? 0);
                 $delivered = (float) ($deliveredByItem[$poItem] ?? 0);
+
+                $uom = trim((string) ($mseg['MEINS'] ?? ''));
+
+                if ($uom === '') {
+                    $uom = trim((string) ($mseg['ERFME'] ?? ''));
+                }
 
                 $amountTotal += $lineAmount;
                 $dateAt ??= $this->parseDate($mseg['BUDAT'] ?? null)?->toDateString();
@@ -152,7 +166,7 @@ class ODataSapPurchaseOrderSource implements SapPurchaseOrderSource, SapReversal
                     'item_description' => trim((string) ($item['TXZ01'] ?? '')),
                     'quantity_po' => $poQuantity,
                     'quantity_served' => $quantity,
-                    'uom' => trim((string) ($mseg['MEINS'] ?? $mseg['ERFME'] ?? '')),
+                    'uom' => $uom,
                     'gr' => (int) round($quantity),
                     'unit_cost' => $quantity > 0
                         ? round($lineAmount / $quantity, 4)

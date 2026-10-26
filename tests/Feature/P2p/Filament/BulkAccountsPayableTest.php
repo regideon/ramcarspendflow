@@ -164,6 +164,54 @@ it('escalates only the ticked goods receipts', function () {
         ->and($state->fresh()->status)->toBe(P2pStatus::EscalateToProcurement);
 });
 
+it('escalates the goods receipt state when its id differs from the SAP receipt id', function () {
+    [$processor, $invoice, $state] = apPageContext();
+    $this->actingAs($processor);
+
+    // The page used to send the SAP receipt id: give the line a receipt whose id is
+    // not the GR state's id, which is what real SAP data looks like.
+    $receipt = SapGoodReceipt::factory()->create([
+        'purchase_order' => '4500006000',
+        'good_receipt_number' => '5000006000',
+    ]);
+    $item = SapGoodReceiptItem::factory()->for($receipt, 'goodReceipt')->create([
+        'purchase_order' => '4500006000',
+        'purchase_order_item' => '00010',
+        'quantity_po' => 10,
+        'quantity_served' => 10,
+        'unit_cost' => 100,
+    ]);
+    $invoice->lines()->update(['p2p_sap_good_receipt_item_id' => $item->id]);
+
+    EscalationReason::create([
+        'code' => 'price_difference',
+        'name' => 'Price difference',
+        'origin_role' => 'processor',
+        'is_active' => true,
+    ])->steps()->create([
+        'step_order' => 1,
+        'role' => 'procurement',
+        'status_id' => P2pStatus::EscalateToProcurement->value,
+    ]);
+
+    $component = Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id]);
+
+    expect($receipt->id)->not->toBe($state->id)
+        ->and($component->get('data.goods_receipts.0.p2p_good_receipt_state_id'))->toBe($state->id);
+
+    $goodsReceipts = $component->get('data.goods_receipts');
+    $goodsReceipts[0]['goodReceiptItems'][0]['escalate'] = true;
+    $component->set('data.goods_receipts', $goodsReceipts);
+
+    $component->callAction('escalate', [
+        'escalationReason' => 'price_difference',
+        'escalationRemarks' => 'Price is higher than the PO.',
+    ]);
+
+    expect($invoice->fresh()->escalations()->sole()->p2p_good_receipt_state_id)->toBe($state->id)
+        ->and($state->fresh()->status)->toBe(P2pStatus::EscalateToProcurement);
+});
+
 it('returns the submission to the vendor with remarks', function () {
     [$processor, $invoice] = apPageContext();
     $this->actingAs($processor);

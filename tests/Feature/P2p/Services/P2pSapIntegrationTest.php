@@ -127,6 +127,98 @@ it('syncs a purchase order and its goods receipt from SAP OData', function () {
         ->and(SapApiLog::query()->whereNotNull('error_message')->count())->toBe(0);
 });
 
+it('falls back to ERFMG and ERFME for service items with a zero MENGE', function () {
+    config([
+        'p2p.sap.enabled' => true,
+        'p2p.sap.base_url' => 'https://sap.test',
+        'p2p.sap.client' => '200',
+        'p2p.sap.username' => 'odata-user',
+        'p2p.sap.password' => 'odata-secret',
+        'p2p.sap.verify_tls' => false,
+        'p2p.sap.log_odata' => false,
+    ]);
+
+    Http::preventStrayRequests();
+    Http::fake(function (Request $request) {
+        $url = $request->url();
+
+        return match (true) {
+            str_contains($url, 'ZCDS_MM_EKBE') => Http::response(['d' => ['results' => [[
+                'EBELN' => '4500000600',
+                'EBELP' => '00010',
+                'BWART' => '101',
+                'BELNR' => '5000000600',
+                'LFBNR' => '',
+                'BUDAT' => '2026-10-20',
+                'MENGE' => 1,
+            ]]]]),
+            str_contains($url, 'ZCDS_MM_EKKO') => Http::response(['d' => ['results' => [[
+                'EBELN' => '4500000600',
+                'BUKRS' => '1000',
+                'LIFNR' => '200001',
+                'WAERS' => 'PHP',
+                'BEDAT' => '2026-10-01',
+                'AEDAT' => '2026-10-20',
+                'BSART' => 'NB',
+                'ERNAM' => 'SAPUSER',
+            ]]]]),
+            str_contains($url, 'ZCDS_MM_EKPO') => Http::response(['d' => ['results' => [[
+                'EBELN' => '4500000600',
+                'EBELP' => '00010',
+                'MENGE' => 1,
+                'TXZ01' => 'Harper Living Room Sofa Set with Coffee',
+                'NETPR' => 35000,
+                'PEINH' => 1,
+                'MWSKZ' => 'I2',
+            ]]]]),
+            str_contains($url, 'ZCDS_MM_MSEG') => Http::response(['d' => ['results' => [[
+                'MBLNR' => '5000000600',
+                'MJAHR' => 2026,
+                'ZEILE' => '0001',
+                'EBELN' => '4500000600',
+                'EBELP' => '00010',
+                'MATNR' => '',
+                'MENGE' => '0.000',
+                'ERFMG' => '1.000',
+                'MEINS' => '',
+                'ERFME' => 'SET',
+                'DMBTR' => 35000,
+                'LGORT' => '',
+                'BUDAT' => '2026-10-20',
+                'SHKZG' => 'S',
+            ]]]]),
+            str_contains($url, 'ZCDS_MM_EKET') => Http::response(['d' => ['results' => [[
+                'EBELN' => '4500000600',
+                'EBELP' => '00010',
+                'WEMNG' => 1,
+            ]]]]),
+            default => Http::response(['error' => 'Unexpected SAP endpoint'], 500),
+        };
+    });
+
+    Company::factory()->create(['code' => '1000']);
+    Vendor::factory()->create(['code' => '200001']);
+
+    app(P2pPurchaseOrderSyncService::class)->run(
+        app(ODataSapPurchaseOrderSource::class),
+        [
+            'changed_only_history' => true,
+            'lifnr' => '200001',
+            'cpudt_from' => '20261001',
+            'cpudt_to' => '20261022',
+        ],
+    );
+
+    $item = SapGoodReceiptItem::query()->firstOrFail();
+    $state = GoodReceiptState::query()->firstOrFail();
+
+    expect((float) $item->quantity_served)->toBe(1.0)
+        ->and($item->uom)->toBe('SET')
+        ->and($item->gr)->toBe(1)
+        ->and($state->quantity_served)->toBe(1)
+        ->and($state->quantity_total)->toBe(1);
+});
+
 it('does not duplicate mirror rows when the same SAP payload is synced twice', function () {
     config([
         'p2p.sap.enabled' => true,

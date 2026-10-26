@@ -2,11 +2,13 @@
 
 use App\Enums\P2pPurchaseOrderStatus;
 use App\Enums\P2pStatus;
+use App\Models\Company;
 use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\SapGoodReceipt;
 use App\Models\P2p\SapGoodReceiptItem;
 use App\Models\P2p\SapPurchaseOrder;
 use App\Models\User;
+use App\Models\Vendor;
 use App\Services\P2p\P2pGoodReceiptSubmissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
@@ -148,4 +150,93 @@ it('replaces lines when a returned invoice is resubmitted', function () {
 
     expect($invoice->lines()->count())->toBe(1)
         ->and($invoice->lines()->first()->quantity_billed)->toBe(10);
+});
+
+/**
+ * A pending GR for the given PO/currency, sharing one company and vendor.
+ */
+function submissionForCurrency(string $poNumber, string $currency, Company $company, Vendor $vendor): GoodReceiptState
+{
+    SapPurchaseOrder::factory()->create([
+        'purchase_order' => $poNumber,
+        'currency_key' => $currency,
+        'company_code' => $company->code,
+        'vendor_code' => $vendor->code,
+    ]);
+
+    $receipt = SapGoodReceipt::factory()->create([
+        'purchase_order' => $poNumber,
+        'company_id' => $company->id,
+        'vendor_id' => $vendor->id,
+    ]);
+
+    return GoodReceiptState::create([
+        'p2p_sap_good_receipt_id' => $receipt->id,
+        'purchase_order' => $poNumber,
+        'good_receipt_number' => $receipt->good_receipt_number,
+        'company_id' => $company->id,
+        'vendor_id' => $vendor->id,
+        'status' => P2pStatus::Pending,
+    ]);
+}
+
+it('rejects a submission that mixes currencies', function () {
+    $company = Company::factory()->create();
+    $vendor = Vendor::factory()->create();
+
+    $php = submissionForCurrency('4500000200', 'PHP', $company, $vendor);
+    $usd = submissionForCurrency('4500000201', 'USD', $company, $vendor);
+
+    expect(fn () => app(P2pGoodReceiptSubmissionService::class)->start(
+        User::factory()->create(),
+        [$php->id, $usd->id],
+    ))->toThrow(ValidationException::class);
+});
+
+it('rejects lines from a purchase order outside the request', function () {
+    $c = submissionContext();
+    $service = app(P2pGoodReceiptSubmissionService::class);
+    $invoice = $service->start($c['user'], [$c['state']->id]);
+
+    $otherPo = SapPurchaseOrder::factory()->create([
+        'purchase_order' => '4500000999',
+        'company_code' => $c['po']->company_code,
+        'vendor_code' => $c['po']->vendor_code,
+    ]);
+
+    $otherReceipt = SapGoodReceipt::factory()->create([
+        'purchase_order' => $otherPo->purchase_order,
+        'company_id' => $c['receipt']->company_id,
+        'vendor_id' => $c['receipt']->vendor_id,
+    ]);
+
+    $otherItem = SapGoodReceiptItem::factory()->for($otherReceipt, 'goodReceipt')->create([
+        'purchase_order' => $otherPo->purchase_order,
+        'quantity_po' => 5,
+        'quantity_served' => 5,
+        'unit_cost' => 50,
+    ]);
+
+    expect(fn () => $service->submit($invoice, [
+        ['p2p_sap_good_receipt_item_id' => $otherItem->id, 'quantity_billed' => 1],
+    ], $c['user']))->toThrow(ValidationException::class);
+});
+
+it('stores the SAP material number and short text on the invoice line', function () {
+    $c = submissionContext();
+    $c['item']->forceFill([
+        'item_name' => 'OS01050',
+        'item_description' => 'CLNMATL GLASS CLEANER, MR.MUSCLE 500ML*',
+    ])->save();
+
+    $service = app(P2pGoodReceiptSubmissionService::class);
+    $invoice = $service->start($c['user'], [$c['state']->id]);
+    $invoice = $service->submit($invoice, [
+        ['p2p_sap_good_receipt_item_id' => $c['item']->id, 'quantity_billed' => 1],
+    ], $c['user']);
+
+    $line = $invoice->lines()->first();
+
+    expect($line->item_name)->toBe('OS01050')
+        ->and($line->item_description)->toBe('CLNMATL GLASS CLEANER, MR.MUSCLE 500ML*');
 });

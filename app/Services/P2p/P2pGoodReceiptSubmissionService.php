@@ -63,9 +63,22 @@ class P2pGoodReceiptSubmissionService
 
         $companies = $states->pluck('company_id')->filter()->unique();
         $vendors = $states->pluck('vendor_id')->filter()->unique();
+        $currencies = $this->currenciesForPurchaseOrders(
+            $states->pluck('purchase_order')->filter()->unique()->values()->all(),
+        );
 
-        if ($companies->count() > 1 || $vendors->count() > 1) {
-            throw ValidationException::withMessages(['gr_numbers' => 'All goods receipts must belong to one company and one vendor.']);
+        if ($companies->count() > 1) {
+            throw ValidationException::withMessages(['gr_numbers' => 'All goods receipts must belong to one company.']);
+        }
+
+        if ($vendors->count() > 1) {
+            throw ValidationException::withMessages(['gr_numbers' => 'All goods receipts must belong to one vendor.']);
+        }
+
+        if ($currencies->count() > 1) {
+            throw ValidationException::withMessages([
+                'gr_numbers' => 'All goods receipts must use one currency ('.$currencies->implode(', ').').',
+            ]);
         }
 
         return Invoice::query()->create([
@@ -104,6 +117,18 @@ class P2pGoodReceiptSubmissionService
                 throw ValidationException::withMessages(['lines' => 'Enter a served quantity on at least one line.']);
             }
 
+            $items = SapGoodReceiptItem::query()
+                ->with('goodReceipt')
+                ->whereIn('id', array_map(
+                    fn (array $line): int => (int) $line['p2p_sap_good_receipt_item_id'],
+                    $lines,
+                ))
+                ->get();
+
+            $this->assertLinesMatchInvoice($invoice, $items);
+
+            $itemsById = $items->keyBy('id');
+
             // Replace any previous lines (resubmission after a return).
             $invoice->lines()->delete();
 
@@ -111,13 +136,16 @@ class P2pGoodReceiptSubmissionService
             $amount = '0.00';
 
             foreach ($lines as $line) {
-                $item = SapGoodReceiptItem::query()->findOrFail($line['p2p_sap_good_receipt_item_id']);
+                $item = $itemsById->get((int) $line['p2p_sap_good_receipt_item_id'])
+                    ?? SapGoodReceiptItem::query()->findOrFail($line['p2p_sap_good_receipt_item_id']);
                 $billed = (int) $line['quantity_billed'];
                 $remaining = $this->remainingQuantityFor($item, $invoice);
 
                 if ($billed > $remaining) {
+                    $label = $item->item_description ?: $item->item_name ?: $item->purchase_order_item;
+
                     throw ValidationException::withMessages([
-                        'lines' => "Line {$item->item_name} exceeds the remaining quantity ({$remaining}).",
+                        'lines' => "Line {$item->purchase_order_item} — {$label} exceeds the remaining quantity ({$remaining}).",
                     ]);
                 }
 
@@ -129,6 +157,7 @@ class P2pGoodReceiptSubmissionService
                     'purchase_order_item' => $item->purchase_order_item,
                     'storage_location' => $item->storage_location,
                     'item_name' => $item->item_name,
+                    'item_description' => $item->item_description,
                     'quantity_po' => $item->quantity_served ?? $item->quantity_po,
                     'quantity_billed' => $billed,
                     'quantity_remaining' => $remaining - $billed,
@@ -168,6 +197,89 @@ class P2pGoodReceiptSubmissionService
 
             return $invoice->fresh();
         });
+    }
+
+    /**
+     * Guard against mixing goods receipts from another company, vendor or currency
+     * into a request. The GR selection screen already limits this, but submit() is
+     * callable directly, so the rule lives here too.
+     *
+     * @param  Collection<int, SapGoodReceiptItem>  $items
+     */
+    protected function assertLinesMatchInvoice(Invoice $invoice, Collection $items): void
+    {
+        if ($items->isEmpty()) {
+            throw ValidationException::withMessages(['lines' => 'Select at least one goods-receipt line.']);
+        }
+
+        $poNumbers = $items->pluck('purchase_order')->filter()->unique();
+        $grNumbers = $items
+            ->map(fn (SapGoodReceiptItem $item): ?string => $item->goodReceipt?->good_receipt_number)
+            ->filter()
+            ->unique();
+
+        if (collect($invoice->po_numbers ?? [])->filter()->isNotEmpty()
+            && $poNumbers->diff(collect($invoice->po_numbers))->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'lines' => 'All lines must belong to the purchase orders of this request.',
+            ]);
+        }
+
+        if (collect($invoice->gr_numbers ?? [])->filter()->isNotEmpty()
+            && $grNumbers->diff(collect($invoice->gr_numbers))->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'lines' => 'All lines must belong to the goods receipts of this request.',
+            ]);
+        }
+
+        $companies = $items
+            ->map(fn (SapGoodReceiptItem $item): ?int => $item->goodReceipt?->company_id)
+            ->push($invoice->company_id)
+            ->filter()
+            ->unique();
+
+        $vendors = $items
+            ->map(fn (SapGoodReceiptItem $item): ?int => $item->goodReceipt?->vendor_id)
+            ->push($invoice->vendor_id)
+            ->filter()
+            ->unique();
+
+        if ($companies->count() > 1) {
+            throw ValidationException::withMessages(['lines' => 'All lines must belong to one company.']);
+        }
+
+        if ($vendors->count() > 1) {
+            throw ValidationException::withMessages(['lines' => 'All lines must belong to one vendor.']);
+        }
+
+        $currencies = $this->currenciesForPurchaseOrders($poNumbers->values()->all());
+
+        if ($currencies->count() > 1) {
+            throw ValidationException::withMessages([
+                'lines' => 'All lines must use one currency ('.$currencies->implode(', ').').',
+            ]);
+        }
+    }
+
+    /**
+     * Distinct currencies of the purchase orders behind the given PO numbers.
+     *
+     * @param  array<int, string|null>  $purchaseOrderNumbers
+     * @return Collection<int, string>
+     */
+    protected function currenciesForPurchaseOrders(array $purchaseOrderNumbers): Collection
+    {
+        if ($purchaseOrderNumbers === []) {
+            return collect();
+        }
+
+        return SapPurchaseOrder::query()
+            ->whereIn('purchase_order', $purchaseOrderNumbers)
+            ->pluck('currency_key')
+            ->map(fn (?string $currency): string => strtoupper(trim((string) $currency)))
+            ->filter()
+            ->unique()
+            ->values();
     }
 
     /**
