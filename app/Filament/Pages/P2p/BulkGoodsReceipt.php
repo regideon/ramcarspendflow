@@ -330,14 +330,12 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                                     TextEntry::make('purchase_order_item')->hiddenLabel(),
                                     TextEntry::make('item_short_text')->hiddenLabel(),
                                     // The vendor's invoice line this GR line was matched to (Read invoice with AI)
-                                    ...($this->hasInvoiceMatches() ? [
-                                        TextEntry::make('invoice_line')
-                                            ->hiddenLabel()
-                                            ->state(fn (Get $get): ?string => is_array($ai = $get('ai'))
-                                                ? ($ai['description'] ?? 'On invoice').(filled($ai['invoice_number'] ?? null) ? " ({$ai['invoice_number']})" : '')
-                                                : null)
-                                            ->placeholder('—'),
-                                    ] : []),
+                                    TextEntry::make('invoice_line')
+                                        ->hiddenLabel()
+                                        ->state(fn (Get $get): ?string => is_array($ai = $get('ai'))
+                                            ? ($ai['description'] ?? 'On invoice').(filled($ai['invoice_number'] ?? null) ? " ({$ai['invoice_number']})" : '')
+                                            : null)
+                                        ->placeholder('—'),
                                     TextEntry::make('uom')->hiddenLabel(),
                                     TextEntry::make('quantity_po')->hiddenLabel(),
                                     TextEntry::make('quantity_served')->hiddenLabel(),
@@ -689,11 +687,8 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         $columns = array_merge($columns, [
             TableColumn::make('GR Item'),
             TableColumn::make('Description'),
+            TableColumn::make('On the Invoice'),
         ]);
-
-        if ($this->hasInvoiceMatches()) {
-            $columns[] = TableColumn::make('On the Invoice');
-        }
 
         $columns = array_merge($columns, [
             TableColumn::make('Uom'),
@@ -710,22 +705,6 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         $columns[] = TableColumn::make('3-Way Matching');
 
         return $columns;
-    }
-
-    /**
-     * Whether any row has an invoice line linked (Read invoice with AI). The
-     * "On the Invoice" column is mostly empty until a PDF is read, so keep it
-     * out of the table until it has something to show.
-     */
-    protected function hasInvoiceMatches(): bool
-    {
-        if (collect($this->invoiceMatch['invoices'] ?? [])->isNotEmpty()) {
-            return true;
-        }
-
-        return collect($this->goods_receipts ?? [])
-            ->flatMap(fn (array $gr): array => $gr['goodReceiptItems'] ?? [])
-            ->contains(fn (array $item): bool => is_array($item['ai'] ?? null));
     }
 
     /**
@@ -797,36 +776,44 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         $chosen = $invoice?->lines()->get()->keyBy('p2p_sap_good_receipt_item_id')->all() ?? [];
 
         return $receipts
-            ->map(fn (GoodReceiptState $state): array => [
-                'good_receipt_id' => $state->id,
-                'purchase_order' => $state->purchase_order,
-                'good_receipt_number' => $state->good_receipt_number,
-                'goodReceiptItems' => ($state->sapGoodReceipt?->items ?? collect())
-                    ->map(fn (SapGoodReceiptItem $item): array => [
-                        'p2p_sap_good_receipt_item_id' => $item->id,
-                        'purchase_order' => $item->purchase_order,
-                        'purchase_order_item' => $item->purchase_order_item,
-                        'gr_number' => $state->good_receipt_number,
-                        'material_doc_item' => $item->material_doc_item,
-                        'item_name' => $item->item_name,
-                        'item_description' => $item->item_description,
-                        'item_short_text' => $item->item_description ?: $item->item_name,
-                        'uom' => $item->uom,
-                        'quantity_po' => (int) $item->quantity_po,
-                        'quantity_served' => (int) ($item->quantity_served ?? $item->quantity_po),
-                        'unit_cost' => (float) $item->unit_cost,
-                        // New invoice: nothing selected; the vendor picks the PO/GR lines on their
-                        // invoice, and the 3-way badge stays "For Verification" until they do
-                        'include' => isset($chosen[$item->id]),
-                        // Inv Qty is empty until it is read from the invoice (or the line is selected)
-                        'quantity' => isset($chosen[$item->id]) ? ($remaining[$item->id] ?? 0) : null,
-                        'quantity_remaining' => $remaining[$item->id] ?? 0,
-                        'ai' => isset($chosen[$item->id]) ? $this->savedMatch($chosen[$item->id]) : null,
-                        'quantity_edited' => (bool) ($chosen[$item->id]->is_quantity_edited ?? false),
-                    ])
-                    ->values()
-                    ->all(),
-            ])
+            ->map(function (GoodReceiptState $state) use ($remaining, $chosen): array {
+                $visible = ($state->sapGoodReceipt?->items ?? collect())
+                    ->filter(fn (SapGoodReceiptItem $item): bool => $item->merged_at === null
+                        && ($remaining[$item->id] ?? 0) > 0)
+                    ->values();
+
+                return [
+                    'good_receipt_id' => $state->id,
+                    'purchase_order' => $state->purchase_order,
+                    'good_receipt_number' => $state->good_receipt_number,
+                    'goodReceiptItems' => $visible
+                        ->map(fn (SapGoodReceiptItem $item): array => [
+                            'p2p_sap_good_receipt_item_id' => $item->id,
+                            'purchase_order' => $item->purchase_order,
+                            'purchase_order_item' => $item->purchase_order_item,
+                            'gr_number' => $state->good_receipt_number,
+                            'material_doc_item' => $item->material_doc_item,
+                            'item_name' => $item->item_name,
+                            'item_description' => $item->item_description,
+                            'item_short_text' => $item->item_description ?: $item->item_name,
+                            'uom' => $item->uom,
+                            'quantity_po' => (int) $item->quantity_po,
+                            'quantity_served' => (int) ($item->quantity_served ?? $item->quantity_po),
+                            'unit_cost' => (float) $item->unit_cost,
+                            // New invoice: nothing selected; the vendor picks the PO/GR lines on their
+                            // invoice, and the 3-way badge stays "For Verification" until they do
+                            'include' => isset($chosen[$item->id]),
+                            // Inv Qty is empty until it is read from the invoice (or the line is selected)
+                            'quantity' => isset($chosen[$item->id]) ? ($remaining[$item->id] ?? 0) : null,
+                            'quantity_remaining' => $remaining[$item->id] ?? 0,
+                            'ai' => isset($chosen[$item->id]) ? $this->savedMatch($chosen[$item->id]) : null,
+                            'quantity_edited' => (bool) ($chosen[$item->id]->is_quantity_edited ?? false),
+                        ])
+                        ->values()
+                        ->all(),
+                ];
+            })
+            ->filter(fn (array $goodsReceipt): bool => $goodsReceipt['goodReceiptItems'] !== [])
             ->values()
             ->all();
     }
@@ -1469,6 +1456,20 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         return $appRole !== null && $user->hasRole($appRole);
     }
 
+    /**
+     * A return to the same role it is already waiting on would be a no-op.
+     */
+    protected function canReturnEscalation(): bool
+    {
+        $escalation = $this->escalationForUser();
+
+        if ($escalation === null) {
+            return false;
+        }
+
+        return $escalation->previousHopRole() !== $escalation->current_role;
+    }
+
     protected function advanceEscalationAction(): Action
     {
         return Action::make('advanceEscalation')
@@ -1491,7 +1492,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             ->label(fn (): string => 'Return to '.($this->escalationForUser()?->previousRoleLabel() ?? 'previous step'))
             ->icon(Heroicon::OutlinedArrowUturnLeft)
             ->color('gray')
-            ->visible(fn (): bool => $this->escalationForUser() !== null)
+            ->visible(fn (): bool => $this->canReturnEscalation())
             ->modalHeading('Return escalation')
             ->modalDescription(fn (): ?string => $this->escalationForUser()?->stepLabel())
             ->modalSubmitActionLabel('Return')

@@ -26,13 +26,11 @@ class GoodReceiptCancelledMail extends Mailable implements ShouldQueue
 
     public function content(): Content
     {
+        $this->invoice->loadMissing(['vendor', 'company']);
+
         return new Content(
-            view: 'mail.p2p.escalation',
-            with: [
-                'heading' => 'Request cancelled',
-                'body' => "Invoice {$this->invoice->invoice_number} was cancelled.",
-                'escalation' => null,
-            ],
+            view: 'mail.p2p.good-receipt-cancelled',
+            with: ['invoice' => $this->invoice],
         );
     }
 }

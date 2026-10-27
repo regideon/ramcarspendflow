@@ -157,6 +157,36 @@ it('refuses an escalation action from a user who does not own the hop', function
         ->and($escalation->current_role)->toBe('procurement');
 });
 
+it('scopes For My Action to the current hop and In Progress to other hops', function () {
+    ['invoice' => $invoice, 'escalation' => $procurement] = escalatedGrContext();
+
+    $warehouse = $invoice->escalations()->create([
+        'escalation_number' => 'ESC-GR-2',
+        'batch_number' => 'BATCH-GR-2',
+        'p2p_good_receipt_state_id' => $procurement->p2p_good_receipt_state_id,
+        'p2p_escalation_reason_id' => $procurement->p2p_escalation_reason_id,
+        'current_step_order' => 2,
+        'current_role' => 'warehouse',
+        'origin_role' => 'vendor',
+        'status' => Escalation::STATUS_OPEN,
+        'from_status' => P2pStatus::Pending,
+        'remarks' => 'With the warehouse.',
+        'escalated_at' => now(),
+    ]);
+
+    $this->actingAs(User::factory()->create()->assignRole(RoleName::Procurement));
+
+    Livewire::withQueryParams(['tab' => 'for_my_action'])
+        ->test(ListEscalations::class)
+        ->assertCanSeeTableRecords([$procurement])
+        ->assertCanNotSeeTableRecords([$warehouse]);
+
+    Livewire::withQueryParams(['tab' => 'in_progress'])
+        ->test(ListEscalations::class)
+        ->assertCanSeeTableRecords([$warehouse])
+        ->assertCanNotSeeTableRecords([$procurement]);
+});
+
 it('links the escalations list View action to the bulk goods-receipt screen', function () {
     ['invoice' => $invoice, 'escalation' => $escalation] = escalatedGrContext();
 

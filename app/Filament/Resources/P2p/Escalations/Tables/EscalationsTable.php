@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\P2p\Escalations\Tables;
 
+use App\Enums\RoleName;
 use App\Filament\Actions\OpenCommentsAction;
 use App\Filament\Pages\P2p\BulkGoodsReceipt;
 use App\Models\P2p\Escalation;
@@ -111,7 +112,8 @@ class EscalationsTable
                     ->label('Resolve')
                     ->icon(Heroicon::OutlinedCheckCircle)
                     ->color('success')
-                    ->visible(fn (Escalation $record): bool => $record->currentStepAction() === null)
+                    ->visible(fn (Escalation $record): bool => $record->status === Escalation::STATUS_OPEN
+                        && $record->currentStepAction() === null)
                     ->schema([
                         Textarea::make('remarks')->required()->columnSpanFull(),
                     ])
@@ -119,6 +121,22 @@ class EscalationsTable
                         app(P2pEscalationRoutingService::class)->resolve($record, auth()->user(), $data['remarks']);
 
                         Notification::make()->title('Escalation resolved')->success()->send();
+                    }),
+
+                Action::make('reEscalate')
+                    ->label('Re-escalate')
+                    ->icon(Heroicon::OutlinedArrowPathRoundedSquare)
+                    ->color('warning')
+                    ->visible(fn (Escalation $record): bool => $record->status === Escalation::STATUS_RESOLVED
+                        && $record->previousStep() !== null
+                        && self::canReEscalate($record))
+                    ->schema([
+                        Textarea::make('remarks')->required()->columnSpanFull(),
+                    ])
+                    ->action(function (Escalation $record, array $data): void {
+                        app(P2pEscalationRoutingService::class)->reEscalate($record, auth()->user(), $data['remarks']);
+
+                        Notification::make()->title('Escalation re-opened')->success()->send();
                     }),
 
                 Action::make('history')
@@ -149,6 +167,28 @@ class EscalationsTable
     }
 
     /**
+     * The terminal/current team or the originator can ask the previous hop for
+     * feedback. Admins can re-open any resolved escalation.
+     */
+    protected static function canReEscalate(Escalation $record): bool
+    {
+        $user = auth()->user();
+
+        if ($user === null) {
+            return false;
+        }
+
+        if ($user->hasRole(RoleName::Admin)) {
+            return true;
+        }
+
+        $role = Escalation::appRoleFor($record->current_role)
+            ?? Escalation::appRoleFor($record->origin_role);
+
+        return $role !== null && $user->hasRole($role);
+    }
+
+    /**
      * The escalation's request, opened read-only in the bulk goods-receipt screen
      * (which is where the hop team advances or returns it).
      */
@@ -174,7 +214,8 @@ class EscalationsTable
                 ? Heroicon::OutlinedArrowUturnLeft
                 : Heroicon::OutlinedArrowRightCircle)
             ->color(fn (Escalation $record): string => $record->currentStepAction() !== null ? 'danger' : 'warning')
-            ->visible(fn (Escalation $record): bool => $record->current_role !== 'origin')
+            ->visible(fn (Escalation $record): bool => $record->status === Escalation::STATUS_OPEN
+                && $record->current_role !== 'origin')
             ->modalHeading(fn (Escalation $record): string => $record->currentActionLabel() ?? 'Advance escalation')
             ->schema([
                 Textarea::make('remarks')

@@ -101,7 +101,7 @@ it('processes multiple GRs across POs into one submission', function () {
         ->and($invoice->amount_submitted)->toBe('2000.00');
 });
 
-it('shows the SAP short text and the material number separately', function () {
+it('shows the SAP short text on the process page', function () {
     $c = bulkContext();
     $c['items'][0]->forceFill([
         'item_name' => 'OS01050',
@@ -111,9 +111,33 @@ it('shows the SAP short text and the material number separately', function () {
     $this->actingAs($c['user']);
 
     Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
-        ->assertSee('SAP Short Text')
-        ->assertSee('CLNMATL GLASS CLEANER')
-        ->assertSee('OS01050');
+        ->assertSee('Description')
+        ->assertSee('CLNMATL GLASS CLEANER');
+});
+
+it('does not list GR items with no remaining quantity on the process page', function () {
+    $c = bulkContext();
+
+    $c['items'][0]->forceFill([
+        'quantity_served' => 0,
+        'quantity_split_out' => 10,
+        'item_description' => 'ALREADY SUBMITTED ITEM',
+    ])->save();
+
+    SapGoodReceiptItem::factory()->for($c['items'][0]->goodReceipt, 'goodReceipt')->create([
+        'purchase_order' => $c['states'][0]->purchase_order,
+        'purchase_order_item' => '00020',
+        'quantity_po' => 5,
+        'quantity_served' => 5,
+        'item_description' => 'STILL PENDING ITEM',
+        'unit_cost' => 100,
+    ]);
+
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->assertDontSee('ALREADY SUBMITTED ITEM')
+        ->assertSee('STILL PENDING ITEM');
 });
 
 it('does not leave a draft invoice when the submission is rejected', function () {

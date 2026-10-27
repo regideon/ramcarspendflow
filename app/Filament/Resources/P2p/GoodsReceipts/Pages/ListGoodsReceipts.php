@@ -98,15 +98,52 @@ class ListGoodsReceipts extends ListRecords
                 ->badge(fn (): int => $this->countFor([P2pStatus::Pending]))
                 ->query(fn (Builder $query): Builder => $this->applyScopeFilter($query)->where('status', P2pStatus::Pending->value)),
 
-            'submitted_ap' => Tab::make('Submitted to AP')
+            'submitted' => Tab::make('Submitted')
                 ->icon(Heroicon::OutlinedCheckCircle)
-                ->badge(fn (): int => $this->countFor([P2pStatus::SubmittedToAp]))
-                ->query(fn (Builder $query): Builder => $this->applyScopeFilter($query)->where('status', P2pStatus::SubmittedToAp->value)),
-
-            'escalated' => Tab::make('Escalate to Procurement')
-                ->icon(Heroicon::OutlinedMinusCircle)
-                ->badge(fn (): int => $this->countFor([P2pStatus::EscalateToProcurement, P2pStatus::EscalatedToWarehouse, P2pStatus::PartiallyEscalated]))
+                ->badge(fn (): int => $this->countFor([P2pStatus::SubmittedToAp, P2pStatus::PendingPost]))
                 ->query(fn (Builder $query): Builder => $this->applyScopeFilter($query)->whereIn('status', [
+                    P2pStatus::SubmittedToAp->value,
+                    P2pStatus::PendingPost->value,
+                ])),
+
+            'processor' => Tab::make('Processor (AP)')
+                ->icon(Heroicon::OutlinedClipboardDocumentCheck)
+                ->badge(fn (): int => $this->countFor([
+                    P2pStatus::SubmittedToAp,
+                    P2pStatus::ApReview,
+                    P2pStatus::EscalatedByProcessor,
+                    P2pStatus::ReturnedToApProcessor,
+                ]))
+                ->query(fn (Builder $query): Builder => $this->applyScopeFilter($query)->whereIn('status', [
+                    P2pStatus::SubmittedToAp->value,
+                    P2pStatus::ApReview->value,
+                    P2pStatus::EscalatedByProcessor->value,
+                    P2pStatus::ReturnedToApProcessor->value,
+                ])),
+
+            'checker' => Tab::make('Checker')
+                ->icon(Heroicon::OutlinedShieldCheck)
+                ->badge(fn (): int => $this->countFor([
+                    P2pStatus::SubmittedToChecker,
+                    P2pStatus::CheckerReview,
+                    P2pStatus::Approved,
+                ]))
+                ->query(fn (Builder $query): Builder => $this->applyScopeFilter($query)->whereIn('status', [
+                    P2pStatus::SubmittedToChecker->value,
+                    P2pStatus::CheckerReview->value,
+                    P2pStatus::Approved->value,
+                ])),
+
+            'escalated' => Tab::make('Escalated')
+                ->icon(Heroicon::OutlinedMinusCircle)
+                ->badge(fn (): int => $this->countFor([
+                    P2pStatus::EscalatedByVendor,
+                    P2pStatus::EscalateToProcurement,
+                    P2pStatus::EscalatedToWarehouse,
+                    P2pStatus::PartiallyEscalated,
+                ]))
+                ->query(fn (Builder $query): Builder => $this->applyScopeFilter($query)->whereIn('status', [
+                    P2pStatus::EscalatedByVendor->value,
                     P2pStatus::EscalateToProcurement->value,
                     P2pStatus::EscalatedToWarehouse->value,
                     P2pStatus::PartiallyEscalated->value,
@@ -114,11 +151,17 @@ class ListGoodsReceipts extends ListRecords
 
             'rejected' => Tab::make('Rejected/Reversed')
                 ->icon(Heroicon::OutlinedXCircle)
-                ->badge(fn (): int => $this->countFor([P2pStatus::Rejected, P2pStatus::RejectedLegacy, P2pStatus::Reversed]))
+                ->badge(fn (): int => $this->countFor([
+                    P2pStatus::Rejected,
+                    P2pStatus::RejectedLegacy,
+                    P2pStatus::Reversed,
+                    P2pStatus::Cancelled,
+                ]))
                 ->query(fn (Builder $query): Builder => $this->applyScopeFilter($query)->whereIn('status', [
                     P2pStatus::Rejected->value,
                     P2pStatus::RejectedLegacy->value,
                     P2pStatus::Reversed->value,
+                    P2pStatus::Cancelled->value,
                 ])),
 
             'returned' => Tab::make('Returned to Vendor')
@@ -126,9 +169,13 @@ class ListGoodsReceipts extends ListRecords
                 ->badge(fn (): int => $this->countFor([P2pStatus::ReturnedToVendor]))
                 ->query(fn (Builder $query): Builder => $this->applyScopeFilter($query)->where('status', P2pStatus::ReturnedToVendor->value)),
 
-            'posted' => Tab::make('Posted to SAP')
+            'completed' => Tab::make('Completed')
                 ->icon(Heroicon::OutlinedCheckBadge)
-                ->badge(fn (): int => $this->countFor([P2pStatus::InvoiceParked, P2pStatus::InvoicePosted, P2pStatus::Completed]))
+                ->badge(fn (): int => $this->countFor([
+                    P2pStatus::InvoiceParked,
+                    P2pStatus::InvoicePosted,
+                    P2pStatus::Completed,
+                ]))
                 ->query(fn (Builder $query): Builder => $this->applyScopeFilter($query)->whereIn('status', [
                     P2pStatus::InvoiceParked->value,
                     P2pStatus::InvoicePosted->value,
