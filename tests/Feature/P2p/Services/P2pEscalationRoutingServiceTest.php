@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\P2pStatus;
+use App\Models\P2p\Escalation;
 use App\Models\P2p\EscalationReason;
 use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\Invoice;
@@ -16,6 +17,7 @@ use App\Services\P2p\Escalation\StepActionRegistry;
 use App\Services\P2p\P2pEscalationRoutingService;
 use App\Services\P2p\P2pGoodReceiptSubmissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 pest()->use(RefreshDatabase::class);
@@ -221,4 +223,24 @@ it('treats the hop whose destination is terminal as the last relay', function ()
         ->and($escalation->fresh()->current_role)->toBe('vendor')
         // The vendor hop is the final one: nothing follows it.
         ->and($escalation->fresh()->nextStep())->toBeNull();
+});
+
+it('re-opens a resolved escalation at the previous hop for feedback', function () {
+    Mail::fake();
+
+    $c = escalationContext();
+    quantityEscalationReason();
+    $service = app(P2pEscalationRoutingService::class);
+
+    $escalation = $service->start($c['invoice'], 'quantity_difference', [$c['state']->id], $c['user'], 'Short')->first();
+    $service->advance($escalation->fresh(), $c['user']);
+    $service->advance($escalation->fresh(), $c['user']);
+
+    expect($escalation->fresh()->status)->toBe('resolved');
+
+    $service->reEscalate($escalation->fresh(), $c['user'], 'Need more information.');
+
+    expect($escalation->fresh()->status)->toBe(Escalation::STATUS_OPEN)
+        ->and($escalation->fresh()->current_step_order)->toBe(1)
+        ->and($escalation->fresh()->current_role)->toBe('warehouse');
 });
