@@ -87,8 +87,11 @@
     <div class="flex items-start">
         @foreach ($flow as $index => $step)
             @php
-                $isDone = $index < $currentIndex;
-                $isCurrent = ! $isTerminal && $index === $currentIndex;
+                // A returned invoice sits back at Vendor but the trail still shows the
+                // steps it reached before coming back, so history drives the ticks.
+                $isDone = $index < $furthestIndex
+                    || ($index === $currentIndex && $furthestIndex > $currentIndex);
+                $isCurrent = ! $isTerminal && $index === $currentIndex && ! $isDone;
             @endphp
 
             <div class="{{ $loop->last ? 'flex-none' : 'flex-1' }}">

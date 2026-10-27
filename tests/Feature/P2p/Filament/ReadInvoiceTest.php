@@ -250,7 +250,7 @@ it('shows the invoice line on the page and says when not every line is 3-way mat
     $page = processPage()->callAction(readInvoiceAction());
 
     expect($page->html())
-        ->toContain('SAP Short Text')
+        ->toContain('Description')
         ->toContain('On the Invoice')
         ->toContain('P/N E-10924 V-BELT PULLEY UHMW (SOR-71734)')
         ->toContain('Not Matched')

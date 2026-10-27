@@ -9,8 +9,10 @@ use App\Models\P2p\SapGoodReceiptItem;
 use App\Models\P2p\SapPurchaseOrder;
 use App\Models\User;
 use App\Models\Vendor;
+use App\Services\P2p\P2pGoodReceiptReturnService;
 use App\Services\P2p\P2pGoodReceiptSubmissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 pest()->use(RefreshDatabase::class);
@@ -68,11 +70,16 @@ it('submits lines, bills the quantity and advances the GR and PO', function () {
         ['p2p_sap_good_receipt_item_id' => $c['item']->id, 'quantity_billed' => 10],
     ], $c['user'], ['reference_number' => ['DR-1'], 'invoice_at' => now()]);
 
+    $split = GoodReceiptState::query()
+        ->where('good_receipt_number', $c['receipt']->good_receipt_number.'-P1')
+        ->sole();
+
     expect($invoice->status)->toBe(P2pStatus::SubmittedToAp)
         ->and($invoice->amount_submitted)->toBe('1000.00')
         ->and($invoice->lines)->toHaveCount(1)
         ->and($invoice->lines->first()->is_fully_billed)->toBeTrue()
-        ->and($c['state']->fresh()->status)->toBe(P2pStatus::SubmittedToAp)
+        ->and($c['state']->fresh()->status)->toBe(P2pStatus::Pending)
+        ->and($split->status)->toBe(P2pStatus::SubmittedToAp)
         ->and($c['po']->fresh()->status_id)->toBe(P2pPurchaseOrderStatus::FullySubmitted)
         ->and($invoice->histories)->toHaveCount(1);
 });
@@ -87,14 +94,20 @@ it('supports a partial submission and keeps the rest billable', function () {
     ], $c['user']);
 
     $line = $invoice->lines->first();
+    $baseItem = $c['item']->fresh();
+    $splitItem = SapGoodReceiptItem::query()->where('split_from_item_id', $c['item']->id)->sole();
 
     expect($line->quantity_billed)->toBe(4)
-        ->and($line->quantity_remaining)->toBe('6.00')
-        ->and($line->is_fully_billed)->toBeFalse()
-        ->and($service->remainingQuantityFor($c['item']->fresh()))->toBe(6);
+        ->and($line->quantity_remaining)->toBe('0.00')
+        ->and($line->is_fully_billed)->toBeTrue()
+        ->and($line->p2p_sap_good_receipt_item_id)->toBe($splitItem->id)
+        ->and($splitItem->quantity_served)->toBe(4)
+        ->and($baseItem->quantity_served)->toBe(6)
+        ->and($baseItem->quantity_split_out)->toBe(4)
+        ->and($service->remainingQuantityFor($baseItem))->toBe(6);
 });
 
-it('splits the GR so unselected items stay pending when only some lines are submitted', function () {
+it('puts only the selected items on the split and leaves the rest pending on the base GR', function () {
     $c = submissionContext(quantity: 10);
     $service = app(P2pGoodReceiptSubmissionService::class);
 
@@ -111,29 +124,44 @@ it('splits the GR so unselected items stay pending when only some lines are subm
         ['p2p_sap_good_receipt_item_id' => $c['item']->id, 'quantity_billed' => 10],
     ], $c['user']);
 
-    $partial = GoodReceiptState::query()
+    $split = GoodReceiptState::query()
         ->where('good_receipt_number', $c['receipt']->good_receipt_number.'-P1')
         ->sole();
 
+    $clone = SapGoodReceiptItem::query()->where('split_from_item_id', $c['item']->id)->sole();
+
     expect($invoice->lines()->count())->toBe(1)
-        ->and($invoice->gr_numbers)->toBe([$c['receipt']->good_receipt_number])
+        ->and($invoice->gr_numbers)->toBe([$split->good_receipt_number])
+        ->and($c['item']->fresh()->quantity_served)->toBe(0)
+        ->and($c['item']->fresh()->quantity_split_out)->toBe(10)
         ->and($c['item']->fresh()->p2p_sap_good_receipt_id)->toBe($c['receipt']->id)
-        ->and($unselected->fresh()->p2p_sap_good_receipt_id)->toBe($partial->p2p_sap_good_receipt_id)
-        ->and($c['state']->fresh()->status)->toBe(P2pStatus::SubmittedToAp)
-        ->and($partial->status)->toBe(P2pStatus::Pending)
-        ->and($partial->sapGoodReceipt->items->pluck('id')->all())->toBe([$unselected->id]);
+        ->and($unselected->fresh()->quantity_served)->toBe(5)
+        ->and($unselected->fresh()->p2p_sap_good_receipt_id)->toBe($c['receipt']->id)
+        ->and($c['state']->fresh()->status)->toBe(P2pStatus::Pending)
+        ->and($split->status)->toBe(P2pStatus::SubmittedToAp)
+        ->and($split->sapGoodReceipt->items->pluck('id')->all())->toBe([$clone->id])
+        ->and($clone->quantity_served)->toBe(10);
 });
 
-it('does not split the GR when every line is submitted', function () {
+it('always creates a split, even when every line is submitted', function () {
     $c = submissionContext();
     $service = app(P2pGoodReceiptSubmissionService::class);
 
     $invoice = $service->start($c['user'], [$c['state']->id]);
-    $service->submit($invoice, [
+    $invoice = $service->submit($invoice, [
         ['p2p_sap_good_receipt_item_id' => $c['item']->id, 'quantity_billed' => 10],
     ], $c['user']);
 
-    expect(GoodReceiptState::query()->count())->toBe(1);
+    $split = GoodReceiptState::query()
+        ->where('good_receipt_number', $c['receipt']->good_receipt_number.'-P1')
+        ->sole();
+
+    expect(GoodReceiptState::query()->count())->toBe(2)
+        ->and($c['state']->fresh()->status)->toBe(P2pStatus::Pending)
+        ->and($c['item']->fresh()->quantity_served)->toBe(0)
+        ->and($split->status)->toBe(P2pStatus::SubmittedToAp)
+        ->and($invoice->gr_numbers)->toBe([$split->good_receipt_number])
+        ->and(GoodReceiptState::query()->withBillableItems()->count())->toBe(1);
 });
 
 it('refuses to start a request for a non-pending goods receipt', function () {
@@ -156,9 +184,11 @@ it('computes remaining quantities for many items in one pass', function () {
     ], $c['user']);
 
     $items = SapGoodReceiptItem::query()->whereKey($c['item']->id)->get();
+    $splitItem = SapGoodReceiptItem::query()->where('split_from_item_id', $c['item']->id)->sole();
 
     expect($service->remainingQuantitiesFor($items))->toBe([$c['item']->id => 6])
-        ->and($service->remainingQuantitiesFor($items, $invoice->fresh()))->toBe([$c['item']->id => 10]);
+        ->and($service->remainingQuantitiesFor(collect([$splitItem])))->toBe([$splitItem->id => 0])
+        ->and($service->remainingQuantitiesFor(collect([$splitItem]), $invoice->fresh()))->toBe([$splitItem->id => 4]);
 });
 
 it('rejects a quantity over the remaining amount', function () {
@@ -193,13 +223,79 @@ it('replaces lines when a returned invoice is resubmitted', function () {
         ['p2p_sap_good_receipt_item_id' => $c['item']->id, 'quantity_billed' => 4],
     ], $c['user']);
 
+    $splitItemId = $invoice->lines()->first()->p2p_sap_good_receipt_item_id;
+
     $invoice->forceFill(['status' => P2pStatus::ReturnedToVendor])->save();
     $invoice = $service->submit($invoice, [
-        ['p2p_sap_good_receipt_item_id' => $c['item']->id, 'quantity_billed' => 10],
+        ['p2p_sap_good_receipt_item_id' => $splitItemId, 'quantity_billed' => 10],
     ], $c['user']);
 
     expect($invoice->lines()->count())->toBe(1)
-        ->and($invoice->lines()->first()->quantity_billed)->toBe(10);
+        ->and($invoice->lines()->first()->quantity_billed)->toBe(10)
+        ->and($c['item']->fresh()->quantity_served)->toBe(0)
+        ->and(SapGoodReceiptItem::query()->whereKey($splitItemId)->sole()->quantity_served)->toBe(10);
+});
+
+it('does not merge a split when the invoice is only returned to the vendor', function () {
+    Mail::fake();
+
+    $c = submissionContext(quantity: 10);
+    $service = app(P2pGoodReceiptSubmissionService::class);
+    $returns = app(P2pGoodReceiptReturnService::class);
+
+    $invoice = $service->start($c['user'], [$c['state']->id]);
+    $invoice = $service->submit($invoice, [
+        ['p2p_sap_good_receipt_item_id' => $c['item']->id, 'quantity_billed' => 4],
+    ], $c['user']);
+
+    $splitItem = $invoice->lines()->first()->sapItem;
+
+    $returns->returnToVendor($invoice, $c['user'], 'Please correct the quantity.');
+
+    $split = GoodReceiptState::query()
+        ->where('good_receipt_number', $c['receipt']->good_receipt_number.'-P1')
+        ->sole();
+
+    expect($splitItem->fresh()->merged_at)->toBeNull()
+        ->and($c['item']->fresh()->quantity_served)->toBe(6)
+        ->and($split->status)->toBe(P2pStatus::ReturnedToVendor)
+        ->and($invoice->fresh()->gr_numbers)->toBe([$split->good_receipt_number]);
+});
+
+it('returns split items to the base GR on cancellation and never reuses the split number', function () {
+    Mail::fake();
+
+    $c = submissionContext(quantity: 10);
+    $service = app(P2pGoodReceiptSubmissionService::class);
+    $returns = app(P2pGoodReceiptReturnService::class);
+
+    $invoice = $service->start($c['user'], [$c['state']->id]);
+    $invoice = $service->submit($invoice, [
+        ['p2p_sap_good_receipt_item_id' => $c['item']->id, 'quantity_billed' => 4],
+    ], $c['user']);
+
+    $splitItem = $invoice->lines()->first()->sapItem;
+    $splitNumber = $c['receipt']->good_receipt_number.'-P1';
+
+    $returns->returnToVendor($invoice, $c['user'], 'Please correct the quantity.');
+    $returns->cancel($invoice->fresh(), $c['user'], 'Cancel this request.');
+
+    $split = GoodReceiptState::query()->where('good_receipt_number', $splitNumber)->sole();
+
+    expect($c['item']->fresh()->quantity_served)->toBe(10)
+        ->and($c['item']->fresh()->quantity_split_out)->toBe(0)
+        ->and($splitItem->fresh()->merged_at)->not->toBeNull()
+        ->and($split->fresh()->merged_at)->not->toBeNull()
+        ->and($split->fresh()->status)->toBe(P2pStatus::Cancelled)
+        ->and($c['state']->fresh()->status)->toBe(P2pStatus::Pending);
+
+    $second = $service->start($c['user'], [$c['state']->fresh()->id]);
+    $second = $service->submit($second, [
+        ['p2p_sap_good_receipt_item_id' => $c['item']->id, 'quantity_billed' => 5],
+    ], $c['user']);
+
+    expect(GoodReceiptState::query()->where('good_receipt_number', $c['receipt']->good_receipt_number.'-P2')->exists())->toBeTrue()
+        ->and($second->gr_numbers)->toBe([$c['receipt']->good_receipt_number.'-P2']);
 });
 
 /**

@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\P2p\SapPurchaseOrderSource;
 use App\Enums\P2pPurchaseOrderStatus;
 use App\Enums\P2pStatus;
 use App\Models\Company;
@@ -379,4 +380,77 @@ it('chunks a large purchase-order number lookup to avoid SAP 414 responses', fun
         ->and($result['data'])->toHaveCount(250)
         ->and($requestUrls)->toHaveCount(3)
         ->and(max(array_map('strlen', $requestUrls)))->toBeLessThan(4000);
+});
+
+it('keeps split-out quantities when a purchase order is re-synced', function () {
+    $company = Company::factory()->create(['code' => '1000']);
+    $vendor = Vendor::factory()->create(['code' => '200000']);
+
+    $receipt = SapGoodReceipt::factory()->create([
+        'purchase_order' => '4500000700',
+        'good_receipt_number' => '5000000700',
+        'company_id' => $company->id,
+        'vendor_id' => $vendor->id,
+    ]);
+
+    $item = SapGoodReceiptItem::factory()->for($receipt, 'goodReceipt')->create([
+        'purchase_order' => '4500000700',
+        'purchase_order_item' => '00010',
+        'material_doc_year' => 2026,
+        'material_doc_item' => '0001',
+        'quantity_po' => 10,
+        'quantity_served' => 4,
+        'quantity_split_out' => 6,
+        'unit_cost' => 100,
+        'net_price' => 100,
+        'price_unit' => 1,
+        'currency' => 'PHP',
+    ]);
+
+    GoodReceiptState::create([
+        'p2p_sap_good_receipt_id' => $receipt->id,
+        'purchase_order' => '4500000700',
+        'good_receipt_number' => '5000000700',
+        'company_id' => $company->id,
+        'vendor_id' => $vendor->id,
+        'status' => P2pStatus::Pending,
+        'quantity_total' => 10,
+        'quantity_served' => 4,
+    ]);
+
+    $source = new class implements SapPurchaseOrderSource
+    {
+        public function changedPurchaseOrders(array $filters = []): array
+        {
+            return [[
+                'purchase_order' => '4500000700',
+                'company_code' => '1000',
+                'vendor_code' => '200000',
+                'currency_key' => 'PHP',
+                'good_receipts' => [[
+                    'good_receipt_number' => '5000000700',
+                    'items' => [[
+                        'material_doc_year' => 2026,
+                        'material_doc_item' => '0001',
+                        'purchase_order_item' => '00010',
+                        'quantity_po' => 10,
+                        'quantity_served' => 10,
+                        'unit_cost' => 100,
+                        'net_price' => 100,
+                        'price_unit' => 1,
+                        'currency' => 'PHP',
+                    ]],
+                ]],
+            ]];
+        }
+    };
+
+    $result = app(P2pPurchaseOrderSyncService::class)->run($source);
+
+    expect($result['synced'])->toBe(1)
+        ->and($result['errors'])->toBe(0)
+        ->and(SapGoodReceiptItem::query()->where('purchase_order', '4500000700')->count())->toBe(1)
+        ->and($item->fresh()->quantity_served)->toBe(4)
+        ->and($item->fresh()->quantity_split_out)->toBe(6)
+        ->and(GoodReceiptState::query()->where('good_receipt_number', '5000000700')->sole()->quantity_served)->toBe(4);
 });

@@ -61,6 +61,48 @@ class Escalation extends Model
     }
 
     /**
+     * The hop roles whose desk the signed-in user can act at. Warehouse is an
+     * umbrella: any warehouse role can act on a `warehouse` hop, and the
+     * specific raw-materials / spare-parts hops map to the same team.
+     *
+     * @return list<string>
+     */
+    public static function hopRolesForUser(?User $user): array
+    {
+        if ($user === null) {
+            return [];
+        }
+
+        if ($user->hasRole(RoleName::Admin)) {
+            return ['vendor', 'processor', 'procurement', 'warehouse', 'warehouse_raw_materials', 'warehouse_spare_parts'];
+        }
+
+        $roles = [];
+
+        if ($user->hasRole(RoleName::Vendor)) {
+            $roles[] = 'vendor';
+        }
+
+        if ($user->hasRole(RoleName::ApProcessor)) {
+            $roles[] = 'processor';
+        }
+
+        if ($user->hasRole(RoleName::Procurement)) {
+            $roles[] = 'procurement';
+        }
+
+        if ($user->hasAnyRole([
+            RoleName::Warehouse,
+            RoleName::WarehouseRawMaterials,
+            RoleName::WarehouseSpareParts,
+        ])) {
+            $roles = [...$roles, 'warehouse', 'warehouse_raw_materials', 'warehouse_spare_parts'];
+        }
+
+        return array_values(array_unique($roles));
+    }
+
+    /**
      * @return BelongsTo<Invoice, $this>
      */
     public function invoice(): BelongsTo

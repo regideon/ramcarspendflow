@@ -93,7 +93,9 @@ it('sends overdue warnings once and stamps the invoice', function () {
 
     $this->artisan('p2p:send-overdue-warnings')->assertSuccessful();
 
-    Mail::assertQueued(ProcurementWarningMail::class);
+    Mail::assertQueued(ProcurementWarningMail::class, function (ProcurementWarningMail $mail): bool {
+        return str_contains($mail->render(), 'Overdue Escalation Warning');
+    });
     expect($invoice->fresh()->warning_sent_at)->not->toBeNull();
 
     $this->artisan('p2p:send-overdue-warnings')->assertSuccessful();

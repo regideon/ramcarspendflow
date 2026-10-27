@@ -42,6 +42,11 @@ class P2pGoodReceiptStatusService
             return P2pStatus::Reversed;
         }
 
+        // A split that was merged back into its base GR is closed.
+        if ($state->merged_at !== null) {
+            return P2pStatus::Cancelled;
+        }
+
         // An open escalation owns the GR's status until it is resolved.
         if ($escalation = $this->openEscalation($state)) {
             return $this->escalationHopStatus($escalation) ?? $escalation->from_status ?? P2pStatus::Pending;

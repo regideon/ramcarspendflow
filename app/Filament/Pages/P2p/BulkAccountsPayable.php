@@ -41,7 +41,6 @@ use Filament\Schemas\Components\Callout;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Group;
 use Filament\Schemas\Components\Section;
-use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\Width;
@@ -224,13 +223,13 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
     protected function invoiceModel(): ?Invoice
     {
-        if (!blank($this->invoice)) {
+        if (! blank($this->invoice)) {
             return $this->loadedInvoice ??= Invoice::query()
                 ->with(['vendor', 'company', 'escalations.reason.steps'])
                 ->find((int) $this->invoice);
         }
 
-        if (!blank($this->code)) {
+        if (! blank($this->code)) {
             return $this->loadedInvoice ??= Invoice::query()
                 ->with(['vendor', 'company', 'escalations.reason.steps'])
                 ->where('code', $this->code)
@@ -329,6 +328,7 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
         // (which the query detector reports as an N+1).
         $matchItems = SapGoodReceiptItem::query()
             ->whereIn('purchase_order', $lines->pluck('purchase_order')->filter()->unique()->values()->all())
+            ->whereNull('merged_at')
             ->with('goodReceipt')
             ->get();
 

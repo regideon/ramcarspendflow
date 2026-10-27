@@ -91,13 +91,16 @@ Every transition writes `p2p_approval_histories` (actor, from/to, remarks, visib
 
 ## 4. Partial submission (normalized)
 
-Legacy clones GRs into `-P1`, `-P2`. **Redesign:** bill by quantity.
+Legacy clones GRs into `-P1`, `-P2`. **Redesign:** keep the base GR as the pending
+container and clone only the selected quantity onto a local split.
 
 1. Vendor selects lines and enters served quantities.
-2. `p2p_invoice_lines.quantity_billed` per mirror item; remaining = mirror qty − Σ billed.
-3. Lines with remaining > 0 stay billable; a new invoice can be raised later (no cloned rows).
-4. `P2pGoodReceiptStatusService` recomputes GR state (Pending / Partially Billed / Billed) inside the same `DB::transaction`.
-5. PO status is recalculated on every change.
+2. The base GR stays Pending. The selected quantity is cloned onto `{GR}-P{n}`; the base keeps the remainder (`quantity_split_out` tracks the copy).
+3. `p2p_invoice_lines.quantity_billed` bills the split item. Remaining on the base stays billable for a later submission.
+4. `P2pGoodReceiptStatusService` recomputes the split's GR state (Pending / Submitted / Returned / Escalated / Reversed) inside the same `DB::transaction`.
+5. A vendor cancellation merges the split back into its base GR. Returning to vendor, rejecting, reversing and re-GR do **not** merge.
+6. Split numbers are per base GR and never reused. The `-P{n}` suffix is stripped from all SAP payloads.
+7. PO status is recalculated on every change; empty base GRs are ignored.
 
 Escalations remain per-GR (batch number for multi-GR); a header with mixed GR states derives
 `PartiallyEscalated` (19).
