@@ -338,19 +338,38 @@ class PurchaseOrdersTable
      */
     public static function vendorOptions(Collection $records): array
     {
-        $codes = $records->pluck('vendor_code')->filter()->unique()->values();
+        return self::vendorCodeLabels($records->pluck('vendor_code')->filter()->unique()->values());
+    }
+
+    /**
+     * Build [code => "CODE — Name"] options for any set of vendor codes,
+     * ordered by vendor name so the select stays readable. Codes with no
+     * matching vendor row fall back to the bare code.
+     *
+     * @param  Collection<int, string>  $codes
+     * @return array<string, string>
+     */
+    protected static function vendorCodeLabels(Collection $codes): array
+    {
+        if ($codes->isEmpty()) {
+            return [];
+        }
 
         $names = Vendor::query()
-            ->whereIn('code', $codes)
+            ->whereIn('code', $codes->all())
             ->get(['code', 'name'])
             ->unique('code')
             ->pluck('name', 'code');
 
-        return $codes->mapWithKeys(function (string $code) use ($names): array {
-            $name = $names->get($code);
+        return $codes
+            ->mapWithKeys(function (string $code) use ($names): array {
+                $name = $names->get($code);
 
-            return [(string) $code => $name ? "{$code} — {$name}" : $code];
-        })->all();
+                return [(string) $code => $name ? "{$code} — {$name}" : (string) $code];
+            })
+            // PHP turns numeric-string array keys into ints, so accept both.
+            ->sortBy(fn (string $label, int|string $code): string => $names->get($code) ?? (string) $code)
+            ->all();
     }
 
     /**
@@ -400,30 +419,14 @@ class PurchaseOrdersTable
             return [];
         }
 
-        if ($user->hasRole(RoleName::Vendor)) {
-            $codes = $user->vendorCodes();
+        $codes = $user->hasRole(RoleName::Vendor)
+            ? collect($user->vendorCodes())
+            : SapPurchaseOrder::query()
+                ->whereNotNull('vendor_code')
+                ->distinct()
+                ->pluck('vendor_code');
 
-            if ($codes === []) {
-                return [];
-            }
-
-            return Vendor::query()
-                ->whereIn('code', $codes)
-                ->orderBy('name')
-                ->get(['code', 'name'])
-                ->mapWithKeys(fn (Vendor $vendor): array => [
-                    (string) $vendor->code => $vendor->name ? "{$vendor->code} — {$vendor->name}" : $vendor->code,
-                ])
-                ->all();
-        }
-
-        return SapPurchaseOrder::query()
-            ->distinct()
-            ->pluck('vendor_code', 'vendor_code')
-            ->filter()
-            ->mapWithKeys(fn (string $code): array => [(string) $code => $code])
-            ->sortKeys()
-            ->all();
+        return self::vendorCodeLabels($codes->filter()->unique()->values());
     }
 
     /**

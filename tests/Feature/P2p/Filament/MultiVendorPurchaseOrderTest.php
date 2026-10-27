@@ -140,6 +140,34 @@ it('offers a vendor only their assigned vendor codes and their companies', funct
         ->toBe([(string) $company->code]);
 });
 
+it('labels the vendor filter with vendor names for admins', function () {
+    $admin = User::factory()->create()->assignRole(RoleName::Admin);
+    $company = Company::factory()->create();
+    $vendor = Vendor::factory()->create(['code' => '600904', 'name' => 'Rosendahl Nextrom GmbH']);
+
+    purchaseOrderFor($vendor, $company, '4500000324');
+
+    $options = PurchaseOrdersTable::vendorFilterOptions($admin);
+
+    expect($options)->toHaveKey('600904')
+        ->and($options['600904'])->toContain('600904')
+        ->and($options['600904'])->toContain('Rosendahl Nextrom GmbH');
+});
+
+it('labels the vendor filter with vendor names for suppliers', function () {
+    $company = Company::factory()->create();
+    $vendor = Vendor::factory()->create(['name' => 'Rosendahl Nextrom GmbH']);
+
+    $user = User::factory()->create(['vendor_id' => $vendor->id]);
+    $user->assignRole(RoleName::Vendor);
+    $user->vendors()->sync([$vendor->id]);
+
+    purchaseOrderFor($vendor, $company, '4500000325');
+
+    expect(PurchaseOrdersTable::vendorFilterOptions($user)[$vendor->code])
+        ->toContain($vendor->name);
+});
+
 it('refuses to bulk-process purchase orders with different currencies', function () {
     $company = Company::factory()->create();
     $vendor = Vendor::factory()->create();

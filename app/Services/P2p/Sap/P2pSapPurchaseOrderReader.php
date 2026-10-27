@@ -24,6 +24,12 @@ class P2pSapPurchaseOrderReader
 
     private const string EKBE_ENDPOINT = '/sap/opu/odata/sap/ZCDS_MM_EKBE_CDS/ZCDS_MM_EKBE';
 
+    /**
+     * Max PO numbers per EKKO `$filter`. ~100 clauses keeps the URL near 3 KB,
+     * well under SAP's typical 8 KB request-line limit.
+     */
+    private const int HEADER_LOOKUP_CHUNK = 100;
+
     public function __construct(private readonly P2pSapClient $client) {}
 
     /**
@@ -229,6 +235,14 @@ class P2pSapPurchaseOrderReader
      */
     public function headers(array $filters = []): array
     {
+        $numbers = $filters['po_numbers'] ?? null;
+
+        // A long history window can discover hundreds of POs; putting them all
+        // in one `EBELN eq '…' or …` filter makes SAP reject the URL with 414.
+        if (is_array($numbers) && count($numbers) > self::HEADER_LOOKUP_CHUNK) {
+            return $this->headersInChunks($filters, $numbers);
+        }
+
         $filter = $this->headerFilter($filters);
 
         $result = $this->client->get(self::EKKO_ENDPOINT, $filter === null ? [] : ['$filter' => $filter]);
@@ -238,6 +252,30 @@ class P2pSapPurchaseOrderReader
         }
 
         return ['success' => true, 'data' => is_array($result['data'] ?? null) ? $result['data'] : []];
+    }
+
+    /**
+     * Read headers for a large PO-number list, one request per chunk.
+     *
+     * @param  array<string, mixed>  $filters
+     * @param  array<int, mixed>  $numbers
+     * @return array{success: bool, data: list<array<string, mixed>>, error?: string}
+     */
+    protected function headersInChunks(array $filters, array $numbers): array
+    {
+        $data = [];
+
+        foreach (array_chunk(array_values($numbers), self::HEADER_LOOKUP_CHUNK) as $chunk) {
+            $result = $this->headers(array_merge($filters, ['po_numbers' => $chunk]));
+
+            if (! $result['success']) {
+                return $result;
+            }
+
+            $data = array_merge($data, $result['data']);
+        }
+
+        return ['success' => true, 'data' => $data];
     }
 
     /**

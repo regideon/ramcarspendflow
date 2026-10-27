@@ -94,6 +94,56 @@ it('supports a partial submission and keeps the rest billable', function () {
         ->and($service->remainingQuantityFor($c['item']->fresh()))->toBe(6);
 });
 
+it('splits the GR so unselected items stay pending when only some lines are submitted', function () {
+    $c = submissionContext(quantity: 10);
+    $service = app(P2pGoodReceiptSubmissionService::class);
+
+    $unselected = SapGoodReceiptItem::factory()->for($c['receipt'], 'goodReceipt')->create([
+        'purchase_order' => $c['po']->purchase_order,
+        'purchase_order_item' => '00020',
+        'quantity_po' => 5,
+        'quantity_served' => 5,
+        'unit_cost' => 100,
+    ]);
+
+    $invoice = $service->start($c['user'], [$c['state']->id]);
+    $invoice = $service->submit($invoice, [
+        ['p2p_sap_good_receipt_item_id' => $c['item']->id, 'quantity_billed' => 10],
+    ], $c['user']);
+
+    $partial = GoodReceiptState::query()
+        ->where('good_receipt_number', $c['receipt']->good_receipt_number.'-P1')
+        ->sole();
+
+    expect($invoice->lines()->count())->toBe(1)
+        ->and($invoice->gr_numbers)->toBe([$c['receipt']->good_receipt_number])
+        ->and($c['item']->fresh()->p2p_sap_good_receipt_id)->toBe($c['receipt']->id)
+        ->and($unselected->fresh()->p2p_sap_good_receipt_id)->toBe($partial->p2p_sap_good_receipt_id)
+        ->and($c['state']->fresh()->status)->toBe(P2pStatus::SubmittedToAp)
+        ->and($partial->status)->toBe(P2pStatus::Pending)
+        ->and($partial->sapGoodReceipt->items->pluck('id')->all())->toBe([$unselected->id]);
+});
+
+it('does not split the GR when every line is submitted', function () {
+    $c = submissionContext();
+    $service = app(P2pGoodReceiptSubmissionService::class);
+
+    $invoice = $service->start($c['user'], [$c['state']->id]);
+    $service->submit($invoice, [
+        ['p2p_sap_good_receipt_item_id' => $c['item']->id, 'quantity_billed' => 10],
+    ], $c['user']);
+
+    expect(GoodReceiptState::query()->count())->toBe(1);
+});
+
+it('refuses to start a request for a non-pending goods receipt', function () {
+    $c = submissionContext();
+    $c['state']->forceFill(['status' => P2pStatus::SubmittedToAp])->save();
+
+    expect(fn () => app(P2pGoodReceiptSubmissionService::class)->start($c['user'], [$c['state']->id]))
+        ->toThrow(ValidationException::class);
+});
+
 it('computes remaining quantities for many items in one pass', function () {
     $c = submissionContext(quantity: 10);
     $service = app(P2pGoodReceiptSubmissionService::class);

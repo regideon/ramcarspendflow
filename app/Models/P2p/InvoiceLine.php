@@ -13,8 +13,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * Tier 2 — a billed line: reference to a SAP GR item + the quantity billed. Replaces
- * the legacy `-P` GR row cloning; remaining = mirror qty − Σ quantity_billed.
+ * Tier 2 — a billed line: reference to a SAP GR item + the quantity billed.
+ * Remaining = mirror qty − Σ quantity_billed.
  */
 #[Table('p2p_invoice_lines')]
 #[Fillable([

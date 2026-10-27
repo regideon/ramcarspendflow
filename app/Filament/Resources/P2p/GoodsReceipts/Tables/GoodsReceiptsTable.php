@@ -7,6 +7,7 @@ use App\Filament\Pages\P2p\BulkGoodsReceipt;
 use App\Models\P2p\GoodReceiptState;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
+use Filament\Notifications\Notification;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -49,6 +50,11 @@ class GoodsReceiptsTable
                     ->toggleable(),
             ])
             ->defaultSort('updated_at', 'desc')
+            // Only pending / returned GRs can be worked on; the rest stay viewable
+            // (row link) but cannot be bulk-selected or processed.
+            ->checkIfRecordIsSelectableUsing(
+                fn (GoodReceiptState $record): bool => $record->status->isEditableByVendor(),
+            )
             ->recordActions([
                 Action::make('process')
                     ->icon(Heroicon::OutlinedPlay)
@@ -62,7 +68,23 @@ class GoodsReceiptsTable
                     ->label('Process Selected')
                     ->icon(Heroicon::OutlinedPlay)
                     ->visible(fn (): bool => auth()->user()?->hasRole(RoleName::Vendor) ?? false)
-                    ->action(fn (Collection $records) => redirect(BulkGoodsReceipt::getUrl(['ids' => $records->pluck('id')->all()]))),
+                    ->action(function (Collection $records): void {
+                        $ids = $records
+                            ->filter(fn (GoodReceiptState $record): bool => $record->status->isEditableByVendor())
+                            ->pluck('id')
+                            ->all();
+
+                        if ($ids === []) {
+                            Notification::make()
+                                ->title('Only pending goods receipts can be processed.')
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
+                        redirect(BulkGoodsReceipt::getUrl(['ids' => $ids]));
+                    }),
             ])
             ->recordUrl(fn (GoodReceiptState $record): ?string => self::processUrl($record))
             ->striped();

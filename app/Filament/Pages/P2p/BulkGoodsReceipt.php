@@ -203,6 +203,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             $this->invoiceAt = optional($invoice->invoice_at)->toDateString() ?? now()->toDateString();
         } else {
             $this->invoiceAt = now()->toDateString();
+            $this->isViewOnly = $this->selectionIsViewOnly();
         }
 
         $first = $this->receipts->first();
@@ -472,6 +473,17 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
     }
 
     /**
+     * A selection is read-only unless every GR in it is still pending or returned.
+     * Non-pending GRs may be opened for viewing, but never processed or escalated.
+     */
+    protected function selectionIsViewOnly(): bool
+    {
+        return $this->receipts->contains(
+            fn (GoodReceiptState $state): bool => ! $state->status->isEditableByVendor(),
+        );
+    }
+
+    /**
      * Data for the workflow stepper shown on an existing invoice: its status, the
      * approval history (so visited steps light up even after a return), and any open
      * escalations (rendered one stepper per GR/batch).
@@ -523,11 +535,18 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         $user = auth()->user();
         $service = app(P2pGoodReceiptSubmissionService::class);
 
+        // Only the GRs behind the ticked lines belong to this request; a GR the vendor
+        // left unticked stays pending.
+        $states = $service->statesForItems(array_map(
+            fn (array $line): int => (int) $line['p2p_sap_good_receipt_item_id'],
+            $lines,
+        ));
+
         $flags = $this->matchFlags();
 
         try {
-            DB::transaction(function () use ($lines, $user, $flags, $matchRemarks, $service): void {
-                $invoice = $this->invoiceModel() ?? $service->start($user, array_map('intval', $this->ids));
+            DB::transaction(function () use ($lines, $states, $user, $flags, $matchRemarks, $service): void {
+                $invoice = $this->invoiceModel() ?? $service->start($user, $states);
 
                 $service->submit($invoice, $lines, $user, [
                     'invoice_at' => $this->invoiceAt,
@@ -596,26 +615,49 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             'escalationRemarks' => ['required', 'string'],
         ]);
 
-        $ids = $this->goodsReceiptStateIds();
+        $lines = $this->selectedLines();
 
-        if ($ids === []) {
-            Notification::make()->title('Select at least one goods receipt to escalate.')->danger()->send();
+        if ($lines === []) {
+            Notification::make()->title('Select at least one line with a quantity to escalate.')->danger()->send();
 
             return;
         }
 
         $user = auth()->user();
         $service = app(P2pGoodReceiptSubmissionService::class);
+        $reason = (string) $this->escalationReason;
 
-        $invoice = $this->invoiceModel() ?? $service->start($user, $ids);
-
-        app(P2pEscalationRoutingService::class)->start(
-            $invoice,
-            $this->escalationReason,
-            $ids,
-            $user,
-            $this->escalationRemarks,
+        $itemIds = array_map(
+            fn (array $line): int => (int) $line['p2p_sap_good_receipt_item_id'],
+            $lines,
         );
+
+        try {
+            DB::transaction(function () use ($itemIds, $user, $service, $reason): void {
+                $states = $service->statesForItems($itemIds);
+                $invoice = $this->invoiceModel() ?? $service->start($user, $states);
+
+                // Only the ticked items go on the escalation; the rest stay pending.
+                $service->splitForSelectedItems($itemIds, $invoice);
+
+                app(P2pEscalationRoutingService::class)->start(
+                    $invoice,
+                    $reason,
+                    $states->pluck('id')->all(),
+                    $user,
+                    $this->escalationRemarks,
+                );
+            });
+        } catch (ValidationException $exception) {
+            Notification::make()
+                ->title('Could not escalate')
+                ->body($exception->validator?->errors()->first() ?? $exception->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+
+            return;
+        }
 
         Notification::make()->title('Escalation raised')->success()->send();
 
@@ -1025,7 +1067,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             ->map(fn (array $flag): string => sprintf(
                 '<li><strong>GR %s · %s</strong>: %s</li>',
                 e($flag['gr_number']),
-                e($flag['item_name']),
+                e($flag['purchase_order_item']),
                 e(implode(' ', $flag['reasons'])),
             ))
             ->implode('');
@@ -1310,21 +1352,6 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         return array_values(array_filter($state['attachments'] ?? $this->attachments));
     }
 
-    /**
-     * @return array<int, int>
-     */
-    protected function goodsReceiptStateIds(): array
-    {
-        if ($invoice = $this->invoiceModel()) {
-            return GoodReceiptState::query()
-                ->whereIn('good_receipt_number', $invoice->gr_numbers ?? [])
-                ->pluck('id')
-                ->all();
-        }
-
-        return array_map('intval', $this->ids);
-    }
-
     protected function invoiceQuery(): Builder
     {
         return Invoice::query()->with(['lines.sapItem.goodReceipt', 'vendor', 'company']);
@@ -1340,11 +1367,11 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
     protected function invoiceModel(): ?Invoice
     {
-        if (!blank($this->code)) {
+        if (! blank($this->code)) {
             return $this->loadedInvoice ??= $this->invoiceQuery()->where('code', $this->code)->first();
         }
 
-        if (!blank($this->invoice)) {
+        if (! blank($this->invoice)) {
             return $this->loadedInvoice ??= $this->invoiceQuery()->findOrFail((int) $this->invoice);
         }
 

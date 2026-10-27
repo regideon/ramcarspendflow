@@ -173,6 +173,7 @@ it('escalates the selected goods receipts with a reason and remarks', function (
     $this->actingAs($c['user']);
 
     Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->set('goods_receipts.0.goodReceiptItems.0.include', true)
         ->call('escalate', [
             'escalationReason' => $reason->code,
             'escalationRemarks' => 'Received quantity is short.',
@@ -180,6 +181,58 @@ it('escalates the selected goods receipts with a reason and remarks', function (
         ->assertHasNoErrors();
 
     expect($c['states'][0]->fresh()->status)->toBe(P2pStatus::EscalatedToWarehouse);
+});
+
+it('escalates only the ticked items and leaves the rest pending', function () {
+    $c = bulkContext();
+    $reason = bulkEscalationReason();
+
+    $unselected = SapGoodReceiptItem::factory()->for($c['items'][0]->goodReceipt, 'goodReceipt')->create([
+        'purchase_order' => $c['states'][0]->purchase_order,
+        'purchase_order_item' => '00020',
+        'quantity_po' => 5,
+        'quantity_served' => 5,
+        'unit_cost' => 50,
+    ]);
+
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->set('goods_receipts.0.goodReceiptItems.0.include', true)
+        ->call('escalate', [
+            'escalationReason' => $reason->code,
+            'escalationRemarks' => 'Received quantity is short.',
+        ])
+        ->assertHasNoErrors();
+
+    $partial = GoodReceiptState::query()
+        ->where('good_receipt_number', $c['states'][0]->good_receipt_number.'-P1')
+        ->sole();
+
+    expect($c['states'][0]->fresh()->status)->toBe(P2pStatus::EscalatedToWarehouse)
+        ->and($partial->status)->toBe(P2pStatus::Pending)
+        ->and($unselected->fresh()->p2p_sap_good_receipt_id)->toBe($partial->p2p_sap_good_receipt_id);
+});
+
+it('opens a non-pending goods receipt read-only', function () {
+    $c = bulkContext();
+    $c['states'][0]->forceFill(['status' => P2pStatus::SubmittedToAp])->save();
+
+    $this->actingAs($c['user']);
+
+    $component = Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]]);
+
+    expect($component->instance()->isViewOnly)->toBeTrue();
+
+    $component->set('reference_number', ['SHOULD-NOT-SAVE'])
+        ->set('attachments', ['attachments-pdf/other.pdf'])
+        ->call('submit')
+        ->call('escalate', [
+            'escalationReason' => 'quantity_difference',
+            'escalationRemarks' => 'Should not run.',
+        ]);
+
+    expect(Invoice::query()->count())->toBe(0);
 });
 
 it('opens a submitted invoice read-only', function () {

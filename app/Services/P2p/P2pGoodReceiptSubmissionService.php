@@ -7,6 +7,7 @@ use App\Models\P2p\ApprovalHistory;
 use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
+use App\Models\P2p\SapGoodReceipt;
 use App\Models\P2p\SapGoodReceiptItem;
 use App\Models\P2p\SapPurchaseOrder;
 use App\Models\User;
@@ -18,10 +19,11 @@ use Illuminate\Validation\ValidationException;
 /**
  * Creates and submits P2P invoices (the vendor's "Submit to AP").
  *
- * Billing is by **quantity**, not by cloning GR rows: each line references a SAP GR
- * item and records how much is billed; remaining = mirror quantity − Σ billed. A GR
- * stays billable while it has remaining quantity, so partial invoices need no `-P`
- * clones. See docs/p2p/02-data-model.md §2.5 and 06-workflow-statuses.md §4.
+ * Billing is by **quantity**: each line references a SAP GR item and records how much
+ * is billed; remaining = mirror quantity − Σ billed. When the vendor submits only some
+ * of a GR's items, the unselected items move to a `-P{n}` clone so they stay pending
+ * while the selected items are submitted on the real SAP GR number.
+ * See docs/p2p/02-data-model.md §2.5 and 06-workflow-statuses.md §4.
  *
  * Every status change runs inside DB::transaction with a row lock, and writes a
  * p2p_approval_histories row.
@@ -61,6 +63,12 @@ class P2pGoodReceiptSubmissionService
             throw ValidationException::withMessages(['gr_numbers' => 'Select at least one goods receipt.']);
         }
 
+        if ($states->contains(fn (GoodReceiptState $state): bool => ! $state->status->isEditableByVendor())) {
+            throw ValidationException::withMessages([
+                'gr_numbers' => 'Only pending or returned goods receipts can be processed.',
+            ]);
+        }
+
         $companies = $states->pluck('company_id')->filter()->unique();
         $vendors = $states->pluck('vendor_id')->filter()->unique();
         $currencies = $this->currenciesForPurchaseOrders(
@@ -92,6 +100,177 @@ class P2pGoodReceiptSubmissionService
     }
 
     /**
+     * The GR states that own the given SAP GR items.
+     *
+     * @param  array<int, int>  $itemIds
+     * @return Collection<int, GoodReceiptState>
+     */
+    public function statesForItems(array $itemIds): Collection
+    {
+        $receiptIds = SapGoodReceiptItem::query()
+            ->whereKey($itemIds)
+            ->pluck('p2p_sap_good_receipt_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($receiptIds === []) {
+            return collect();
+        }
+
+        return GoodReceiptState::query()
+            ->whereIn('p2p_sap_good_receipt_id', $receiptIds)
+            ->get();
+    }
+
+    /**
+     * Split off the items the vendor did not select, so a partial submission or
+     * escalation leaves them pending on a `-P{n}` GR instead of advancing the whole GR.
+     *
+     * The selected items stay on their GR (the invoice keeps the real SAP GR number);
+     * the unselected items that still have billable quantity move to a clone GR.
+     *
+     * @param  array<int, int>  $selectedItemIds
+     */
+    public function splitForSelectedItems(array $selectedItemIds, ?Invoice $invoice = null): void
+    {
+        $selectedItemIds = array_values(array_unique(array_map('intval', $selectedItemIds)));
+
+        if ($selectedItemIds === []) {
+            return;
+        }
+
+        $selectedItems = SapGoodReceiptItem::query()
+            ->with('goodReceipt')
+            ->whereKey($selectedItemIds)
+            ->get();
+
+        foreach ($selectedItems->groupBy('p2p_sap_good_receipt_id') as $items) {
+            $receipt = $items->first()?->goodReceipt;
+
+            if ($receipt === null) {
+                continue;
+            }
+
+            $state = GoodReceiptState::query()
+                ->where('p2p_sap_good_receipt_id', $receipt->id)
+                ->first();
+
+            if ($state === null) {
+                continue;
+            }
+
+            $this->splitOffUnselectedItems($state, $items->pluck('id')->all(), $invoice);
+        }
+    }
+
+    /**
+     * @param  array<int, int>  $selectedItemIds
+     */
+    protected function splitOffUnselectedItems(GoodReceiptState $state, array $selectedItemIds, ?Invoice $invoice): void
+    {
+        $receipt = $state->sapGoodReceipt;
+        $grNumber = (string) $state->good_receipt_number;
+
+        if ($receipt === null || $grNumber === '') {
+            return;
+        }
+
+        $items = $receipt->items()->get();
+        $unselected = $items->whereNotIn('id', $selectedItemIds)->values();
+
+        if ($unselected->isEmpty()) {
+            return;
+        }
+
+        $remaining = $this->remainingQuantitiesFor($items, $invoice);
+
+        $billable = $unselected
+            ->filter(fn (SapGoodReceiptItem $item): bool => ($remaining[$item->id] ?? 0) > 0)
+            ->values();
+
+        if ($billable->isEmpty()) {
+            return;
+        }
+
+        $partialNumber = $this->nextPartialGrNumber($grNumber);
+
+        $partialReceipt = SapGoodReceipt::query()->create([
+            'purchase_order' => $receipt->purchase_order,
+            'company_id' => $receipt->company_id,
+            'vendor_id' => $receipt->vendor_id,
+            'good_receipt_number' => $partialNumber,
+            'reference_number' => $receipt->reference_number,
+            'amount_total' => $billable->sum(fn (SapGoodReceiptItem $item): float => $this->itemAmount($item)),
+            'due_at' => $receipt->due_at,
+            'upload_at' => $receipt->upload_at,
+            'date_at' => $receipt->date_at,
+            'delivery_type_id' => $receipt->delivery_type_id,
+        ]);
+
+        SapGoodReceiptItem::query()
+            ->whereKey($billable->pluck('id')->all())
+            ->update(['p2p_sap_good_receipt_id' => $partialReceipt->id]);
+
+        $partialState = GoodReceiptState::query()->create([
+            'p2p_sap_good_receipt_id' => $partialReceipt->id,
+            'purchase_order' => $state->purchase_order,
+            'good_receipt_number' => $partialNumber,
+            'company_id' => $state->company_id,
+            'vendor_id' => $state->vendor_id,
+            'status' => P2pStatus::Pending,
+        ]);
+
+        $state->unsetRelation('sapGoodReceipt');
+
+        $this->syncStateTotals($state);
+        $this->syncStateTotals($partialState);
+    }
+
+    /**
+     * Keep a GR's cached quantity/amount totals in step with the items it still owns
+     * after a split.
+     */
+    protected function syncStateTotals(GoodReceiptState $state): void
+    {
+        $items = $state->sapGoodReceipt?->items()->get() ?? collect();
+
+        $state->forceFill([
+            'quantity_total' => (int) round((float) $items->sum('quantity_po')),
+            'quantity_served' => (int) round((float) $items->sum(
+                fn (SapGoodReceiptItem $item): float => (float) ($item->quantity_served ?? $item->quantity_po ?? 0),
+            )),
+            'amount_total' => $items->sum(fn (SapGoodReceiptItem $item): float => $this->itemAmount($item)),
+        ])->save();
+    }
+
+    protected function itemAmount(SapGoodReceiptItem $item): float
+    {
+        if ($item->amount !== null) {
+            return (float) $item->amount;
+        }
+
+        return (float) ($item->quantity_served ?? $item->quantity_po ?? 0) * (float) ($item->unit_cost ?? 0);
+    }
+
+    /**
+     * The next free legacy-style partial number (`{base}-P1`, `{base}-P2`, …).
+     */
+    protected function nextPartialGrNumber(string $grNumber): string
+    {
+        $base = preg_replace('/-P\d+$/', '', $grNumber) ?: $grNumber;
+
+        $suffix = GoodReceiptState::query()
+            ->where('good_receipt_number', 'LIKE', $base.'-P%')
+            ->pluck('good_receipt_number')
+            ->map(fn (?string $number): int => (int) preg_replace('/^.*-P(\d+)$/', '$1', (string) $number))
+            ->max() ?? 0;
+
+        return $base.'-P'.($suffix + 1);
+    }
+
+    /**
      * Submit (or resubmit) selected GR lines to AP Processor.
      *
      * @param  array<int, array{p2p_sap_good_receipt_item_id: int, quantity_billed: int|float|string, invoice_reference?: ?string, invoice_unit_price?: ?float, invoice_currency?: ?string, match_status?: ?string, match_reasons?: list<string>, is_invoice_verified?: bool, is_quantity_edited?: bool}>  $lines
@@ -116,6 +295,13 @@ class P2pGoodReceiptSubmissionService
             if ($lines === []) {
                 throw ValidationException::withMessages(['lines' => 'Enter a served quantity on at least one line.']);
             }
+
+            // Leave the items the vendor did not tick on their own pending GR; the
+            // selected items keep the real SAP GR number for the invoice.
+            $this->splitForSelectedItems(
+                array_map(fn (array $line): int => (int) $line['p2p_sap_good_receipt_item_id'], $lines),
+                $invoice,
+            );
 
             $items = SapGoodReceiptItem::query()
                 ->with('goodReceipt')
