@@ -87,8 +87,8 @@
     <div class="flex items-start">
         @foreach ($flow as $index => $step)
             @php
-                $isDone = $index < $furthestIndex;
-                $isCurrent = ! $isTerminal && $index === $furthestIndex;
+                $isDone = $index < $currentIndex;
+                $isCurrent = ! $isTerminal && $index === $currentIndex;
             @endphp
 
             <div class="{{ $loop->last ? 'flex-none' : 'flex-1' }}">

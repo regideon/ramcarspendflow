@@ -114,6 +114,22 @@ it('lands on the pending tab by default', function () {
         ->assertRedirectContains('activeTab=pending');
 });
 
+it('only lets pending goods receipts be selected for processing', function () {
+    [$user, $vendor, $company] = grListContext();
+    $this->actingAs($user);
+
+    $pending = grListState($vendor, $company, '4500000500', '5000000500');
+    $submitted = grListState($vendor, $company, '4500000501', '5000000501', P2pStatus::SubmittedToAp);
+
+    $table = Livewire::withQueryParams(['activeTab' => 'all'])
+        ->test(ListGoodsReceipts::class)
+        ->instance()
+        ->getTable();
+
+    expect($table->isRecordSelectable($pending))->toBeTrue()
+        ->and($table->isRecordSelectable($submitted))->toBeFalse();
+});
+
 it('links back to purchase orders', function () {
     [$user] = grListContext();
     $this->actingAs($user);

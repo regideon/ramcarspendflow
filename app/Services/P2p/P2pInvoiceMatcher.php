@@ -262,7 +262,10 @@ class P2pInvoiceMatcher
             $score += 2;
         }
 
-        $score += min(3, count(array_intersect($this->words($line['description'] ?? ''), $this->words($item->item_name.' '.$item->item?->name))));
+        $score += min(3, count(array_intersect(
+            $this->words($line['description'] ?? ''),
+            $this->words($item->item_name.' '.$item->item_description.' '.$item->item?->name),
+        )));
 
         return $score;
     }

@@ -14,6 +14,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use STS\FilamentImpersonate\Actions\Impersonate;
 
 class UsersTable
@@ -21,6 +22,7 @@ class UsersTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query->with(['companies', 'vendors']))
             ->columns([
                 TextColumn::make('name')
                     ->searchable()
@@ -30,8 +32,18 @@ class UsersTable
                 TextColumn::make('roles.name')
                     ->badge(),
                 TextColumn::make('company.short_name')
-                    ->label('Company')
+                    ->label('Home company')
                     ->placeholder('—'),
+                TextColumn::make('companies.name')
+                    ->label('Companies')
+                    ->badge()
+                    ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('vendors.name')
+                    ->label('Vendors')
+                    ->badge()
+                    ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 IconColumn::make('is_active')
                     ->label('Active')
                     ->boolean(),

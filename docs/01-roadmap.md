@@ -95,19 +95,20 @@ flowchart LR
 | 2.12 | RFP PDF, reports, exports | |
 | 2.13 | SAP integration | **Pending:** being confirmed with the team (open question R5) |
 
-### Phase 3 — P2P module ⬜
+### Phase 3 — P2P module 🟡
 | # | Feature | Notes |
 |---|---|---|
-| 3.1 | SAP sync: POs, GRs, GR items (OData) | **Source of all P2P purchasing data, read-only in the portal.** Until SAP integration starts, use generic demo POs/GRs. Queued, deduplicated per vendor; scheduled daily, plus a vendor "Sync from SAP" button |
-| 3.2 | Vendor portal: **choose synced GR(s) first** → invoice submission | **Medius-style:** the uploaded invoice PDF shown side by side with the PO/GR lines |
-| 3.3 | Partial submissions (`-P1`, `-P2`) and returned partials | |
-| 3.4 | AP Processor review | Tax/WHT, VAT/EWT summary, forward to AP Supervisor |
-| 3.5 | AP Supervisor approval → SAP park | Write side planned via AL11 file interface (P2P plan 261001) |
-| 3.6 | Escalations (data-driven routes) | Procurement / Warehouse hops, Reverse & re-GR |
-| 3.7 | Returns and cancellation | Return to vendor / to AP Processor; vendor cancels a returned request |
-| 3.8 | SAP status poll (ACDOCA) | Parked → posted → completed (cleared) |
-| 3.9 | **P2P Approvals** resource | Separate from RFP Approvals, with its own **count badge** |
-| 3.10 | Three-way match badge | PO vs GR vs invoice |
+| 3.1 | SAP sync: POs, GRs, GR items (OData) | ✅ OData reader + two-source discovery, behind `SAP_ENABLED` (demo data when off). Queued per vendor, daily + "Sync from SAP" |
+| 3.2 | Vendor portal: **choose synced GR(s) first** → invoice submission | ✅ Medius-style PDF beside the PO/GR lines |
+| 3.3 | Partial submissions and returned partials | ✅ Bill by quantity (no `-P` clones) |
+| 3.4 | AP Processor review | ✅ Tax/WHT, VAT/EWT summary, forward to AP Supervisor |
+| 3.5 | AP Supervisor approval → SAP park | ✅ **SOAP** `ZMM_FM_P2P_INCOMINGINVOICE`; AL11 not used |
+| 3.6 | Escalations (data-driven routes) | ✅ Procurement / Warehouse hops, Reverse & re-GR |
+| 3.7 | Returns and cancellation | ✅ Return to vendor / to AP Processor; vendor cancels a returned request |
+| 3.8 | SAP status poll (ACDOCA) | ✅ `p2p:poll-sap-invoice-status`, every 5 minutes |
+| 3.9 | **P2P Approvals** resource | ✅ Separate from RFP Approvals, own count badge |
+| 3.10 | Three-way match badge | ✅ PO vs GR vs invoice |
+| 3.11 | SAP communication logs | ✅ Admin-only `p2p/sap-logs`, 90-day retention |
 
 ### Phase 4 — Cross-cutting & go-live ⬜
 | Feature | Notes |

@@ -49,7 +49,7 @@ class GoodsReceiptResource extends Resource
         $user = auth()->user();
 
         if ($user !== null && $user->hasRole(RoleName::Vendor) && ! $user->hasRole(RoleName::Admin)) {
-            $query->where('vendor_id', $user->vendor_id);
+            $query->whereIn('vendor_id', $user->vendorIds());
         }
 
         // The Purchase Orders -> GRs deep-link scope (gr_numbers / purchase_orders) is

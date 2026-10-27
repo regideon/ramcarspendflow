@@ -9,6 +9,7 @@ use App\Filament\Concerns\HasCommentsChat;
 use App\Filament\Resources\P2p\Approvals\ApprovalResource;
 use App\Models\P2p\Escalation;
 use App\Models\P2p\EscalationReason;
+use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
 use App\Models\P2p\SapGoodReceiptItem;
@@ -40,6 +41,7 @@ use Filament\Schemas\Components\Callout;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Group;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\Width;
@@ -47,7 +49,9 @@ use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Url;
+use Throwable;
 
 /**
  * The AP processing screen, ported from the legacy BulkAccountsPayable page.
@@ -80,6 +84,9 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
      */
     #[Url]
     public ?int $invoice = null;
+
+    #[Url]
+    public ?string $code = null;
 
     /**
      * Read-only mode: opened by a role that may review but not act.
@@ -217,13 +224,20 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
     protected function invoiceModel(): ?Invoice
     {
-        if (blank($this->invoice)) {
-            return null;
+        if (!blank($this->invoice)) {
+            return $this->loadedInvoice ??= Invoice::query()
+                ->with(['vendor', 'company', 'escalations.reason.steps'])
+                ->find((int) $this->invoice);
         }
 
-        return $this->loadedInvoice ??= Invoice::query()
-            ->with(['vendor', 'company', 'escalations.reason.steps'])
-            ->find((int) $this->invoice);
+        if (!blank($this->code)) {
+            return $this->loadedInvoice ??= Invoice::query()
+                ->with(['vendor', 'company', 'escalations.reason.steps'])
+                ->where('code', $this->code)
+                ->first();
+        }
+
+        return null;
     }
 
     public function mount(): void
@@ -300,6 +314,16 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             ->with('sapItem.goodReceipt')
             ->get();
 
+        // Escalations point at p2p_good_receipt_states — not at the SAP receipt behind
+        // it — so map each GR on the invoice to its state row by GR number (falling
+        // back to the SAP receipt id) before the rows are built.
+        $states = GoodReceiptState::query()
+            ->whereIn('good_receipt_number', collect($invoice->gr_numbers ?? [])->filter()->values()->all())
+            ->get(['id', 'good_receipt_number', 'p2p_sap_good_receipt_id']);
+
+        $stateIdsByGrNumber = $states->pluck('id', 'good_receipt_number');
+        $stateIdsBySapReceiptId = $states->pluck('id', 'p2p_sap_good_receipt_id');
+
         // One pass for every mirror GR item on the invoice's POs, so the 3-way
         // breakdown is derived from in-memory data instead of a query per line
         // (which the query detector reports as an N+1).
@@ -316,9 +340,11 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
         return $lines
             ->groupBy(fn (InvoiceLine $line): string => (string) ($line->sapItem?->goodReceipt?->good_receipt_number ?? $line->purchase_order))
-            ->map(function (Collection $grLines, string $grNumber) use ($matchService, $itemsByPoLine, $reversedGoodReceiptIds, $billedByItem, &$matchByLine, $escalatedGrIds): array {
+            ->map(function (Collection $grLines, string $grNumber) use ($matchService, $itemsByPoLine, $reversedGoodReceiptIds, $billedByItem, &$matchByLine, $escalatedGrIds, $stateIdsByGrNumber, $stateIdsBySapReceiptId): array {
                 $first = $grLines->first();
-                $stateId = (int) ($first?->sapItem?->goodReceipt?->id ?? 0);
+                $stateId = (int) ($stateIdsByGrNumber[$grNumber]
+                    ?? $stateIdsBySapReceiptId[(int) ($first?->sapItem?->p2p_sap_good_receipt_id ?? 0)]
+                    ?? 0);
                 $isEscalated = in_array($stateId, $escalatedGrIds, true);
 
                 $rows = $grLines->map(function (InvoiceLine $line) use ($matchService, $itemsByPoLine, $reversedGoodReceiptIds, $billedByItem, &$matchByLine, $isEscalated): array {
@@ -340,7 +366,7 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                         'material_doc_item' => $line->sapItem?->material_doc_item,
                         'escalation_status' => $isEscalated ? 'Escalated' : 'Not escalated',
                         'item_name' => $line->item_name,
-                        'item_description' => $line->item_name,
+                        'item_description' => $line->item_description ?: $line->sapItem?->item_description ?: $line->item_name,
                         'quantity_po' => (int) $line->quantity_po,
                         'uom' => $line->uom,
                         'quantity_served' => (int) ($line->sapItem?->quantity_served ?? $line->quantity_po),
@@ -469,10 +495,10 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                                                     ->table([
                                                         ...($showReportColumn ? [TableColumn::make('Report')] : []),
                                                         ...($showEscalationColumn ? [TableColumn::make('Scope')] : []),
-                                                        TableColumn::make('Short Text'),
+                                                        TableColumn::make('Description'),
                                                         TableColumn::make('Item No.'),
-                                                        TableColumn::make('PO Qty'),
                                                         TableColumn::make('Uom'),
+                                                        TableColumn::make('PO Qty'),
                                                         TableColumn::make('Invoice Qty'),
                                                         TableColumn::make('UC'),
                                                         TableColumn::make('Amount'),
@@ -500,10 +526,10 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                                                         TextEntry::make('purchase_order_item')
                                                             ->hiddenLabel(),
 
-                                                        TextEntry::make('quantity_po')
+                                                        TextEntry::make('uom')
                                                             ->hiddenLabel(),
 
-                                                        TextEntry::make('uom')
+                                                        TextEntry::make('quantity_po')
                                                             ->hiddenLabel(),
 
                                                         TextEntry::make('quantity_served')
@@ -609,11 +635,10 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                 ->dehydrated(false)
                 ->columnSpan(['default' => 12, 'md' => 4]),
 
-            TextInput::make('reference_number_display')
+            TextInput::make('reference_number')
                 ->label('Reference No.')
                 ->readOnly()
                 ->dehydrated(false)
-                ->formatStateUsing(fn (): string => implode(', ', $this->data['reference_number'] ?? []))
                 ->columnSpan(['default' => 12, 'md' => 4]),
 
             TextInput::make('overall_invoice_total')
@@ -840,13 +865,19 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             ];
         }
 
-        if ($this->isViewOnly) {
-            return [$this->backAction()];
-        }
-
         $invoice = $this->invoiceModel();
 
         if ($invoice === null) {
+            return [$this->backAction()];
+        }
+
+        // A failed SOAP park leaves the invoice at 21 with the error recorded; the
+        // supervisor can retry without returning it to the processor.
+        if ($invoice->status === P2pStatus::PendingPost && $this->isSupervisor()) {
+            return [$this->retryParkAction(), $this->backAction()];
+        }
+
+        if ($this->isViewOnly) {
             return [$this->backAction()];
         }
 
@@ -1014,6 +1045,44 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             ->action(fn (array $data) => $this->approve($data));
     }
 
+    protected function retryParkAction(): Action
+    {
+        return Action::make('retryPark')
+            ->label('Retry SAP parking')
+            ->color('warning')
+            ->icon(Heroicon::OutlinedArrowPath)
+            ->schema([
+                Textarea::make('remarks_checker')
+                    ->label('Remarks')
+                    ->default('Retry SAP parking.')
+                    ->required(),
+            ])
+            ->action(function (array $data): void {
+                try {
+                    $parked = app(P2pInvoiceParkingService::class)->retry(
+                        $this->invoiceModel(),
+                        $this->currentUser(),
+                        (string) ($data['remarks_checker'] ?? 'Retry SAP parking.'),
+                    );
+
+                    Notification::make()
+                        ->title('Invoice parked')
+                        ->body('SAP document '.($parked->invoice_number ?? '—').'.')
+                        ->success()
+                        ->send();
+                } catch (Throwable $exception) {
+                    Notification::make()
+                        ->title('SAP parking failed')
+                        ->body($exception->getMessage())
+                        ->danger()
+                        ->persistent()
+                        ->send();
+                }
+
+                $this->redirectBack();
+            });
+    }
+
     protected function returnToApProcessorAction(): Action
     {
         return Action::make('returnToApProcessor')
@@ -1130,13 +1199,26 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             return;
         }
 
-        app(P2pInvoiceParkingService::class)->park($invoice, $this->currentUser(), $remarks);
+        try {
+            $parked = app(P2pInvoiceParkingService::class)->park($invoice, $this->currentUser(), $remarks);
 
-        Notification::make()
-            ->title('Approved')
-            ->body('The invoice has been queued for parking in SAP.')
-            ->success()
-            ->send();
+            $message = $parked->status === P2pStatus::InvoiceParked
+                ? 'Invoice parked in SAP'.($parked->invoice_number ? " (doc {$parked->invoice_number})" : '').'.'
+                : 'The invoice is queued for parking in SAP (Pending Post).';
+
+            Notification::make()
+                ->title('Approved')
+                ->body($message)
+                ->success()
+                ->send();
+        } catch (Throwable $exception) {
+            Notification::make()
+                ->title('SAP parking failed')
+                ->body($exception->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+        }
 
         $this->redirectBack();
     }
@@ -1242,13 +1324,24 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
         $this->persistTax($invoice);
 
-        app(P2pEscalationRoutingService::class)->start(
-            $invoice,
-            $reason,
-            $stateIds,
-            $this->currentUser(),
-            $remarks,
-        );
+        try {
+            app(P2pEscalationRoutingService::class)->start(
+                $invoice,
+                $reason,
+                $stateIds,
+                $this->currentUser(),
+                $remarks,
+            );
+        } catch (ValidationException $exception) {
+            Notification::make()
+                ->title('Escalation failed')
+                ->body($exception->validator?->errors()->first() ?? $exception->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+
+            return;
+        }
 
         Notification::make()
             ->title('Escalated')

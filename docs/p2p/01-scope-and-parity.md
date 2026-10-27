@@ -15,12 +15,12 @@ This maps every legacy P2P feature to a decision: **Port** (same behaviour),
 | 4 | Submit to AP / Escalate | Port | |
 | 5 | Partial submission (`-P1`, `-P2` clones) | **Redesign** | Bill by quantity; no local row cloning (see §1.3) |
 | 6 | AP Processor review (tax/VAT/WHT) | Port | `TaxSummaryService` |
-| 7 | AP Supervisor/Checker approve → SAP park | **Deferred** | Blocker: AP Checker role identity (decision #5) |
-| 8 | Checker reject | Deferred | With #7 |
+| 7 | AP Supervisor/Checker approve → SAP park | **Port** | SOAP `ZMM_FM_P2P_INCOMINGINVOICE`; AL11 not used |
+| 8 | Checker reject | **Port** | Implemented as Return to AP Processor |
 | 9 | Escalations (data-driven routes) | Port | `escalation_reasons` + steps; +Reverse & re-GR action |
 | 10 | Return to Vendor / Return to AP Processor | Port | |
 | 11 | Cancel request (vendor, on a returned request) | Port | |
-| 12 | ACDOCA status poll (parked → posted → completed) | Deferred | With SAP write side (#7) |
+| 12 | ACDOCA status poll (parked → posted → completed) | **Port** | `p2p:poll-sap-invoice-status`, every 5 minutes |
 | 13 | Three-way match badge (PO vs GR vs invoice) | Port | `ThreeWayMatchService` |
 | 14 | GR reversal detection (`BWART 102`) | Port | `ReversalDetectionService`; auto-resolve escalations |
 | 15 | Material/SLOC classification | Port | Data-driven; AP Finance classifies unknowns |
@@ -48,7 +48,9 @@ P2P is done for this pass when, on **fresh seed data**:
 - **P2P Settings** manage the module's master data.
 - Every status transition has a Pest test.
 
-Checker/park, ACDOCA, and the SAP write side are explicitly **out of this pass**.
+Checker/park, ACDOCA and the SOAP write side are now implemented behind
+`SAP_ENABLED`; real SAP go-live still needs the endpoint/credentials and the
+business confirmation of the transport.
 
 ## 1.3 Partial submission — legacy vs redesign
 
@@ -65,6 +67,7 @@ Full detail in [Data model §2.5](02-data-model.md#25-the-normalization) and
 
 ## 1.4 Scope line for this pass
 
-- **In:** Vendor → AP Processor, PO/GR views, escalations, P2P Settings, export, 3-way match.
-- **Out (blocked/deferred):** AP Supervisor/Checker approval + SAP park, ACDOCA posted/cleared,
-  AP Manager, real SAP go-live, legacy data import.
+- **In:** Vendor → AP Processor → AP Supervisor, PO/GR views, escalations, P2P Settings,
+  export, 3-way match, SOAP park, ACDOCA posted/cleared, SAP communication logs.
+- **Out (deferred):** AP Manager/Treasury, real SAP go-live (credentials/endpoint),
+  legacy data import, AL11 (future option only).

@@ -31,6 +31,7 @@ use Illuminate\Support\Str;
     'gr_numbers', 'reference_number', 'clearing_doc_no', 'fi_doc_no', 'invoice_number',
     'quantity_submitted', 'amount_submitted', 'processed', 'completed_at', 'withholding_tax_code',
     'withholding_tax_base', 'tax_code', 'remarks_ap', 'remarks_checker', 'invoice_at', 'fiscal_year',
+    'sap_park_attempts', 'sap_park_error', 'sap_parked_at',
     'attachments', 'submitted_at', 'escalated_at', 'warning_sent_at', 'upload_at', 'updated_by',
     'vatable_sales', 'vat_exempt', 'vat_zero_rated', 'vat', 'total', 'ewt', 'net', 'invoice_match', 'match_flag_count',
 ])]
@@ -264,6 +265,8 @@ class Invoice extends Model
             'escalated_at' => 'datetime',
             'warning_sent_at' => 'datetime',
             'upload_at' => 'date',
+            'sap_park_attempts' => 'integer',
+            'sap_parked_at' => 'datetime',
         ];
     }
 }

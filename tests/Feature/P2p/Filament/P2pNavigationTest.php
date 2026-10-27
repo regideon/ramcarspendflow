@@ -52,7 +52,7 @@ function navigationGroups(): array
 it('keeps the configured navigation groups in order', function () {
     $this->actingAs(User::factory()->create()->assignRole(RoleName::Admin));
 
-    expect(navigationGroups())->toBe(['P2P', 'Settings']);
+    expect(navigationGroups())->toBe(['RFP', 'P2P', 'Settings']);
 });
 
 it('files Approvals and Escalations under the P2P group', function () {
@@ -63,7 +63,7 @@ it('files Approvals and Escalations under the P2P group', function () {
         ->pluck('item')
         ->all();
 
-    expect($p2pItems)->toContain('Approvals');
+    expect($p2pItems)->toContain('P2P Approvals');
 });
 
 it('does not create separate Approvals or Escalations groups', function () {
@@ -80,7 +80,7 @@ it('shows the approvals destination to an AP processor and the supervisor', func
 
     $items = collect(navigationShape())->where('group', 'P2P')->pluck('item')->all();
 
-    expect($items)->toContain('Approvals');
+    expect($items)->toContain('P2P Approvals');
 })->with([
     'ap processor' => RoleName::ApProcessor,
     'ap supervisor' => RoleName::ApSupervisor,

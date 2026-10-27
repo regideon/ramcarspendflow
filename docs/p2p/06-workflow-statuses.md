@@ -3,8 +3,9 @@
 _Last updated: 2026-10-10 · Sources: P2P master doc `261002`, `../p2p/docs/05-workflows.md`, `docs/04-p2p-flow.md`_
 
 > Decision #3: **replicate the legacy status IDs** for flow parity, and **document the
-> redesign** as a future target (§5). Decision #5: this pass stops at **AP Processor**;
-> checker/park and ACDOCA are deferred.
+> redesign** as a future target (§5). The AP Supervisor (the legacy "checker") and the
+> SAP park/ACDOCA steps are now implemented behind `SAP_ENABLED`; see
+> [SAP integration](07-sap-integration.md).
 
 ## 1. Actors
 
@@ -12,7 +13,7 @@ _Last updated: 2026-10-10 · Sources: P2P master doc `261002`, `../p2p/docs/05-w
 |---|---|---|
 | Vendor | `Vendor` | Submit GRs (invoices), escalate |
 | AP Processor | `ApProcessor` | Tax/WHT, advance, return, escalate |
-| AP Checker | **TBD — blocker** | Approve (park in SAP) / reject |
+| AP Checker | `ApSupervisor` | Approve (park in SAP) / return to AP Processor |
 | Procurement | `Procurement` | Escalation hop (description/UoM, price) |
 | Warehouse | `Warehouse`, `WarehouseRawMaterials`, `WarehouseSpareParts` | Escalation hop (quantity, reverse & re-GR) |
 | System | scheduler/jobs | Sync, ACDOCA, warnings |
@@ -60,11 +61,15 @@ stateDiagram-v2
     EscalateToProcurement --> EscalatedToWarehouse: Procurement → WHS (reverse & re-GR)
     EscalateToProcurement --> ReturnedToVendor: Procurement resolves
     ReturnedToVendor --> Pending: Vendor re-submits / cancels
+    SubmittedToChecker --> PendingPost: Checker Approve (SOAP park)
+    PendingPost --> InvoiceParked: SAP confirms the parked document
+    InvoiceParked --> InvoicePosted: ACDOCA BELNR
+    InvoicePosted --> Completed: ACDOCA AUGBL
 ```
 
-> Transitions to `4` (checker) are implemented as **state changes only** — the checker
-> screen and SAP park are deferred (blocker). `13/14/6` (park → posted → completed)
-> require the SAP write side.
+> The checker screen, SOAP park and ACDOCA poll are implemented. `SAP_ENABLED=false`
+> keeps the workflow on demo data: approval stops at `21 PendingPost` and no network
+> call is made.
 
 ### Transition reference
 
@@ -75,10 +80,11 @@ stateDiagram-v2
 | 2 | 4 | Processor Submit | `BulkAccountsPayable` (processor branch) |
 | 2 | 15 | Processor Return to Vendor | `P2pGoodReceiptReturnService` |
 | 2 | 10 | Processor Escalate | `P2pEscalationRoutingService` |
-| 4 | 13 | Checker Approve (PARK) | **deferred** |
-| 4 | 12 | Checker Reject | **deferred** |
-| 13 | 14 | ACDOCA `BELNR` | **deferred** |
-| 14 | 6 | ACDOCA `AUGBL` | **deferred** |
+| 4 | 21 | Checker Approve (queued for SOAP park) | `P2pInvoiceParkingService` |
+| 21 | 13 | SOAP returned `INVOICEDOCNUMBER` | `P2pInvoiceParkingService` |
+| 4 | 16 | Checker Return to AP Processor | `P2pGoodReceiptReturnService` |
+| 13 | 14 | ACDOCA `BELNR` | `P2pInvoiceStatusPollService` |
+| 14 | 6 | ACDOCA `AUGBL` | `P2pInvoiceStatusPollService` |
 | 8/9/10/18 | previous | Hop resolve | `P2pEscalationRoutingService` (uses `from_status`) |
 
 Every transition writes `p2p_approval_histories` (actor, from/to, remarks, visibility).
