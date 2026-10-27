@@ -19,7 +19,7 @@ class ListEscalations extends ListRecords
         $base = fn (): Builder => EscalationResource::getEloquentQuery();
 
         return [
-            'action_required' => Tab::make('Action Required')
+            'for_you' => Tab::make('For You')
                 ->badge(fn (): int => $this->countByStep($base(), 1))
                 ->query(fn (Builder $query): Builder => $query->where('current_step_order', 1)),
 

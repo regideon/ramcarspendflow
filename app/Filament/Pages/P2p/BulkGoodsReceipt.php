@@ -98,6 +98,9 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
     #[Url]
     public ?int $invoice = null;
 
+    #[Url]
+    public ?string $code = null;
+
     public ?bool $isViewOnly = false;
 
     public ?bool $isReturned = false;
@@ -325,7 +328,6 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
                                     TextEntry::make('purchase_order_item')->hiddenLabel(),
                                     TextEntry::make('item_short_text')->hiddenLabel(),
-                                    TextEntry::make('item_name')->hiddenLabel(),
                                     // The vendor's invoice line this GR line was matched to (Read invoice with AI)
                                     ...($this->hasInvoiceMatches() ? [
                                         TextEntry::make('invoice_line')
@@ -335,8 +337,8 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                                                 : null)
                                             ->placeholder('—'),
                                     ] : []),
-                                    TextEntry::make('quantity_po')->hiddenLabel(),
                                     TextEntry::make('uom')->hiddenLabel(),
+                                    TextEntry::make('quantity_po')->hiddenLabel(),
                                     TextEntry::make('quantity_served')->hiddenLabel(),
 
                                     // Inv Qty comes from the vendor's invoice (Read invoice with AI); the
@@ -637,8 +639,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
         $columns = array_merge($columns, [
             TableColumn::make('GR Item'),
-            TableColumn::make('SAP Short Text'),
-            TableColumn::make('Material'),
+            TableColumn::make('Description'),
         ]);
 
         if ($this->hasInvoiceMatches()) {
@@ -646,8 +647,8 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         }
 
         $columns = array_merge($columns, [
-            TableColumn::make('PO Qty'),
             TableColumn::make('Uom'),
+            TableColumn::make('PO Qty'),
             TableColumn::make('GR Qty'),
             TableColumn::make('Inv Qty'),
         ]);
@@ -1339,11 +1340,15 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
     protected function invoiceModel(): ?Invoice
     {
-        if (blank($this->invoice)) {
-            return null;
+        if (!blank($this->code)) {
+            return $this->loadedInvoice ??= $this->invoiceQuery()->where('code', $this->code)->first();
         }
 
-        return $this->loadedInvoice ??= $this->invoiceQuery()->findOrFail((int) $this->invoice);
+        if (!blank($this->invoice)) {
+            return $this->loadedInvoice ??= $this->invoiceQuery()->findOrFail((int) $this->invoice);
+        }
+
+        return null;
     }
 
     protected function authorizeInvoiceOwnership(Invoice $invoice): void

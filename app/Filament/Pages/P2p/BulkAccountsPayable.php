@@ -41,6 +41,7 @@ use Filament\Schemas\Components\Callout;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Group;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\Width;
@@ -83,6 +84,9 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
      */
     #[Url]
     public ?int $invoice = null;
+
+    #[Url]
+    public ?string $code = null;
 
     /**
      * Read-only mode: opened by a role that may review but not act.
@@ -220,13 +224,20 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
     protected function invoiceModel(): ?Invoice
     {
-        if (blank($this->invoice)) {
-            return null;
+        if (!blank($this->invoice)) {
+            return $this->loadedInvoice ??= Invoice::query()
+                ->with(['vendor', 'company', 'escalations.reason.steps'])
+                ->find((int) $this->invoice);
         }
 
-        return $this->loadedInvoice ??= Invoice::query()
-            ->with(['vendor', 'company', 'escalations.reason.steps'])
-            ->find((int) $this->invoice);
+        if (!blank($this->code)) {
+            return $this->loadedInvoice ??= Invoice::query()
+                ->with(['vendor', 'company', 'escalations.reason.steps'])
+                ->where('code', $this->code)
+                ->first();
+        }
+
+        return null;
     }
 
     public function mount(): void
@@ -484,10 +495,10 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                                                     ->table([
                                                         ...($showReportColumn ? [TableColumn::make('Report')] : []),
                                                         ...($showEscalationColumn ? [TableColumn::make('Scope')] : []),
-                                                        TableColumn::make('Short Text'),
+                                                        TableColumn::make('Description'),
                                                         TableColumn::make('Item No.'),
-                                                        TableColumn::make('PO Qty'),
                                                         TableColumn::make('Uom'),
+                                                        TableColumn::make('PO Qty'),
                                                         TableColumn::make('Invoice Qty'),
                                                         TableColumn::make('UC'),
                                                         TableColumn::make('Amount'),
@@ -515,10 +526,10 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                                                         TextEntry::make('purchase_order_item')
                                                             ->hiddenLabel(),
 
-                                                        TextEntry::make('quantity_po')
+                                                        TextEntry::make('uom')
                                                             ->hiddenLabel(),
 
-                                                        TextEntry::make('uom')
+                                                        TextEntry::make('quantity_po')
                                                             ->hiddenLabel(),
 
                                                         TextEntry::make('quantity_served')
@@ -624,11 +635,10 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                 ->dehydrated(false)
                 ->columnSpan(['default' => 12, 'md' => 4]),
 
-            TextInput::make('reference_number_display')
+            TextInput::make('reference_number')
                 ->label('Reference No.')
                 ->readOnly()
                 ->dehydrated(false)
-                ->formatStateUsing(fn (): string => implode(', ', $this->data['reference_number'] ?? []))
                 ->columnSpan(['default' => 12, 'md' => 4]),
 
             TextInput::make('overall_invoice_total')
