@@ -53,7 +53,8 @@ class GoodsReceiptsTable
             // Only pending / returned GRs can be worked on; the rest stay viewable
             // (row link) but cannot be bulk-selected or processed.
             ->checkIfRecordIsSelectableUsing(
-                fn (GoodReceiptState $record): bool => $record->status->isEditableByVendor(),
+                fn (GoodReceiptState $record): bool => $record->status->isEditableByVendor()
+                    && $record->hasBillableItems(),
             )
             ->recordActions([
                 Action::make('process')
@@ -70,7 +71,8 @@ class GoodsReceiptsTable
                     ->visible(fn (): bool => auth()->user()?->hasRole(RoleName::Vendor) ?? false)
                     ->action(function (Collection $records): void {
                         $ids = $records
-                            ->filter(fn (GoodReceiptState $record): bool => $record->status->isEditableByVendor())
+                            ->filter(fn (GoodReceiptState $record): bool => $record->status->isEditableByVendor()
+                                && $record->hasBillableItems())
                             ->pluck('id')
                             ->all();
 

@@ -192,31 +192,35 @@ class P2pPurchaseOrderSyncService
             );
 
             foreach (($gr['items'] ?? []) as $item) {
-                $receipt->items()->updateOrCreate(
-                    [
-                        'material_doc_year' => $item['material_doc_year'] ?? null,
-                        'material_doc_item' => $item['material_doc_item'] ?? null,
-                    ],
-                    [
-                        'purchase_order' => $data['purchase_order'],
-                        'purchase_order_item' => $item['purchase_order_item'] ?? null,
-                        'item_numbering' => $item['item_numbering'] ?? null,
-                        'item_id' => $item['item_id'] ?? null,
-                        'storage_location' => $item['storage_location'] ?? null,
-                        'item_name' => $item['item_name'] ?? null,
-                        'item_description' => $item['item_description'] ?? null,
-                        'quantity_po' => $item['quantity_po'] ?? null,
-                        'quantity_served' => $item['quantity_served'] ?? null,
-                        'uom' => $item['uom'] ?? null,
-                        'gr' => $item['gr'] ?? null,
-                        'unit_cost' => $item['unit_cost'] ?? null,
-                        'net_price' => $item['net_price'] ?? null,
-                        'price_unit' => $item['price_unit'] ?? 1,
-                        'currency' => $item['currency'] ?? null,
-                        'amount' => $item['amount'] ?? null,
-                        'quantity_po_balance' => $item['quantity_po_balance'] ?? null,
-                    ],
-                );
+                $grItem = $receipt->items()->firstOrNew([
+                    'material_doc_year' => $item['material_doc_year'] ?? null,
+                    'material_doc_item' => $item['material_doc_item'] ?? null,
+                ]);
+
+                // Items split onto a `-P{n}` clone keep their quantity there. The
+                // base row stores only what is still unprocessed.
+                $splitOut = (int) ($grItem->quantity_split_out ?? 0);
+                $sapServed = isset($item['quantity_served']) ? (int) $item['quantity_served'] : null;
+
+                $grItem->fill([
+                    'purchase_order' => $data['purchase_order'],
+                    'purchase_order_item' => $item['purchase_order_item'] ?? null,
+                    'item_numbering' => $item['item_numbering'] ?? null,
+                    'item_id' => $item['item_id'] ?? null,
+                    'storage_location' => $item['storage_location'] ?? null,
+                    'item_name' => $item['item_name'] ?? null,
+                    'item_description' => $item['item_description'] ?? null,
+                    'quantity_po' => $item['quantity_po'] ?? null,
+                    'quantity_served' => $sapServed !== null ? max(0, $sapServed - $splitOut) : null,
+                    'uom' => $item['uom'] ?? null,
+                    'gr' => $item['gr'] ?? null,
+                    'unit_cost' => $item['unit_cost'] ?? null,
+                    'net_price' => $item['net_price'] ?? null,
+                    'price_unit' => $item['price_unit'] ?? 1,
+                    'currency' => $item['currency'] ?? null,
+                    'amount' => $item['amount'] ?? null,
+                    'quantity_po_balance' => $item['quantity_po_balance'] ?? null,
+                ])->save();
             }
 
             $this->openOrRefreshState($receipt, $data, $companyId, $vendorId);

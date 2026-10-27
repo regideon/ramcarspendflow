@@ -9,6 +9,7 @@ use App\Models\P2p\Invoice;
 use App\Models\P2p\SapApiLog;
 use App\Models\User;
 use App\Services\P2p\Sap\P2pSapApiLogsService;
+use App\Support\GoodReceiptNumber;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -69,7 +70,10 @@ class P2pInvoiceParkingService
                 endpoint: 'park_invoice',
                 request: [
                     'purchase_order' => $invoice->po_numbers,
-                    'goods_receipts' => $invoice->gr_numbers,
+                    'goods_receipts' => array_map(
+                        GoodReceiptNumber::base(...),
+                        $invoice->gr_numbers ?? [],
+                    ),
                     'tax_code' => $invoice->tax_code,
                     'withholding_tax_code' => $invoice->withholding_tax_code,
                     'total' => $invoice->total,

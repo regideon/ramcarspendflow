@@ -119,14 +119,14 @@ it('shows the SAP short text and the material number separately', function () {
 it('does not leave a draft invoice when the submission is rejected', function () {
     $c = bulkContext();
 
-    // No served quantity: any billed quantity exceeds what is available.
-    $c['items'][0]->forceFill(['quantity_served' => 0])->save();
+    // Billed quantity exceeds what the GR still has available.
+    $c['items'][0]->forceFill(['quantity_served' => 5])->save();
 
     $this->actingAs($c['user']);
 
     Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
         ->set('goods_receipts.0.goodReceiptItems.0.include', true)
-        ->set('goods_receipts.0.goodReceiptItems.0.quantity', 1)
+        ->set('goods_receipts.0.goodReceiptItems.0.quantity', 6)
         ->set('invoiceAt', now()->toDateString())
         ->set('reference_number', ['DR-1'])
         ->set('attachments', ['attachments-pdf/invoice.pdf'])
@@ -180,7 +180,12 @@ it('escalates the selected goods receipts with a reason and remarks', function (
         ])
         ->assertHasNoErrors();
 
-    expect($c['states'][0]->fresh()->status)->toBe(P2pStatus::EscalatedToWarehouse);
+    $split = GoodReceiptState::query()
+        ->where('good_receipt_number', $c['states'][0]->good_receipt_number.'-P1')
+        ->sole();
+
+    expect($c['states'][0]->fresh()->status)->toBe(P2pStatus::Pending)
+        ->and($split->status)->toBe(P2pStatus::EscalatedToWarehouse);
 });
 
 it('escalates only the ticked items and leaves the rest pending', function () {
@@ -205,13 +210,18 @@ it('escalates only the ticked items and leaves the rest pending', function () {
         ])
         ->assertHasNoErrors();
 
-    $partial = GoodReceiptState::query()
+    $split = GoodReceiptState::query()
         ->where('good_receipt_number', $c['states'][0]->good_receipt_number.'-P1')
         ->sole();
 
-    expect($c['states'][0]->fresh()->status)->toBe(P2pStatus::EscalatedToWarehouse)
-        ->and($partial->status)->toBe(P2pStatus::Pending)
-        ->and($unselected->fresh()->p2p_sap_good_receipt_id)->toBe($partial->p2p_sap_good_receipt_id);
+    $splitItem = SapGoodReceiptItem::query()->where('split_from_item_id', $c['items'][0]->id)->sole();
+
+    expect($c['states'][0]->fresh()->status)->toBe(P2pStatus::Pending)
+        ->and($split->status)->toBe(P2pStatus::EscalatedToWarehouse)
+        ->and($c['items'][0]->fresh()->quantity_served)->toBe(0)
+        ->and($unselected->fresh()->quantity_served)->toBe(5)
+        ->and($unselected->fresh()->p2p_sap_good_receipt_id)->toBe($c['items'][0]->p2p_sap_good_receipt_id)
+        ->and($splitItem->quantity_served)->toBe(10);
 });
 
 it('opens a non-pending goods receipt read-only', function () {
@@ -278,6 +288,7 @@ it('re-submits a returned invoice', function () {
     app(P2pGoodReceiptReturnService::class)->returnToVendor($invoice, $c['user'], 'Please correct the quantity.');
 
     Livewire::test(BulkGoodsReceipt::class, ['invoice' => $invoice->id])
+        ->set('goods_receipts.0.goodReceiptItems.0.quantity', 10)
         ->set('reference_number', ['DR-9'])
         ->set('attachments', ['attachments-pdf/corrected.pdf'])
         ->call('submit')

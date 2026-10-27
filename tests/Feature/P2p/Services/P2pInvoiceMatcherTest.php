@@ -156,3 +156,23 @@ it('warns when the totals do not add up or the invoice was already billed', func
     expect($warnings)->toContain('Invoice 17294 is already on another submission. Make sure it isn\'t billed twice.')
         ->toContain('Invoice 17294: the lines add up to 3,021.00, but the total is 3,500.00.');
 });
+
+it('matches an invoice line naming the base GR to an item on a split GR', function () {
+    $split = grLine('4100000001', '5002258048-P1', '00010', 'E1112099', 'HEAD CYLINDER NASON', 1, 1, 630.00, 'USD');
+    $decoy = grLine('4100000001', '5002258049', '00020', 'E9999999', 'OTHER ITEM', 1, 1, 10.00, 'USD');
+
+    $result = app(P2pInvoiceMatcher::class)->match([readInvoice([
+        invoiceLine([
+            'description' => 'UNRELATED TEXT',
+            'material_code' => 'ZZZ',
+            'po_number' => '4100000001',
+            'gr_number' => '5002258048',
+            'quantity' => 1,
+            'unit_price' => 1,
+            'amount' => 1,
+        ]),
+    ], ['currency' => 'USD', 'po_numbers' => ['4100000001'], 'gr_numbers' => ['5002258048']])], onScreen([$split, $decoy]));
+
+    expect($result['rows'])->toHaveKey($split->id)
+        ->and($result['rows'])->not->toHaveKey($decoy->id);
+});

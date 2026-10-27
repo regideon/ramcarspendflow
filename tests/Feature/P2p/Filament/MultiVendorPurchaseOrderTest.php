@@ -11,6 +11,7 @@ use App\Jobs\P2p\SyncP2pPurchaseOrders;
 use App\Models\Company;
 use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\SapGoodReceipt;
+use App\Models\P2p\SapGoodReceiptItem;
 use App\Models\P2p\SapPurchaseOrder;
 use App\Models\User;
 use App\Models\Vendor;
@@ -48,6 +49,13 @@ function goodsReceiptStateFor(Vendor $vendor, Company $company, string $purchase
         'purchase_order' => $purchaseOrder,
         'company_id' => $company->id,
         'vendor_id' => $vendor->id,
+    ]);
+
+    SapGoodReceiptItem::factory()->for($receipt, 'goodReceipt')->create([
+        'purchase_order' => $purchaseOrder,
+        'quantity_po' => 10,
+        'quantity_served' => 10,
+        'unit_cost' => 100,
     ]);
 
     return GoodReceiptState::create([

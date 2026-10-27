@@ -478,8 +478,9 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
      */
     protected function selectionIsViewOnly(): bool
     {
-        return $this->receipts->contains(
-            fn (GoodReceiptState $state): bool => ! $state->status->isEditableByVendor(),
+        return $this->receipts->isEmpty() || $this->receipts->contains(
+            fn (GoodReceiptState $state): bool => ! $state->status->isEditableByVendor()
+                || ! $state->hasBillableItems(),
         );
     }
 
@@ -638,12 +639,18 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                 $invoice = $this->invoiceModel() ?? $service->start($user, $states);
 
                 // Only the ticked items go on the escalation; the rest stay pending.
-                $service->splitForSelectedItems($itemIds, $invoice);
+                $splitStates = $service->splitForEscalation($invoice, $itemIds);
+
+                if ($splitStates->isEmpty()) {
+                    throw ValidationException::withMessages([
+                        'lines' => 'Select at least one goods-receipt line to escalate.',
+                    ]);
+                }
 
                 app(P2pEscalationRoutingService::class)->start(
                     $invoice,
                     $reason,
-                    $states->pluck('id')->all(),
+                    $splitStates->pluck('id')->all(),
                     $user,
                     $this->escalationRemarks,
                 );
@@ -893,6 +900,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         }
 
         $items = SapGoodReceiptItem::query()
+            ->whereNull('merged_at')
             ->where(function (Builder $query) use ($lineKeys): void {
                 foreach ($lineKeys as $key) {
                     [$purchaseOrder, $purchaseOrderItem] = explode('|', $key, 2);

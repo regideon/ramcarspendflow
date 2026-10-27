@@ -3,6 +3,7 @@
 namespace App\Services\P2p;
 
 use App\Models\P2p\GoodReceiptState;
+use App\Support\GoodReceiptNumber;
 
 /**
  * Detects reversed goods receipts from a sync (SAP EKBE, BWART 102) and applies the
@@ -23,17 +24,27 @@ class P2pReversalDetectionService
         $applied = 0;
 
         foreach ($reversed as $grNumber => $reversalDocument) {
-            $state = GoodReceiptState::query()
-                ->where('good_receipt_number', $grNumber)
-                ->whereNull('reversed_at')
-                ->first();
+            // SAP only knows the base number; reverse its local `-P{n}` splits too.
+            $base = GoodReceiptNumber::base($grNumber);
 
-            if ($state === null) {
-                continue;
+            $states = GoodReceiptState::query()
+                ->where(function ($query) use ($base): void {
+                    $query->where('good_receipt_number', $base)
+                        ->orWhere('good_receipt_number', 'LIKE', $base.'-P%');
+                })
+                ->whereNull('reversed_at')
+                ->get();
+
+            $matched = false;
+
+            foreach ($states as $state) {
+                $this->reversals->apply($state, $reversalDocument, $replacements[$grNumber] ?? null);
+                $matched = true;
             }
 
-            $this->reversals->apply($state, $reversalDocument, $replacements[$grNumber] ?? null);
-            $applied++;
+            if ($matched) {
+                $applied++;
+            }
         }
 
         return $applied;

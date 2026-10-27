@@ -66,6 +66,7 @@ class P2pThreeWayMatchService
         $items = SapGoodReceiptItem::query()
             ->where('purchase_order', $purchaseOrder)
             ->where('purchase_order_item', $purchaseOrderItem)
+            ->whereNull('merged_at')
             ->with('goodReceipt')
             ->get();
 
@@ -92,6 +93,8 @@ class P2pThreeWayMatchService
         Collection $billedByItem,
         int $pendingQuantity = 0,
     ): array {
+        $items = $items->whereNull('merged_at');
+
         $live = $items->reject(
             fn (SapGoodReceiptItem $item): bool => $reversedGoodReceiptIds->contains($item->p2p_sap_good_receipt_id),
         );
@@ -138,6 +141,7 @@ class P2pThreeWayMatchService
     {
         $items = SapGoodReceiptItem::query()
             ->whereIn('purchase_order', $invoice->po_numbers ?? [])
+            ->whereNull('merged_at')
             ->with('goodReceipt')
             ->get();
 

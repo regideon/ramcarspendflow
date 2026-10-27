@@ -4,10 +4,10 @@ namespace App\Services\P2p\Sap;
 
 use App\Contracts\P2p\SapInvoiceParkingGateway;
 use App\Models\P2p\Invoice;
+use App\Support\GoodReceiptNumber;
 use DOMDocument;
 use DOMElement;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Str;
 use SimpleXMLElement;
 
 /**
@@ -84,7 +84,7 @@ class P2pSoapInvoiceGateway implements SapInvoiceParkingGateway
             $grNumber = $sapItem?->goodReceipt?->good_receipt_number;
             $poNumber = (string) $line->purchase_order;
             $poItem = (string) $line->purchase_order_item;
-            $refDoc = $grNumber !== null ? Str::before($grNumber, '-') : null;
+            $refDoc = $grNumber !== null ? GoodReceiptNumber::base($grNumber) : null;
 
             $key = implode('|', [
                 $poNumber,

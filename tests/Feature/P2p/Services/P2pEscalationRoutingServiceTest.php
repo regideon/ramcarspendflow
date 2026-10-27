@@ -49,6 +49,10 @@ function escalationContext(): array
         ['p2p_sap_good_receipt_item_id' => $item->id, 'quantity_billed' => 10],
     ], $user);
 
+    $state = GoodReceiptState::query()
+        ->where('good_receipt_number', $invoice->gr_numbers[0])
+        ->sole();
+
     return compact('invoice', 'state', 'user');
 }
 

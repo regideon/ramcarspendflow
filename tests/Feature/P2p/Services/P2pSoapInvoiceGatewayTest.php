@@ -160,3 +160,14 @@ it('parks an invoice and returns the SAP document number', function () {
         ->and($result['fiscal_year'])->toBe('2026')
         ->and($result['message'])->toBe('Invoice parked');
 });
+
+it('sends the base goods-receipt number when the line lives on a split GR', function () {
+    $invoice = soapInvoiceFixture();
+    $invoice->lines()->first()->sapItem->goodReceipt
+        ->forceFill(['good_receipt_number' => '5000000500-P1'])
+        ->save();
+
+    $payload = app(P2pSoapInvoiceGateway::class)->payloadFor($invoice->fresh());
+
+    expect($payload['ITEMS'][0]['REF_DOC'])->toBe('5000000500');
+});

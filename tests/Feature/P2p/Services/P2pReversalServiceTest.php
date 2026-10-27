@@ -39,19 +39,23 @@ function reversalContext(): array
 
     $submission = app(P2pGoodReceiptSubmissionService::class);
     $invoice = $submission->start($user, [$state->id]);
-    $submission->submit($invoice, [
+    $invoice = $submission->submit($invoice, [
         ['p2p_sap_good_receipt_item_id' => $item->id, 'quantity_billed' => 10],
     ], $user);
 
-    return compact('po', 'receipt', 'state');
+    $splitState = GoodReceiptState::query()
+        ->where('good_receipt_number', $invoice->gr_numbers[0])
+        ->sole();
+
+    return compact('po', 'receipt', 'state', 'splitState');
 }
 
 it('marks a GR reversed and links the replacement', function () {
     $c = reversalContext();
 
-    app(P2pGoodReceiptReversalService::class)->apply($c['state'], '4900000001', '5000000009-R');
+    app(P2pGoodReceiptReversalService::class)->apply($c['splitState'], '4900000001', '5000000009-R');
 
-    $state = $c['state']->fresh();
+    $state = $c['splitState']->fresh();
 
     expect($state->reversed_at)->not->toBeNull()
         ->and($state->reversal_document)->toBe('4900000001')
@@ -69,7 +73,7 @@ it('detects and applies reversals from a sync payload', function () {
     );
 
     expect($applied)->toBe(1)
-        ->and($c['state']->fresh()->status)->toBe(P2pStatus::Reversed);
+        ->and($c['splitState']->fresh()->status)->toBe(P2pStatus::Reversed);
 
     // Already reversed: a second pass is a no-op.
     expect(app(P2pReversalDetectionService::class)->detect([$c['receipt']->good_receipt_number => '4900000002']))->toBe(0);
