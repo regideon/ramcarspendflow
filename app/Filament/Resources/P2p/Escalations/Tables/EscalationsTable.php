@@ -7,6 +7,7 @@ use App\Filament\Actions\OpenCommentsAction;
 use App\Filament\Pages\P2p\BulkGoodsReceipt;
 use App\Models\P2p\Escalation;
 use App\Models\P2p\Invoice;
+use App\Services\P2p\Escalation\HasStepActionForm;
 use App\Services\P2p\P2pEscalationRoutingService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Textarea;
@@ -207,23 +208,38 @@ class EscalationsTable
     protected static function hopAction(): Action
     {
         return Action::make('advance')
-            ->label(fn (Escalation $record): string => $record->currentStepAction() !== null
-                ? ($record->currentActionLabel() ?? $record->currentStepAction()->label ?? 'Advance')
-                : 'Advance')
+            ->label(fn (Escalation $record): string => $record->currentStepAction() instanceof HasStepActionForm
+                ? $record->currentStepAction()->label($record)
+                : ($record->currentActionLabel() ?? 'Advance'))
             ->icon(fn (Escalation $record): string|\BackedEnum => $record->currentStepAction() !== null
                 ? Heroicon::OutlinedArrowUturnLeft
                 : Heroicon::OutlinedArrowRightCircle)
             ->color(fn (Escalation $record): string => $record->currentStepAction() !== null ? 'danger' : 'warning')
             ->visible(fn (Escalation $record): bool => $record->status === Escalation::STATUS_OPEN
                 && $record->current_role !== 'origin')
-            ->modalHeading(fn (Escalation $record): string => $record->currentActionLabel() ?? 'Advance escalation')
-            ->schema([
-                Textarea::make('remarks')
-                    ->required()
-                    ->columnSpanFull(),
-            ])
+            ->modalHeading(fn (Escalation $record): string => $record->currentStepAction() instanceof HasStepActionForm
+                ? $record->currentStepAction()->modalHeading($record)
+                : ($record->currentActionLabel() ?? 'Advance escalation'))
+            ->modalDescription(fn (Escalation $record): ?string => $record->currentStepAction() instanceof HasStepActionForm
+                ? $record->currentStepAction()->modalDescription($record)
+                : null)
+            ->modalSubmitActionLabel(fn (Escalation $record): string => $record->currentStepAction() instanceof HasStepActionForm
+                ? $record->currentStepAction()->submitLabel($record)
+                : 'Advance')
+            ->schema(fn (Escalation $record): array => $record->currentStepAction() instanceof HasStepActionForm
+                ? $record->currentStepAction()->schema($record)
+                : [
+                    Textarea::make('remarks')
+                        ->required()
+                        ->columnSpanFull(),
+                ])
             ->action(function (Escalation $record, array $data): void {
-                app(P2pEscalationRoutingService::class)->advance($record, auth()->user(), $data['remarks']);
+                app(P2pEscalationRoutingService::class)->advance(
+                    $record,
+                    auth()->user(),
+                    $data['remarks'] ?? null,
+                    $data,
+                );
 
                 Notification::make()->title('Escalation advanced')->success()->send();
             });

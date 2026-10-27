@@ -17,6 +17,7 @@ use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
 use App\Models\P2p\SapGoodReceiptItem;
 use App\Models\User;
+use App\Services\P2p\Escalation\HasStepActionForm;
 use App\Services\P2p\P2pEscalationRoutingService;
 use App\Services\P2p\P2pGoodReceiptReturnService;
 use App\Services\P2p\P2pGoodReceiptSubmissionService;
@@ -1439,6 +1440,11 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
      * lowercase legacy tokens, so map them to the app's TitleCase Spatie roles.
      * The umbrella `warehouse` hop is handled by any warehouse role.
      */
+    protected function activeEscalationAction(): mixed
+    {
+        return $this->escalationForUser()?->currentStepAction();
+    }
+
     protected function userHandlesEscalation(User $user, Escalation $escalation): bool
     {
         $hopRole = $escalation->current_role;
@@ -1473,16 +1479,26 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
     protected function advanceEscalationAction(): Action
     {
         return Action::make('advanceEscalation')
-            ->label(fn (): string => $this->escalationForUser()?->currentActionLabel() ?? 'Advance')
+            ->label(fn (): string => $this->activeEscalationAction() instanceof HasStepActionForm
+                ? $this->activeEscalationAction()->label($this->escalationForUser())
+                : ($this->escalationForUser()?->currentActionLabel() ?? 'Advance'))
             ->icon(Heroicon::OutlinedArrowRightCircle)
             ->color('warning')
             ->visible(fn (): bool => $this->escalationForUser() !== null)
-            ->modalHeading('Advance escalation')
-            ->modalDescription(fn (): ?string => $this->escalationForUser()?->stepLabel())
-            ->modalSubmitActionLabel('Advance')
-            ->schema([
-                Textarea::make('remarks')->label('Remarks')->required(),
-            ])
+            ->modalHeading(fn (): string => $this->activeEscalationAction() instanceof HasStepActionForm
+                ? $this->activeEscalationAction()->modalHeading($this->escalationForUser())
+                : 'Advance escalation')
+            ->modalDescription(fn (): ?string => $this->activeEscalationAction() instanceof HasStepActionForm
+                ? $this->activeEscalationAction()->modalDescription($this->escalationForUser())
+                : $this->escalationForUser()?->stepLabel())
+            ->modalSubmitActionLabel(fn (): string => $this->activeEscalationAction() instanceof HasStepActionForm
+                ? $this->activeEscalationAction()->submitLabel($this->escalationForUser())
+                : 'Advance')
+            ->schema(fn (): array => $this->activeEscalationAction() instanceof HasStepActionForm
+                ? $this->activeEscalationAction()->schema($this->escalationForUser())
+                : [
+                    Textarea::make('remarks')->label('Remarks')->required(),
+                ])
             ->action(fn (array $data) => $this->advanceOpenEscalation($data));
     }
 
@@ -1513,7 +1529,12 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             return;
         }
 
-        app(P2pEscalationRoutingService::class)->advance($escalation, auth()->user(), (string) ($data['remarks'] ?? ''));
+        app(P2pEscalationRoutingService::class)->advance(
+            $escalation,
+            auth()->user(),
+            (string) ($data['remarks'] ?? ''),
+            $data,
+        );
 
         Notification::make()
             ->title('Escalation advanced')

@@ -4,6 +4,7 @@ use App\Contracts\P2p\SapPurchaseOrderSource;
 use App\Contracts\P2p\SapReversalSource;
 use App\Enums\P2pPurchaseOrderStatus;
 use App\Enums\P2pStatus;
+use App\Models\P2p\Escalation;
 use App\Models\P2p\EscalationReason;
 use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\SapGoodReceipt;
@@ -140,4 +141,51 @@ it('detects a reversal and moves the request onto the replacement re-GR', functi
     expect($c['splitState']->fresh()->reversed_at)->not->toBeNull()
         ->and($c['splitState']->fresh()->reversal_document)->toBe('4900000004')
         ->and($c['invoice']->fresh()->gr_numbers)->toBe(['5000000010-R']);
+});
+
+it('accepts a manual reversal fallback and forwards the escalation to procurement', function () {
+    Mail::fake();
+
+    $c = reversalContext();
+
+    $reason = EscalationReason::create([
+        'code' => 'manual_reverse',
+        'name' => 'Manual reversal',
+        'origin_role' => 'vendor',
+        'is_active' => true,
+    ]);
+    $reason->steps()->create([
+        'step_order' => 1,
+        'role' => 'warehouse',
+        'status_id' => P2pStatus::EscalatedToWarehouse->value,
+        'action' => ReverseAndReGrAction::key(),
+    ]);
+    $reason->steps()->create([
+        'step_order' => 2,
+        'role' => 'procurement',
+        'status_id' => P2pStatus::EscalateToProcurement->value,
+    ]);
+    $reason->steps()->create([
+        'step_order' => 3,
+        'role' => 'vendor',
+        'status_id' => P2pStatus::ReturnedToVendor->value,
+        'override_header_status' => true,
+    ]);
+
+    $user = User::factory()->create();
+    $routing = app(P2pEscalationRoutingService::class);
+    $escalation = $routing->start($c['invoice'], $reason->code, [$c['splitState']->id], $user, 'Wrong item')->first();
+
+    $routing->advance($escalation->fresh(), $user, 'Manual entry.', [
+        'reversal_document' => '4900000005',
+        'replacement_gr_number' => '5000000011-R',
+    ]);
+
+    $escalation->refresh();
+
+    expect($c['splitState']->fresh()->reversal_document)->toBe('4900000005')
+        ->and($c['invoice']->fresh()->gr_numbers)->toBe(['5000000011-R'])
+        ->and($escalation->status)->toBe(Escalation::STATUS_OPEN)
+        ->and($escalation->current_step_order)->toBe(2)
+        ->and($escalation->current_role)->toBe('procurement');
 });

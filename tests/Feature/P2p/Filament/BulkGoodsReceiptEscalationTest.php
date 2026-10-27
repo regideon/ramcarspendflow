@@ -13,8 +13,11 @@ use App\Models\P2p\SapGoodReceipt;
 use App\Models\P2p\SapGoodReceiptItem;
 use App\Models\User;
 use App\Models\Vendor;
+use App\Services\P2p\Escalation\ReverseAndReGrAction;
+use App\Services\P2p\P2pEscalationRoutingService;
 use Database\Seeders\RoleAndUserSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Livewire\Livewire;
 
 pest()->use(RefreshDatabase::class);
@@ -124,6 +127,32 @@ it('advances the escalation from the bulk goods-receipt footer', function () {
     expect($escalation->current_step_order)->toBe(2)
         ->and($escalation->current_role)->toBe('warehouse')
         ->and($escalation->status)->toBe(Escalation::STATUS_OPEN);
+});
+
+it('offers the manual reverse and re-GR fields when SAP detects no reversal', function () {
+    Mail::fake();
+
+    ['escalation' => $escalation] = escalatedGrContext();
+
+    $escalation->reason->steps()
+        ->where('step_order', 2)
+        ->update(['action' => ReverseAndReGrAction::key()]);
+
+    $procurement = User::factory()->create()->assignRole(RoleName::Procurement);
+    app(P2pEscalationRoutingService::class)->advance($escalation->fresh(), $procurement, 'Sent to warehouse.');
+
+    $action = app(ReverseAndReGrAction::class);
+    $escalation->refresh();
+
+    $fields = collect($action->schema($escalation))
+        ->map(fn ($component): ?string => method_exists($component, 'getName') ? $component->getName() : null)
+        ->filter()
+        ->values()
+        ->all();
+
+    expect($action->label($escalation))->toBe('Reverse & re-GR')
+        ->and($action->modalHeading($escalation))->toBe('Reverse goods receipt & re-GR')
+        ->and($fields)->toContain('reversal_document', 'replacement_gr_number', 'remarks');
 });
 
 it('returns the escalation to the previous hop from the bulk goods-receipt footer', function () {

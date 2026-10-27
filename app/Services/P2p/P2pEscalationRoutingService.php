@@ -109,9 +109,12 @@ class P2pEscalationRoutingService
      * Run the current hop's action (if any) and move to the next hop, or resolve at
      * the terminal hop.
      */
-    public function advance(Escalation $escalation, ?User $by, ?string $remarks = null): void
+    /**
+     * @param  array<string, mixed>  $data  custom hop-action modal state
+     */
+    public function advance(Escalation $escalation, ?User $by, ?string $remarks = null, array $data = []): void
     {
-        DB::transaction(function () use ($escalation, $by, $remarks): void {
+        DB::transaction(function () use ($escalation, $by, $remarks, $data): void {
             /** @var Escalation $escalation */
             $escalation = Escalation::query()->whereKey($escalation->getKey())->lockForUpdate()->firstOrFail();
             $steps = $escalation->reason->steps;
@@ -123,7 +126,7 @@ class P2pEscalationRoutingService
             $action = $current?->action !== null ? $this->actions->resolve($current->action) : null;
 
             if ($action !== null) {
-                $completion = $action->handle(new StepActionContext($escalation, $by, $remarks));
+                $completion = $action->handle(new StepActionContext($escalation, $by, $remarks, $data));
 
                 if (! $completion->handled) {
                     return;
@@ -146,9 +149,7 @@ class P2pEscalationRoutingService
 
             // The label that pushed the request forward: the custom action (or the
             // hop's configured label), falling back to the generic "Advance".
-            $actionLabel = $action !== null
-                ? $current->action_label
-                : ($current->action_label ?? 'Advance');
+            $actionLabel = $current->action_label ?? 'Advance';
 
             $escalation->forceFill([
                 'current_step_order' => $next->step_order,
