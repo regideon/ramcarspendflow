@@ -6,7 +6,9 @@ use App\Enums\RfpRequestType;
 use App\Enums\RfpStatus;
 use App\Enums\RfpVendorType;
 use App\Enums\RoleName;
+use App\Models\Rfp\Rfp;
 use App\Models\User;
+use App\Services\Rfp\ApprovalEngine;
 use Database\Seeders\Rfp\DueTypeSeeder;
 use Illuminate\Console\Command;
 use Illuminate\Database\ConnectionInterface;
@@ -117,6 +119,12 @@ class ImportLegacyRfps extends Command
 
     public function handle(): int
     {
+        if (! config('rfp.legacy_import_enabled')) {
+            $this->components->error('The legacy import is locked (RFP_LEGACY_IMPORT_ENABLED=false). It replaces every RFP here, so it is off after go-live.');
+
+            return self::FAILURE;
+        }
+
         if (! $this->option('force') && ! $this->confirm('This replaces every RFP in this database with the legacy RFP Portal data. Continue?')) {
             return self::FAILURE;
         }
@@ -133,6 +141,7 @@ class ImportLegacyRfps extends Command
             $this->components->task('RFPs', fn () => $this->importRfps());
             $this->components->task('RFP items', fn () => $this->importItems());
             $this->components->task('RFP history', fn () => $this->importHistories());
+            $this->components->task('Approval routes for RFPs in progress', fn () => $this->routeRfpsInProgress());
         });
 
         $this->newLine();
@@ -447,7 +456,16 @@ class ImportLegacyRfps extends Command
                 ->all();
 
             if ($roles !== []) {
-                User::withTrashed()->find($id)->assignRole($roles);
+                $user = User::withTrashed()->find($id);
+                $user->assignRole($roles);
+
+                $user->syncCompanyRoles([
+                    ...$user->companyRoleRows(),
+                    ...collect($roles)
+                        ->filter(fn (string $role): bool => in_array(RoleName::from($role), RoleName::companyScoped(), true))
+                        ->map(fn (string $role): array => ['role' => $role, 'companies' => array_values($companyIds)])
+                        ->all(),
+                ]);
             }
         }
 
@@ -501,6 +519,7 @@ class ImportLegacyRfps extends Command
                     'purpose' => (string) $rfp->purpose,
                     'is_direct_to_vp' => (bool) $rfp->direct_to_vp,
                     'is_pre_approved' => (bool) $rfp->pre_approved,
+                    'is_ids' => (bool) ($rfp->ids_type ?? true),
                     'pre_approval_documents' => ($documents = $this->paths($rfp->pre_approval_documents)) === [] ? null : json_encode($documents),
                     'status' => $status->value,
                     ...$this->currentApprover($rfp, $status),
@@ -623,14 +642,15 @@ class ImportLegacyRfps extends Command
 
     /**
      * Legacy status_no (+ accounting_level for "For Accounting Processing") → RfpStatus.
-     * Legacy RFPs followed the old Manager → Dept Head → VP → Controller chain, so
-     * Pending and Processing both mean "with the business approvers".
+     * Pending is the Accounting Personnel's first review (legacy "Endorse / Revise");
+     * Processing is with the business approvers (Manager → Dept Head → VP → Controller).
      */
     public static function status(int $statusNo, int $accountingLevel = 0): RfpStatus
     {
         return match ($statusNo) {
             0 => RfpStatus::Draft,
-            1, 2 => RfpStatus::ForApproval,
+            1 => RfpStatus::ForApReview,
+            2 => RfpStatus::ForApproval,
             11 => match ($accountingLevel) {
                 2, 3 => RfpStatus::ForAccountingApproval, // Accounting Supervisor / Manager
                 4 => RfpStatus::ForTreasury,
@@ -791,6 +811,30 @@ class ImportLegacyRfps extends Command
         }
 
         return DB::table($table)->insertGetId($keys + $values + ['created_at' => now(), 'updated_at' => now()]);
+    }
+
+    /**
+     * Give every imported RFP still in approval its route, so it can be worked here.
+     */
+    protected function routeRfpsInProgress(): void
+    {
+        $engine = app(ApprovalEngine::class);
+        $routed = 0;
+
+        Rfp::query()
+            ->whereNotIn('status', [RfpStatus::Draft, RfpStatus::ForRevision, ...RfpStatus::final()])
+            ->lazyById()
+            ->each(function (Rfp $rfp) use ($engine, &$routed): void {
+                $problem = $engine->adopt($rfp);
+
+                if ($problem === null) {
+                    $routed++;
+                } else {
+                    $this->note("Not routed (still visible, no actions): {$problem}");
+                }
+            });
+
+        $this->counts['Approval routes'] = $routed;
     }
 
     protected function note(string $note, int $count = 1): void

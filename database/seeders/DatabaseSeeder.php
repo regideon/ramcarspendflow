@@ -12,6 +12,7 @@ use Database\Seeders\P2p\P2pSlocMasterSeeder;
 use Database\Seeders\P2p\P2pVendorSeeder;
 use Database\Seeders\Rfp\ApprovalMatrixSeeder;
 use Database\Seeders\Rfp\DueTypeSeeder;
+use Database\Seeders\Rfp\WorkflowSeeder;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -44,6 +45,7 @@ class DatabaseSeeder extends Seeder
             P2pDemoTransactionSeeder::class,
             P2pApprovalSampleSeeder::class,
             ApprovalMatrixSeeder::class,
+            WorkflowSeeder::class,
             DueTypeSeeder::class,
         ]);
     }

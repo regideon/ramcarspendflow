@@ -14,7 +14,9 @@ use Database\Seeders\AccountGroupSeeder;
 use Database\Seeders\CompanySeeder;
 use Database\Seeders\CurrencySeeder;
 use Database\Seeders\DemoMasterDataSeeder;
+use Database\Seeders\Rfp\ApprovalMatrixSeeder;
 use Database\Seeders\Rfp\DueTypeSeeder;
+use Database\Seeders\Rfp\WorkflowSeeder;
 use Database\Seeders\RoleAndUserSeeder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -23,7 +25,7 @@ use Livewire\Livewire;
 pest()->use(RefreshDatabase::class);
 
 beforeEach(function () {
-    $this->seed([CompanySeeder::class, CurrencySeeder::class, AccountGroupSeeder::class, DemoMasterDataSeeder::class, RoleAndUserSeeder::class, DueTypeSeeder::class]);
+    $this->seed([CompanySeeder::class, CurrencySeeder::class, AccountGroupSeeder::class, DemoMasterDataSeeder::class, RoleAndUserSeeder::class, DueTypeSeeder::class, ApprovalMatrixSeeder::class, WorkflowSeeder::class]);
 
     $this->company = Company::firstWhere('code', '1000');
     $this->requestor = User::firstWhere('email', 'requestor@ramcar.com');
@@ -45,14 +47,14 @@ function saved(Rfp $rfp): Rfp
     return $rfp;
 }
 
-it('is only for Admin, AP Processor, AP Supervisor and AP Manager', function (string $email, int $status) {
+it('is only for Admin, AP and Treasury', function (string $email, int $status) {
     $this->actingAs(User::firstWhere('email', $email))->get('/hub/rfp-approvals')->assertStatus($status);
 })->with([
     'Admin' => [RoleAndUserSeeder::OWNER_EMAIL, 200],
     'AP Processor' => ['ap.processor@ramcar.com', 200],
     'AP Supervisor' => ['ap.supervisor@ramcar.com', 200],
     'AP Manager' => ['ap.manager@ramcar.com', 200],
-    'Treasury' => ['treasury@ramcar.com', 403],
+    'Treasury' => ['treasury@ramcar.com', 200],
     'Line Manager' => ['line.manager@ramcar.com', 403],
     'Department Head' => ['department.head@ramcar.com', 403],
     'Requestor' => ['requestor@ramcar.com', 403],

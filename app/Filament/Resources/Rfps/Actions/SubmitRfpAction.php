@@ -13,19 +13,19 @@ use Illuminate\Support\HtmlString;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Submits a draft RFP to AP Processor review (Step 2).
+ * Submits a draft, or resubmits a returned RFP, into its approval route.
  */
 class SubmitRfpAction
 {
     public static function make(): Action
     {
         return Action::make('submit')
-            ->label('Submit')
+            ->label(fn (Rfp $record): string => $record->status === RfpStatus::ForRevision ? 'Resubmit' : 'Submit')
             ->icon(Heroicon::OutlinedPaperAirplane)
             ->color('primary')
-            ->visible(fn (Rfp $record): bool => $record->status === RfpStatus::Draft && $record->requestor_id === auth()->id())
+            ->visible(fn (Rfp $record): bool => $record->status->isEditableByRequestor() && $record->requestor_id === auth()->id())
             ->requiresConfirmation()
-            ->modalHeading(fn (Rfp $record): string => "Submit {$record->rfp_number}?")
+            ->modalHeading(fn (Rfp $record): string => ($record->status === RfpStatus::ForRevision ? 'Resubmit' : 'Submit')." {$record->rfp_number}?")
             ->modalDescription(function (Rfp $record): HtmlString {
                 $record->refreshTotals();
 

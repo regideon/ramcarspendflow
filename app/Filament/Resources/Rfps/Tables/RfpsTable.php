@@ -22,7 +22,7 @@ class RfpsTable
     {
         return $table
             ->modifyQueryUsing(fn (Builder $query): Builder => $query
-                ->with(['company', 'dueType', 'vendor', 'requestor', 'items.currency'])
+                ->with(['company', 'dueType', 'vendor', 'requestor', 'creator', 'updater', 'items.currency'])
                 ->withUnreadCommentsCountFor(auth()->user()))
             ->columns([
                 TextColumn::make('rfp_number')
@@ -70,10 +70,12 @@ class RfpsTable
                 TextColumn::make('created_at')
                     ->label('Created')
                     ->dateTime('M j, Y g:i A')
+                    ->description(fn (Rfp $record): ?string => $record->creator ? 'by '.$record->creator->name : null)
                     ->sortable(),
                 TextColumn::make('updated_at')
                     ->label('Last update')
                     ->dateTime('M j, Y g:i A')
+                    ->description(fn (Rfp $record): ?string => $record->updater ? 'by '.$record->updater->name : null)
                     ->sortable(),
             ])
             ->defaultSort('updated_at', 'desc')
