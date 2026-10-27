@@ -107,22 +107,22 @@ class EscalationsTable
             ->recordActions([
                 OpenCommentsAction::make(fn (Escalation $record): ?Invoice => $record->invoice),
 
-                self::hopAction(),
+                // self::hopAction(),
 
-                Action::make('resolve')
-                    ->label('Resolve')
-                    ->icon(Heroicon::OutlinedCheckCircle)
-                    ->color('success')
-                    ->visible(fn (Escalation $record): bool => $record->status === Escalation::STATUS_OPEN
-                        && $record->currentStepAction() === null)
-                    ->schema([
-                        Textarea::make('remarks')->required()->columnSpanFull(),
-                    ])
-                    ->action(function (Escalation $record, array $data): void {
-                        app(P2pEscalationRoutingService::class)->resolve($record, auth()->user(), $data['remarks']);
+                // Action::make('resolve')
+                //     ->label('Resolve')
+                //     ->icon(Heroicon::OutlinedCheckCircle)
+                //     ->color('success')
+                //     ->visible(fn (Escalation $record): bool => $record->status === Escalation::STATUS_OPEN
+                //         && $record->currentStepAction() === null)
+                //     ->schema([
+                //         Textarea::make('remarks')->required()->columnSpanFull(),
+                //     ])
+                //     ->action(function (Escalation $record, array $data): void {
+                //         app(P2pEscalationRoutingService::class)->resolve($record, auth()->user(), $data['remarks']);
 
-                        Notification::make()->title('Escalation resolved')->success()->send();
-                    }),
+                //         Notification::make()->title('Escalation resolved')->success()->send();
+                //     }),
 
                 Action::make('reEscalate')
                     ->label('Re-escalate')
@@ -140,16 +140,16 @@ class EscalationsTable
                         Notification::make()->title('Escalation re-opened')->success()->send();
                     }),
 
-                Action::make('history')
-                    ->label('History')
-                    ->icon(Heroicon::OutlinedClock)
-                    ->color('gray')
-                    ->modalHeading('Approval history')
-                    ->modalSubmitAction(false)
-                    ->modalCancelActionLabel('Close')
-                    ->modalContent(fn (Escalation $record): View => view('filament.components.approval-history-timeline', [
-                        'record' => $record->invoice,
-                    ])),
+                // Action::make('history')
+                //     ->label('History')
+                //     ->icon(Heroicon::OutlinedClock)
+                //     ->color('gray')
+                //     ->modalHeading('Approval history')
+                //     ->modalSubmitAction(false)
+                //     ->modalCancelActionLabel('Close')
+                //     ->modalContent(fn (Escalation $record): View => view('filament.components.approval-history-timeline', [
+                //         'record' => $record->invoice,
+                //     ])),
 
                 // Mirrors the Invoices list: open the request in the bulk
                 // goods-receipt screen, read-only, with the hop's Advance / Return
