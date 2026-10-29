@@ -24,7 +24,7 @@
 <div
     x-data="{
         open: false,
-        filter: 'all',
+        filter: @js($categories->keys()->first()),
         unreadIds: @js($all->where('unread', true)->pluck('id')->values()),
         categories: @js($all->pluck('category', 'id')),
         shows(category) {
@@ -64,7 +64,7 @@
             role="dialog"
             aria-modal="true"
             aria-labelledby="notifications-title"
-            class="absolute inset-y-0 right-0 flex w-full flex-col overflow-hidden bg-[#f5f6fb]/95 shadow-2xl backdrop-blur-2xl sm:max-w-[26rem] sm:rounded-l-[28px] sm:border-l sm:border-white"
+            class="absolute inset-y-0 right-0 flex w-[94%] flex-col overflow-hidden rounded-l-[28px] border-l border-white bg-[#f5f6fb]/95 shadow-2xl backdrop-blur-2xl sm:max-w-[26rem]"
         >
             <div class="pointer-events-none absolute -top-24 -right-20 size-72 rounded-full bg-indigo-200/50 blur-3xl"></div>
             <div class="pointer-events-none absolute bottom-0 -left-24 size-72 rounded-full bg-sky-100/60 blur-3xl"></div>
@@ -90,7 +90,7 @@
                     </div>
                 </div>
 
-                <div class="-mx-5 mt-4 flex gap-2 overflow-x-auto px-5 pb-1">
+                <div class="-mx-5 mt-4 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                     @foreach ($categories as $key => $label)
                         <button
                             type="button"

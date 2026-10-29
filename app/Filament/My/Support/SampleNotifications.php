@@ -13,15 +13,15 @@ use Illuminate\Support\Collection;
 class SampleNotifications
 {
     /**
-     * Filter chips: key => label.
+     * Filter chips: key => label, in display order. The first one shown is the default.
      *
      * @var array<string, string>
      */
     public const array CATEGORIES = [
-        'all' => 'All',
         'approvals' => 'Approvals',
         'requests' => 'My requests',
         'mentions' => 'Mentions',
+        'all' => 'All',
     ];
 
     /**
