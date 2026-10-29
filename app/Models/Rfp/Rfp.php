@@ -160,6 +160,9 @@ class Rfp extends Model
     public function p2pInvoices(): HasMany
     {
         return $this->hasMany(Invoice::class, 'rfp_id');
+    }
+
+    /**
      * Relations the RFP view pages show (header, items, tax entries, history, route),
      * loaded up front so the page runs no query per line.
      *
