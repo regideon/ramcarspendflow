@@ -5,6 +5,8 @@ use App\Enums\RoleName;
 use App\Filament\Resources\P2p\GoodsReceipts\Pages\ListGoodsReceipts;
 use App\Models\Company;
 use App\Models\P2p\GoodReceiptState;
+use App\Models\P2p\SapGoodReceipt;
+use App\Models\P2p\SapGoodReceiptItem;
 use App\Models\User;
 use App\Models\Vendor;
 use Database\Seeders\RoleAndUserSeeder;
@@ -114,6 +116,22 @@ it('lands on the pending tab by default', function () {
         ->assertRedirectContains('activeTab=pending');
 });
 
+it('only lets pending goods receipts be selected for processing', function () {
+    [$user, $vendor, $company] = grListContext();
+    $this->actingAs($user);
+
+    $pending = grListState($vendor, $company, '4500000500', '5000000500');
+    $submitted = grListState($vendor, $company, '4500000501', '5000000501', P2pStatus::SubmittedToAp);
+
+    $table = Livewire::withQueryParams(['activeTab' => 'all'])
+        ->test(ListGoodsReceipts::class)
+        ->instance()
+        ->getTable();
+
+    expect($table->isRecordSelectable($pending))->toBeTrue()
+        ->and($table->isRecordSelectable($submitted))->toBeFalse();
+});
+
 it('links back to purchase orders', function () {
     [$user] = grListContext();
     $this->actingAs($user);
@@ -138,4 +156,40 @@ it('shows the amount column to staff', function () {
     Livewire::withQueryParams(['activeTab' => 'all'])
         ->test(ListGoodsReceipts::class)
         ->assertTableColumnVisible('amount_total');
+});
+
+it('hides goods receipts whose base has no remaining items', function () {
+    [$user, $vendor, $company] = grListContext();
+    $this->actingAs($user);
+
+    $emptyReceipt = SapGoodReceipt::factory()->create([
+        'purchase_order' => '4500000600',
+        'good_receipt_number' => '5000000600',
+        'company_id' => $company->id,
+        'vendor_id' => $vendor->id,
+    ]);
+
+    SapGoodReceiptItem::factory()->for($emptyReceipt, 'goodReceipt')->create([
+        'purchase_order' => '4500000600',
+        'quantity_po' => 10,
+        'quantity_served' => 0,
+        'quantity_split_out' => 10,
+        'unit_cost' => 100,
+    ]);
+
+    $empty = GoodReceiptState::create([
+        'p2p_sap_good_receipt_id' => $emptyReceipt->id,
+        'purchase_order' => '4500000600',
+        'good_receipt_number' => '5000000600',
+        'company_id' => $company->id,
+        'vendor_id' => $vendor->id,
+        'status' => P2pStatus::Pending,
+    ]);
+
+    $visible = grListState($vendor, $company, '4500000601', '5000000601');
+
+    Livewire::withQueryParams(['activeTab' => 'all'])
+        ->test(ListGoodsReceipts::class)
+        ->assertCanSeeTableRecords([$visible])
+        ->assertCanNotSeeTableRecords([$empty]);
 });

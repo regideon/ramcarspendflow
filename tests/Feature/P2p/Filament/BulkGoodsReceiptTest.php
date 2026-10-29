@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Models\Vendor;
 use App\Services\P2p\P2pGoodReceiptReturnService;
 use App\Services\P2p\P2pGoodReceiptSubmissionService;
+use Filament\Actions\Testing\TestAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use Livewire\Livewire;
@@ -100,6 +101,65 @@ it('processes multiple GRs across POs into one submission', function () {
         ->and($invoice->amount_submitted)->toBe('2000.00');
 });
 
+it('shows the SAP short text on the process page', function () {
+    $c = bulkContext();
+    $c['items'][0]->forceFill([
+        'item_name' => 'OS01050',
+        'item_description' => 'CLNMATL GLASS CLEANER, MR.MUSCLE 500ML*',
+    ])->save();
+
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->assertSee('Description')
+        ->assertSee('CLNMATL GLASS CLEANER');
+});
+
+it('does not list GR items with no remaining quantity on the process page', function () {
+    $c = bulkContext();
+
+    $c['items'][0]->forceFill([
+        'quantity_served' => 0,
+        'quantity_split_out' => 10,
+        'item_description' => 'ALREADY SUBMITTED ITEM',
+    ])->save();
+
+    SapGoodReceiptItem::factory()->for($c['items'][0]->goodReceipt, 'goodReceipt')->create([
+        'purchase_order' => $c['states'][0]->purchase_order,
+        'purchase_order_item' => '00020',
+        'quantity_po' => 5,
+        'quantity_served' => 5,
+        'item_description' => 'STILL PENDING ITEM',
+        'unit_cost' => 100,
+    ]);
+
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->assertDontSee('ALREADY SUBMITTED ITEM')
+        ->assertSee('STILL PENDING ITEM');
+});
+
+it('does not leave a draft invoice when the submission is rejected', function () {
+    $c = bulkContext();
+
+    // Billed quantity exceeds what the GR still has available.
+    $c['items'][0]->forceFill(['quantity_served' => 5])->save();
+
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->set('goods_receipts.0.goodReceiptItems.0.include', true)
+        ->set('goods_receipts.0.goodReceiptItems.0.quantity', 6)
+        ->set('invoiceAt', now()->toDateString())
+        ->set('reference_number', ['DR-1'])
+        ->set('attachments', ['attachments-pdf/invoice.pdf'])
+        ->call('submit')
+        ->assertNotified('Could not submit');
+
+    expect(Invoice::query()->count())->toBe(0);
+});
+
 it('requires a reference number before submitting', function () {
     $c = bulkContext();
 
@@ -137,13 +197,76 @@ it('escalates the selected goods receipts with a reason and remarks', function (
     $this->actingAs($c['user']);
 
     Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->set('goods_receipts.0.goodReceiptItems.0.include', true)
         ->call('escalate', [
             'escalationReason' => $reason->code,
             'escalationRemarks' => 'Received quantity is short.',
         ])
         ->assertHasNoErrors();
 
-    expect($c['states'][0]->fresh()->status)->toBe(P2pStatus::EscalatedToWarehouse);
+    $split = GoodReceiptState::query()
+        ->where('good_receipt_number', $c['states'][0]->good_receipt_number.'-P1')
+        ->sole();
+
+    expect($c['states'][0]->fresh()->status)->toBe(P2pStatus::Pending)
+        ->and($split->status)->toBe(P2pStatus::EscalatedToWarehouse);
+});
+
+it('escalates only the ticked items and leaves the rest pending', function () {
+    $c = bulkContext();
+    $reason = bulkEscalationReason();
+
+    $unselected = SapGoodReceiptItem::factory()->for($c['items'][0]->goodReceipt, 'goodReceipt')->create([
+        'purchase_order' => $c['states'][0]->purchase_order,
+        'purchase_order_item' => '00020',
+        'quantity_po' => 5,
+        'quantity_served' => 5,
+        'unit_cost' => 50,
+    ]);
+
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->set('goods_receipts.0.goodReceiptItems.0.include', true)
+        ->call('escalate', [
+            'escalationReason' => $reason->code,
+            'escalationRemarks' => 'Received quantity is short.',
+        ])
+        ->assertHasNoErrors();
+
+    $split = GoodReceiptState::query()
+        ->where('good_receipt_number', $c['states'][0]->good_receipt_number.'-P1')
+        ->sole();
+
+    $splitItem = SapGoodReceiptItem::query()->where('split_from_item_id', $c['items'][0]->id)->sole();
+
+    expect($c['states'][0]->fresh()->status)->toBe(P2pStatus::Pending)
+        ->and($split->status)->toBe(P2pStatus::EscalatedToWarehouse)
+        ->and($c['items'][0]->fresh()->quantity_served)->toBe(0)
+        ->and($unselected->fresh()->quantity_served)->toBe(5)
+        ->and($unselected->fresh()->p2p_sap_good_receipt_id)->toBe($c['items'][0]->p2p_sap_good_receipt_id)
+        ->and($splitItem->quantity_served)->toBe(10);
+});
+
+it('opens a non-pending goods receipt read-only', function () {
+    $c = bulkContext();
+    $c['states'][0]->forceFill(['status' => P2pStatus::SubmittedToAp])->save();
+
+    $this->actingAs($c['user']);
+
+    $component = Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]]);
+
+    expect($component->instance()->isViewOnly)->toBeTrue();
+
+    $component->set('reference_number', ['SHOULD-NOT-SAVE'])
+        ->set('attachments', ['attachments-pdf/other.pdf'])
+        ->call('submit')
+        ->call('escalate', [
+            'escalationReason' => 'quantity_difference',
+            'escalationRemarks' => 'Should not run.',
+        ]);
+
+    expect(Invoice::query()->count())->toBe(0);
 });
 
 it('opens a submitted invoice read-only', function () {
@@ -189,6 +312,7 @@ it('re-submits a returned invoice', function () {
     app(P2pGoodReceiptReturnService::class)->returnToVendor($invoice, $c['user'], 'Please correct the quantity.');
 
     Livewire::test(BulkGoodsReceipt::class, ['invoice' => $invoice->id])
+        ->set('goods_receipts.0.goodReceiptItems.0.quantity', 10)
         ->set('reference_number', ['DR-9'])
         ->set('attachments', ['attachments-pdf/corrected.pdf'])
         ->call('submit')
@@ -293,4 +417,45 @@ it('blocks submitting when no line is selected', function () {
         ->assertNotified('Select at least one line with a quantity.');
 
     expect(Invoice::query()->where('status', P2pStatus::SubmittedToAp)->exists())->toBeFalse();
+});
+
+it('shows the field errors instead of the confirmation modal when the invoice is not ready', function () {
+    $c = bulkContext();
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->set('goods_receipts.0.goodReceiptItems.0.include', true)
+        ->set('goods_receipts.0.goodReceiptItems.0.quantity', 10)
+        ->set('reference_number', [])
+        ->set('attachments', [])
+        // Ticked by hand with no invoice, so this submission would ask for confirmation
+        ->callAction(TestAction::make('submit')->schemaComponent('formActions', schema: 'content'))
+        ->assertHasErrors(['reference_number' => 'required', 'attachments' => 'required'])
+        ->assertActionNotMounted()
+        ->assertNotified('Could not submit');
+
+    expect(Invoice::query()->count())->toBe(0);
+});
+
+it('submits flagged lines from the confirmation modal with the vendor remarks', function () {
+    $c = bulkContext();
+    $this->actingAs($c['user']);
+
+    Livewire::test(BulkGoodsReceipt::class, ['ids' => [$c['states'][0]->id]])
+        ->set('goods_receipts.0.goodReceiptItems.0.include', true)
+        ->set('goods_receipts.0.goodReceiptItems.0.quantity', 10)
+        ->set('invoiceAt', now()->toDateString())
+        ->set('reference_number', ['DR-1'])
+        ->set('attachments', ['attachments-pdf/invoice.pdf'])
+        ->callAction(
+            TestAction::make('submit')->schemaComponent('formActions', schema: 'content'),
+            data: ['match_remarks' => 'Price increase approved by Purchasing'],
+        )
+        ->assertHasNoErrors();
+
+    $invoice = Invoice::query()->sole();
+
+    expect($invoice->status)->toBe(P2pStatus::SubmittedToAp)
+        ->and($invoice->invoice_match['vendor_remarks'])->toBe('Price increase approved by Purchasing')
+        ->and($invoice->match_flag_count)->toBe(1);
 });

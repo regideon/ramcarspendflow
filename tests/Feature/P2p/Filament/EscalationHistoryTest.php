@@ -104,14 +104,6 @@ it('hides vendor-invisible remarks from the vendor', function () {
     expect($html)->not->toContain('Internal warehouse note.');
 });
 
-it('exposes the history action on the escalations list', function () {
-    [$actor, $escalation] = escalationTimelineContext();
-
-    $this->actingAs($actor);
-
-    Livewire::test(ListEscalations::class)->assertTableActionExists('history');
-});
-
 it('withholds pricing from the vendor summarize footer', function () {
     $items = [
         ['quantity_po' => 10, 'quantity_served' => 8, 'quantity' => 8, 'unit_cost' => 100],

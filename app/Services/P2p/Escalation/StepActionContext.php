@@ -10,9 +10,13 @@ use App\Models\User;
  */
 final readonly class StepActionContext
 {
+    /**
+     * @param  array<string, mixed>  $data  the custom action modal's submitted state
+     */
     public function __construct(
         public Escalation $escalation,
         public ?User $user = null,
         public ?string $remarks = null,
+        public array $data = [],
     ) {}
 }

@@ -16,6 +16,17 @@ class ListApprovals extends ListRecords
 
     protected static string $resource = ApprovalResource::class;
 
+    public function mount(): void
+    {
+        parent::mount();
+
+        // Filament binds the tab to `?tab=`, but P2P deep links (like the GR list)
+        // use `?activeTab=`. Accept both so either link lands on the right queue.
+        if (is_string($activeTab = request()->query('activeTab')) && filled($activeTab)) {
+            $this->activeTab = $activeTab;
+        }
+    }
+
     public function getDefaultActiveTab(): string
     {
         return 'mine';

@@ -17,7 +17,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'p2p_sap_good_receipt_id', 'purchase_order', 'purchase_order_item', 'item_numbering', 'item_id',
     'material_doc_year', 'material_doc_item', 'storage_location', 'item_name', 'item_description',
-    'quantity_po', 'quantity_served', 'uom', 'gr', 'unit_cost', 'net_price', 'price_unit', 'currency', 'amount',
+    'quantity_po', 'quantity_served', 'quantity_split_out', 'split_from_item_id', 'merged_at',
+    'uom', 'gr', 'unit_cost', 'net_price', 'price_unit', 'currency', 'amount',
     'quantity_po_balance',
 ])]
 class SapGoodReceiptItem extends Model
@@ -41,6 +42,16 @@ class SapGoodReceiptItem extends Model
     public function item(): BelongsTo
     {
         return $this->belongsTo(Item::class);
+    }
+
+    /**
+     * The base item this split clone was created from.
+     *
+     * @return BelongsTo<SapGoodReceiptItem, $this>
+     */
+    public function splitFrom(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'split_from_item_id');
     }
 
     /**
@@ -79,6 +90,8 @@ class SapGoodReceiptItem extends Model
         return [
             'quantity_po' => 'integer',
             'quantity_served' => 'integer',
+            'quantity_split_out' => 'integer',
+            'merged_at' => 'datetime',
             'unit_cost' => 'decimal:4',
             'net_price' => 'decimal:4',
             'price_unit' => 'integer',

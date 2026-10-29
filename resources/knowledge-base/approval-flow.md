@@ -79,6 +79,12 @@ The AP Processor can also **Cancel** a request. Cancelled requests are kept for 
 - **Who sees your request:** you, the people at each step of its route, and administrators.
 - **History:** every status change is recorded with who did it, when, and any remarks. See the **History** panel on the request.
 
-## P2P approvals (coming soon)
+## P2P approvals
 
-Vendor invoices against purchase orders (P2P) have their own route: Vendor → AP Processor → AP Supervisor → SAP. That article will be added when the P2P module goes live.
+Vendor invoices against purchase orders (P2P) have their own queue: **P2P Approvals**. The route is Vendor → AP Processor → AP Supervisor → SAP.
+
+- **Vendor:** open **Goods Receipts**, select the pending GR(s), review the invoice PDF beside the PO/GR lines, then **Submit to AP** or **Escalate**.
+- **AP Processor:** set the tax and withholding tax codes, check the VAT/EWT summary, then **Submit** to the AP Supervisor, **Return to Vendor**, or **Escalate**.
+- **AP Supervisor:** **Approve** to park the invoice in SAP, or **Return to AP Processor**. The invoice moves to **Pending Post** while SAP is called; a failed SAP call stays there with a **Retry SAP parking** action.
+- **SAP:** parked invoices advance to **Invoice Posted** and **Completed** as SAP confirms the FI and clearing documents.
+- **Count badge:** the number next to **P2P Approvals** shows what is waiting for you. Use the **For my action** tab to work the queue; the other tabs are read-only overviews.

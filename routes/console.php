@@ -19,3 +19,15 @@ Schedule::command('p2p:send-overdue-warnings')
     ->dailyAt('09:00')
     ->withoutOverlapping()
     ->onOneServer();
+
+// Parked invoices: 21 → 13 → 14 → 6, one step per run (legacy parity).
+Schedule::command('p2p:poll-sap-invoice-status')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->onOneServer();
+
+// SAP communication audit: SOAP 90 days, OData 90 days (single retention window).
+Schedule::command('p2p:sap-logs:prune --days=90')
+    ->monthly()
+    ->withoutOverlapping()
+    ->onOneServer();

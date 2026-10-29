@@ -12,6 +12,7 @@ use App\Models\Concerns\HasComments;
 use App\Models\Rfp\Rfp;
 use App\Models\User;
 use App\Models\Vendor;
+use App\Services\P2p\P2pNumberService;
 use Database\Factories\P2p\InvoiceFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -30,10 +31,11 @@ use Illuminate\Support\Str;
  */
 #[Table('p2p_invoices')]
 #[Fillable([
-    'status', 'grc_number', 'code', 'user_id', 'vendor_id', 'company_id', 'po_numbers',
+    'status', 'grc_number', 'code', 'p2p_number', 'rfp_id', 'user_id', 'vendor_id', 'company_id', 'po_numbers',
     'gr_numbers', 'reference_number', 'clearing_doc_no', 'fi_doc_no', 'invoice_number',
     'quantity_submitted', 'amount_submitted', 'processed', 'completed_at', 'withholding_tax_code',
     'withholding_tax_base', 'tax_code', 'remarks_ap', 'remarks_checker', 'invoice_at', 'fiscal_year',
+    'sap_park_attempts', 'sap_park_error', 'sap_parked_at',
     'attachments', 'submitted_at', 'escalated_at', 'warning_sent_at', 'upload_at', 'updated_by',
     'vatable_sales', 'vat_exempt', 'vat_zero_rated', 'vat', 'total', 'ewt', 'net', 'invoice_match', 'match_flag_count',
 ])]
@@ -54,6 +56,7 @@ class Invoice extends Model
         static::created(function (Invoice $invoice): void {
             $invoice->grc_number = sprintf('GRC-%08d', $invoice->id);
             $invoice->code = Str::upper(Str::random(8));
+            $invoice->p2p_number = app(P2pNumberService::class)->forInvoice($invoice);
             $invoice->saveQuietly();
         });
     }
@@ -116,6 +119,16 @@ class Invoice extends Model
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    /**
+     * The RFP this request settles, e.g. a supplier down payment.
+     *
+     * @return BelongsTo<Rfp, $this>
+     */
+    public function rfp(): BelongsTo
+    {
+        return $this->belongsTo(Rfp::class);
     }
 
     /**
@@ -303,6 +316,8 @@ class Invoice extends Model
             'escalated_at' => 'datetime',
             'warning_sent_at' => 'datetime',
             'upload_at' => 'date',
+            'sap_park_attempts' => 'integer',
+            'sap_parked_at' => 'datetime',
         ];
     }
 }

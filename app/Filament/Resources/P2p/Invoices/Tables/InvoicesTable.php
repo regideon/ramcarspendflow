@@ -25,6 +25,12 @@ class InvoicesTable
                 ->with(['vendor', 'company'])
                 ->withUnreadCommentsCountFor(auth()->user()))
             ->columns([
+                TextColumn::make('p2p_number')
+                    ->label('P2P ID')
+                    ->searchable()
+                    ->weight('medium')
+                    ->placeholder('—'),
+
                 TextColumn::make('vendor.name')
                     ->label('Vendor')
                     ->searchable()

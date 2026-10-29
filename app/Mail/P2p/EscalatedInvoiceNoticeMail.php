@@ -9,9 +9,10 @@ use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\URL;
 
 /**
- * Notice to the vendor that their escalation was received. Queued.
+ * Notice to the originator that their escalation was received and forwarded.
  */
 class EscalatedInvoiceNoticeMail extends Mailable implements ShouldQueue
 {
@@ -21,18 +22,36 @@ class EscalatedInvoiceNoticeMail extends Mailable implements ShouldQueue
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: '[P2P] Escalation received');
+        $reason = $this->escalation->reason?->name ?? 'Escalation';
+
+        return new Envelope(subject: "[P2P Escalation] {$reason} — Received");
     }
 
     public function content(): Content
     {
+        $this->escalation->loadMissing(['reason', 'invoice.vendor', 'invoice.company', 'goodReceiptState']);
+
         return new Content(
-            view: 'mail.p2p.escalation',
+            view: 'mail.p2p.escalation-notification',
             with: [
-                'heading' => 'Escalation received',
-                'body' => 'We received your escalation and routed it for action.',
                 'escalation' => $this->escalation,
+                'audience' => 'origin',
+                'teamLabel' => Escalation::roleLabel($this->escalation->current_role),
+                'shareUrl' => $this->shareUrl(),
             ],
+        );
+    }
+
+    protected function shareUrl(): ?string
+    {
+        if ($this->escalation->p2p_invoice_id === null) {
+            return null;
+        }
+
+        return URL::temporarySignedRoute(
+            'filament.hub.pages.p2p.bulk-goods-receipt',
+            now()->addDays(7),
+            ['invoice' => $this->escalation->p2p_invoice_id],
         );
     }
 }

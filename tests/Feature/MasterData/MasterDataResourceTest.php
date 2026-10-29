@@ -94,7 +94,7 @@ it('requires a vendor for Vendor logins', function () {
             'roles' => [$vendorRoleId],
         ])
         ->call('create')
-        ->assertHasFormErrors(['vendor_id' => 'required']);
+        ->assertHasFormErrors(['vendors' => 'required']);
 
     $vendor = Vendor::factory()->create();
 
@@ -104,12 +104,14 @@ it('requires a vendor for Vendor logins', function () {
             'email' => 'supplier@example.com',
             'password' => 'password123',
             'roles' => [$vendorRoleId],
-            'vendor_id' => $vendor->id,
+            'vendors' => [$vendor->id],
         ])
         ->call('create')
         ->assertHasNoFormErrors();
 
-    expect(User::firstWhere('email', 'supplier@example.com'))
-        ->vendor_id->toBe($vendor->id)
-        ->hasRole(RoleName::Vendor)->toBeTrue();
+    $user = User::firstWhere('email', 'supplier@example.com');
+
+    expect($user->vendor_id)->toBe($vendor->id)
+        ->and($user->hasRole(RoleName::Vendor))->toBeTrue()
+        ->and($user->vendors()->pluck('vendors.id')->all())->toBe([$vendor->id]);
 });

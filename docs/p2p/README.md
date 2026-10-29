@@ -14,12 +14,12 @@ P2P is delivered **module by module**, in phases:
 
 | Phase | Deliverable | Status |
 |---|---|---|
-| 0 | Documentation (this folder) + demo data for the mancom demo | 🚧 current |
-| 1 | Database: migrations, models, enums, seeders (incl. demo master data) | ⬜ |
-| 2 | Services (domain + SAP, jobs, console) | ⬜ |
-| 3 | Filament resources, custom pages, side-by-side viewer | ⬜ |
-| 4 | Other Laravel components (policies, traits, support, routes) | ⬜ |
-| 5 | Other (security hardening, Knowledge Base, exports, SAP go-live) | ⬜ |
+| 0 | Documentation (this folder) + demo data for the mancom demo | ✅ |
+| 1 | Database: migrations, models, enums, seeders (incl. demo master data) | ✅ |
+| 2 | Services (domain + SAP, jobs, console) | ✅ SAP ported behind `SAP_ENABLED` |
+| 3 | Filament resources, custom pages, side-by-side viewer | ✅ |
+| 4 | Other Laravel components (policies, traits, support, routes) | ✅ |
+| 5 | Other (security hardening, Knowledge Base, exports, SAP go-live) | 🟡 SAP go-live pending credentials/transport sign-off |
 
 ## Decisions locked (2026-10-10)
 

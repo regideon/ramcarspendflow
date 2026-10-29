@@ -109,9 +109,12 @@ class P2pEscalationRoutingService
      * Run the current hop's action (if any) and move to the next hop, or resolve at
      * the terminal hop.
      */
-    public function advance(Escalation $escalation, ?User $by, ?string $remarks = null): void
+    /**
+     * @param  array<string, mixed>  $data  custom hop-action modal state
+     */
+    public function advance(Escalation $escalation, ?User $by, ?string $remarks = null, array $data = []): void
     {
-        DB::transaction(function () use ($escalation, $by, $remarks): void {
+        DB::transaction(function () use ($escalation, $by, $remarks, $data): void {
             /** @var Escalation $escalation */
             $escalation = Escalation::query()->whereKey($escalation->getKey())->lockForUpdate()->firstOrFail();
             $steps = $escalation->reason->steps;
@@ -123,7 +126,7 @@ class P2pEscalationRoutingService
             $action = $current?->action !== null ? $this->actions->resolve($current->action) : null;
 
             if ($action !== null) {
-                $completion = $action->handle(new StepActionContext($escalation, $by, $remarks));
+                $completion = $action->handle(new StepActionContext($escalation, $by, $remarks, $data));
 
                 if (! $completion->handled) {
                     return;
@@ -146,9 +149,7 @@ class P2pEscalationRoutingService
 
             // The label that pushed the request forward: the custom action (or the
             // hop's configured label), falling back to the generic "Advance".
-            $actionLabel = $action !== null
-                ? $current->action_label
-                : ($current->action_label ?? 'Advance');
+            $actionLabel = $current->action_label ?? 'Advance';
 
             $escalation->forceFill([
                 'current_step_order' => $next->step_order,
@@ -227,6 +228,77 @@ class P2pEscalationRoutingService
 
             $this->afterClosed($escalation, $by, $remarks, 'Escalation resolved.');
         });
+    }
+
+    /**
+     * Re-open a resolved escalation at the hop before its terminal one, so the
+     * previous team can supply feedback or missing information without raising a
+     * brand-new escalation.
+     */
+    public function reEscalate(Escalation $escalation, ?User $by, ?string $remarks = null): void
+    {
+        if (trim((string) $remarks) === '') {
+            throw ValidationException::withMessages(['remarks' => 'Remarks are required.']);
+        }
+
+        DB::transaction(function () use ($escalation, $by, $remarks): void {
+            /** @var Escalation $escalation */
+            $escalation = Escalation::query()->whereKey($escalation->getKey())->lockForUpdate()->firstOrFail();
+
+            if ($escalation->status !== Escalation::STATUS_RESOLVED) {
+                throw ValidationException::withMessages(['status' => 'Only a resolved escalation can be re-escalated.']);
+            }
+
+            $previous = $escalation->previousStep();
+
+            if ($previous === null) {
+                throw ValidationException::withMessages(['status' => 'This escalation has no previous hop to return to.']);
+            }
+
+            $fromStatus = $escalation->invoice?->status;
+
+            $rows = Escalation::query()
+                ->where('p2p_invoice_id', $escalation->p2p_invoice_id)
+                ->when(
+                    filled($escalation->batch_number),
+                    fn ($query) => $query->where('batch_number', $escalation->batch_number),
+                    fn ($query) => $query->whereKey($escalation->id),
+                )
+                ->where('status', Escalation::STATUS_RESOLVED)
+                ->get();
+
+            foreach ($rows as $row) {
+                $row->loadMissing('reason.steps');
+                $rowPrevious = $row->previousStep() ?? $previous;
+
+                $row->forceFill([
+                    'current_step_order' => $rowPrevious->step_order,
+                    'current_role' => $this->resolveRole($rowPrevious, $row->origin_role),
+                    'status' => Escalation::STATUS_OPEN,
+                    'resolved_at' => null,
+                    'remarks' => $remarks,
+                ])->save();
+
+                if ($row->goodReceiptState !== null) {
+                    $this->goodReceiptStatus->recalculate($row->goodReceiptState);
+                }
+            }
+
+            $this->syncHeaderStatus($escalation->invoice->fresh());
+
+            ApprovalHistory::query()->create([
+                'p2p_invoice_id' => $escalation->p2p_invoice_id,
+                'actioned_by' => $by?->id,
+                'from_status' => $fromStatus,
+                'to_status' => $escalation->invoice->fresh()->status,
+                'remarks' => $remarks,
+                'action_label' => 'Re-escalated',
+                'is_visible_to_vendor' => true,
+                'is_visible_to_admin' => true,
+            ]);
+        });
+
+        $this->mail->sendForCurrentHop($escalation->fresh());
     }
 
     public function cancel(Escalation $escalation, ?User $by, ?string $remarks = null): void

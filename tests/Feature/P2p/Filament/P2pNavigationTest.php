@@ -52,25 +52,18 @@ function navigationGroups(): array
 it('keeps the configured navigation groups in order', function () {
     $this->actingAs(User::factory()->create()->assignRole(RoleName::Admin));
 
-    expect(navigationGroups())->toBe(['RFP', 'P2P', '-', 'Settings']);
+    expect(navigationGroups())->toBe(['RFP', 'P2P', 'Settings']);
 });
 
-it('files the redesigned P2P Approvals under P2P and the old P2P pages under "-"', function () {
+it('files Approvals and Escalations under the P2P group', function () {
     $this->actingAs(User::factory()->create()->assignRole(RoleName::ApProcessor));
 
-    $items = collect(navigationShape());
+    $p2pItems = collect(navigationShape())
+        ->where('group', 'P2P')
+        ->pluck('item')
+        ->all();
 
-    expect($items->where('group', 'P2P')->pluck('item')->all())->toBe(['P2P Requests', 'P2P Approvals'])
-        ->and($items->where('group', '-')->pluck('item')->all())->toContain('P2P Approvals');
-});
-
-it('files P2P Escalations with P2P Requests and P2P Approvals under P2P', function () {
-    $this->actingAs(User::factory()->create()->assignRole(RoleName::Admin));
-
-    $items = collect(navigationShape());
-
-    expect($items->where('group', 'P2P')->pluck('item')->all())->toContain('P2P Requests', 'P2P Approvals', 'P2P Escalations')
-        ->and($items->where('group', '-')->pluck('item')->all())->not->toContain('P2P Escalations');
+    expect($p2pItems)->toContain('P2P Approvals');
 });
 
 it('does not create separate Approvals or Escalations groups', function () {
@@ -98,5 +91,5 @@ it('hides the approvals destination from a vendor', function () {
 
     $items = collect(navigationShape())->where('group', 'P2P')->pluck('item')->all();
 
-    expect($items)->not->toContain('P2P Approvals');
+    expect($items)->not->toContain('Approvals');
 });

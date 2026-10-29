@@ -10,6 +10,7 @@ use App\Filament\Resources\P2p\Approvals\ApprovalResource;
 use App\Filament\Resources\RfpApprovals\RfpApprovalResource;
 use App\Models\P2p\Escalation;
 use App\Models\P2p\EscalationReason;
+use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
 use App\Models\P2p\SapGoodReceiptItem;
@@ -25,7 +26,6 @@ use App\Services\P2p\P2pThreeWayMatchService;
 use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
-use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Repeater\TableColumn;
@@ -46,10 +46,14 @@ use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Url;
+use Throwable;
 
 /**
  * The AP processing screen, ported from the legacy BulkAccountsPayable page.
@@ -82,6 +86,9 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
      */
     #[Url]
     public ?int $invoice = null;
+
+    #[Url]
+    public ?string $code = null;
 
     /**
      * Read-only mode: opened by a role that may review but not act.
@@ -124,6 +131,13 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
      * The open escalation waiting on the signed-in user, if any. Cached per request.
      */
     protected ?Escalation $escalationForUser = null;
+
+    /**
+     * The RFP selected in the linkage dropdown, loaded once per request.
+     */
+    protected ?Rfp $selectedRfp = null;
+
+    protected bool $selectedRfpResolved = false;
 
     public function getMaxContentWidth(): Width
     {
@@ -318,13 +332,20 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
     protected function invoiceModel(): ?Invoice
     {
-        if (blank($this->invoice)) {
-            return null;
+        if (! blank($this->invoice)) {
+            return $this->loadedInvoice ??= Invoice::query()
+                ->with(['vendor', 'company', 'escalations.reason.steps'])
+                ->find((int) $this->invoice);
         }
 
-        return $this->loadedInvoice ??= Invoice::query()
-            ->with(['vendor', 'company', 'escalations.reason.steps'])
-            ->find((int) $this->invoice);
+        if (! blank($this->code)) {
+            return $this->loadedInvoice ??= Invoice::query()
+                ->with(['vendor', 'company', 'escalations.reason.steps'])
+                ->where('code', $this->code)
+                ->first();
+        }
+
+        return null;
     }
 
     public function mount(): void
@@ -349,6 +370,8 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
         $this->data['vendor_code'] = $invoice->vendor?->code ?? 'N/A';
         $this->data['company_code'] = $invoice->company?->code ?? 'N/A';
         $this->data['grc_number'] = $invoice->grc_number;
+        $this->data['p2p_number'] = $invoice->p2p_number;
+        $this->data['rfp_id'] = $invoice->rfp_id;
         $this->data['invoice_at'] = $invoice->invoice_at?->toDateString();
         $this->data['attachments'] = $invoice->attachments ?? [];
         $this->data['reference_number'] = $invoice->reference_number ?? [];
@@ -402,11 +425,22 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             ->with('sapItem.goodReceipt')
             ->get();
 
+        // Escalations point at p2p_good_receipt_states — not at the SAP receipt behind
+        // it — so map each GR on the invoice to its state row by GR number (falling
+        // back to the SAP receipt id) before the rows are built.
+        $states = GoodReceiptState::query()
+            ->whereIn('good_receipt_number', collect($invoice->gr_numbers ?? [])->filter()->values()->all())
+            ->get(['id', 'good_receipt_number', 'p2p_sap_good_receipt_id']);
+
+        $stateIdsByGrNumber = $states->pluck('id', 'good_receipt_number');
+        $stateIdsBySapReceiptId = $states->pluck('id', 'p2p_sap_good_receipt_id');
+
         // One pass for every mirror GR item on the invoice's POs, so the 3-way
         // breakdown is derived from in-memory data instead of a query per line
         // (which the query detector reports as an N+1).
         $matchItems = SapGoodReceiptItem::query()
             ->whereIn('purchase_order', $lines->pluck('purchase_order')->filter()->unique()->values()->all())
+            ->whereNull('merged_at')
             ->with('goodReceipt')
             ->get();
 
@@ -418,9 +452,11 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
         return $lines
             ->groupBy(fn (InvoiceLine $line): string => (string) ($line->sapItem?->goodReceipt?->good_receipt_number ?? $line->purchase_order))
-            ->map(function (Collection $grLines, string $grNumber) use ($matchService, $itemsByPoLine, $reversedGoodReceiptIds, $billedByItem, &$matchByLine, $escalatedGrIds): array {
+            ->map(function (Collection $grLines, string $grNumber) use ($matchService, $itemsByPoLine, $reversedGoodReceiptIds, $billedByItem, &$matchByLine, $escalatedGrIds, $stateIdsByGrNumber, $stateIdsBySapReceiptId): array {
                 $first = $grLines->first();
-                $stateId = (int) ($first?->sapItem?->goodReceipt?->id ?? 0);
+                $stateId = (int) ($stateIdsByGrNumber[$grNumber]
+                    ?? $stateIdsBySapReceiptId[(int) ($first?->sapItem?->p2p_sap_good_receipt_id ?? 0)]
+                    ?? 0);
                 $isEscalated = in_array($stateId, $escalatedGrIds, true);
 
                 $rows = $grLines->map(function (InvoiceLine $line) use ($matchService, $itemsByPoLine, $reversedGoodReceiptIds, $billedByItem, &$matchByLine, $isEscalated): array {
@@ -442,7 +478,7 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                         'material_doc_item' => $line->sapItem?->material_doc_item,
                         'escalation_status' => $isEscalated ? 'Escalated' : 'Not escalated',
                         'item_name' => $line->item_name,
-                        'item_description' => $line->item_name,
+                        'item_description' => $line->item_description ?: $line->sapItem?->item_description ?: $line->item_name,
                         'quantity_po' => (int) $line->quantity_po,
                         'uom' => $line->uom,
                         'quantity_served' => (int) ($line->sapItem?->quantity_served ?? $line->quantity_po),
@@ -506,8 +542,6 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
     public function form(Schema $schema): Schema
     {
-        // Only the roles that escalate individual lines see the Report tick.
-        $showReportColumn = ! $this->isSupervisor() && ! $this->isViewOnly && $this->userHasRole(RoleName::ApProcessor->value);
         $showEscalationColumn = $this->showEscalationColumn;
 
         return $schema
@@ -560,6 +594,34 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
                 Group::make()
                     ->columnSpan(['default' => 12])
+                    ->schema([
+                        Section::make('RFP Linkage')
+                            ->description('Link this request to the RFP it settles, for example a supplier down payment.')
+                            ->icon(Heroicon::OutlinedLink)
+                            ->iconColor('primary')
+                            ->columns(['default' => 1, 'md' => 12])
+                            ->schema([
+                                Select::make('rfp_id')
+                                    ->label('RFP')
+                                    ->placeholder('Not linked to an RFP')
+                                    ->searchable()
+                                    ->getSearchResultsUsing(fn (string $search): array => $this->rfpOptions($search))
+                                    ->getOptionLabelUsing(fn (mixed $value): ?string => $this->rfpOptionLabelForValue($value))
+                                    ->live()
+                                    ->disabled($this->isViewOnly || $this->isSupervisor())
+                                    ->dehydrated()
+                                    ->columnSpan(['default' => 12, 'md' => 6]),
+
+                                Callout::make('Already linked')
+                                    ->description(fn (): string => $this->selectedRfpLinkedMessage() ?? '')
+                                    ->warning()
+                                    ->visible(fn (): bool => $this->selectedRfpLinkedMessage() !== null)
+                                    ->columnSpan(['default' => 12, 'md' => 6]),
+                            ]),
+                    ]),
+
+                Group::make()
+                    ->columnSpan(['default' => 12])
                     ->columns(['default' => 1, 'lg' => 12])
                     ->schema([
                         Group::make()
@@ -595,25 +657,17 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                                                     ->compact()
                                                     ->hiddenLabel()
                                                     ->table([
-                                                        ...($showReportColumn ? [TableColumn::make('Report')] : []),
                                                         ...($showEscalationColumn ? [TableColumn::make('Scope')] : []),
-                                                        TableColumn::make('Short Text'),
+                                                        TableColumn::make('Description'),
                                                         TableColumn::make('Item No.'),
-                                                        TableColumn::make('PO Qty'),
                                                         TableColumn::make('Uom'),
+                                                        TableColumn::make('PO Qty'),
                                                         TableColumn::make('Invoice Qty'),
                                                         TableColumn::make('UC'),
                                                         TableColumn::make('Amount'),
                                                         TableColumn::make('3-Way'),
                                                     ])
                                                     ->schema([
-                                                        ...($showReportColumn ? [
-                                                            Checkbox::make('escalate')
-                                                                ->hiddenLabel()
-                                                                ->default(false)
-                                                                ->extraFieldWrapperAttributes(['style' => 'justify-items: center;']),
-                                                        ] : []),
-
                                                         ...($showEscalationColumn ? [
                                                             TextEntry::make('escalation_status')
                                                                 ->hiddenLabel()
@@ -628,10 +682,10 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                                                         TextEntry::make('purchase_order_item')
                                                             ->hiddenLabel(),
 
-                                                        TextEntry::make('quantity_po')
+                                                        TextEntry::make('uom')
                                                             ->hiddenLabel(),
 
-                                                        TextEntry::make('uom')
+                                                        TextEntry::make('quantity_po')
                                                             ->hiddenLabel(),
 
                                                         TextEntry::make('quantity_served')
@@ -725,6 +779,12 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                 ->dehydrated(false)
                 ->columnSpan(['default' => 12, 'md' => 4]),
 
+            TextInput::make('p2p_number')
+                ->label('P2P ID')
+                ->readOnly()
+                ->dehydrated(false)
+                ->columnSpan(['default' => 12, 'md' => 4]),
+
             ViewField::make('attachments')
                 ->label('Attached PDF')
                 ->view('filament.components.open-pdf-link')
@@ -737,11 +797,10 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                 ->dehydrated(false)
                 ->columnSpan(['default' => 12, 'md' => 4]),
 
-            TextInput::make('reference_number_display')
+            TextInput::make('reference_number')
                 ->label('Reference No.')
                 ->readOnly()
                 ->dehydrated(false)
-                ->formatStateUsing(fn (): string => implode(', ', $this->data['reference_number'] ?? []))
                 ->columnSpan(['default' => 12, 'md' => 4]),
 
             TextInput::make('overall_invoice_total')
@@ -925,6 +984,16 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
     }
 
     /**
+     * Persist the RFP link chosen on the processing screen.
+     */
+    protected function persistRfpLink(Invoice $invoice): void
+    {
+        $invoice->forceFill([
+            'rfp_id' => filled($this->data['rfp_id'] ?? null) ? (int) $this->data['rfp_id'] : null,
+        ])->save();
+    }
+
+    /**
      * @return array<string, string>
      */
     protected static function taxCodeOptions(): array
@@ -944,6 +1013,126 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             ->pluck('description', 'code')
             ->map(fn (string $description, string $code): string => $code.' - '.$description)
             ->all();
+    }
+
+    /**
+     * RFPs matching the search, labelled with their number, vendor, total and how
+     * many other P2P requests already point at them. Limited to keep the response small.
+     *
+     * @return array<int, string>
+     */
+    protected function rfpOptions(string $search = ''): array
+    {
+        $query = Rfp::query()
+            ->with('vendor')
+            ->withCount([
+                'p2pInvoices as linked_p2p_count' => fn (Builder $query): Builder => $this->excludingCurrentInvoice($query),
+            ]);
+
+        $search = trim($search);
+
+        if ($search !== '') {
+            $like = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $search).'%';
+
+            $query->where(fn (Builder $query) => $query
+                ->where('rfp_number', 'like', $like)
+                ->orWhere('purpose', 'like', $like)
+                ->orWhereHas('vendor', fn (Builder $query) => $query->where('name', 'like', $like)));
+        }
+
+        return $query->latest('id')
+            ->limit(50)
+            ->get()
+            ->mapWithKeys(fn (Rfp $rfp): array => [$rfp->id => $this->rfpOptionLabel($rfp)])
+            ->all();
+    }
+
+    /**
+     * The label of the already-selected RFP, for the closed select.
+     */
+    protected function rfpOptionLabelForValue(mixed $value): ?string
+    {
+        if (blank($value)) {
+            return null;
+        }
+
+        $rfp = Rfp::query()->with('vendor')->find((int) $value);
+
+        return $rfp === null ? null : $this->rfpOptionLabel($rfp);
+    }
+
+    protected function rfpOptionLabel(Rfp $rfp): string
+    {
+        $parts = array_filter([
+            $rfp->rfp_number,
+            $rfp->vendor?->name,
+            $rfp->total_php_amount !== null
+                ? $this->currencySymbol.number_format((float) $rfp->total_php_amount, 2)
+                : null,
+        ]);
+
+        $linked = $rfp->linked_p2p_count ?? $this->linkedP2pCount($rfp);
+
+        return implode(' · ', $parts).($linked > 0
+            ? ' — already linked to '.($linked === 1 ? '1 P2P request' : $linked.' P2P requests')
+            : '');
+    }
+
+    protected function linkedP2pCount(Rfp $rfp): int
+    {
+        return $this->excludingCurrentInvoice($rfp->p2pInvoices())->count();
+    }
+
+    /**
+     * The RFP's links, ignoring this request when it is already one of them.
+     */
+    protected function excludingCurrentInvoice(Builder|Relation $query): Builder|Relation
+    {
+        return $query->when(
+            $this->invoice !== null,
+            fn (Builder|Relation $query): Builder|Relation => $query->whereKeyNot((int) $this->invoice),
+        );
+    }
+
+    protected function selectedRfp(): ?Rfp
+    {
+        if ($this->selectedRfpResolved) {
+            return $this->selectedRfp;
+        }
+
+        $this->selectedRfpResolved = true;
+
+        if (blank($this->data['rfp_id'] ?? null)) {
+            return null;
+        }
+
+        return $this->selectedRfp = Rfp::query()->find((int) $this->data['rfp_id']);
+    }
+
+    /**
+     * The warning shown when another P2P request already points at the chosen RFP.
+     * It is informational: the link is still allowed.
+     */
+    protected function selectedRfpLinkedMessage(): ?string
+    {
+        $rfp = $this->selectedRfp();
+
+        if ($rfp === null) {
+            return null;
+        }
+
+        $numbers = $this->excludingCurrentInvoice($rfp->p2pInvoices())
+            ->orderBy('id')
+            ->get(['id', 'p2p_number', 'grc_number'])
+            ->map(fn (Invoice $invoice): string => $invoice->p2p_number ?? $invoice->grc_number ?? 'P2P #'.$invoice->id)
+            ->filter()
+            ->values();
+
+        if ($numbers->isEmpty()) {
+            return null;
+        }
+
+        return 'This RFP is already linked to '.$numbers->implode(', ').'. You can still link it to this request.';
     }
 
     // ---------------------------------------------------------------------
@@ -968,13 +1157,19 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             ];
         }
 
-        if ($this->isViewOnly) {
-            return [$this->backAction()];
-        }
-
         $invoice = $this->invoiceModel();
 
         if ($invoice === null) {
+            return [$this->backAction()];
+        }
+
+        // A failed SOAP park leaves the invoice at 21 with the error recorded; the
+        // supervisor can retry without returning it to the processor.
+        if ($invoice->status === P2pStatus::PendingPost && $this->isSupervisor()) {
+            return [$this->retryParkAction(), $this->backAction()];
+        }
+
+        if ($this->isViewOnly) {
             return [$this->backAction()];
         }
 
@@ -1142,6 +1337,44 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             ->action(fn (array $data) => $this->approve($data));
     }
 
+    protected function retryParkAction(): Action
+    {
+        return Action::make('retryPark')
+            ->label('Retry SAP parking')
+            ->color('warning')
+            ->icon(Heroicon::OutlinedArrowPath)
+            ->schema([
+                Textarea::make('remarks_checker')
+                    ->label('Remarks')
+                    ->default('Retry SAP parking.')
+                    ->required(),
+            ])
+            ->action(function (array $data): void {
+                try {
+                    $parked = app(P2pInvoiceParkingService::class)->retry(
+                        $this->invoiceModel(),
+                        $this->currentUser(),
+                        (string) ($data['remarks_checker'] ?? 'Retry SAP parking.'),
+                    );
+
+                    Notification::make()
+                        ->title('Invoice parked')
+                        ->body('SAP document '.($parked->invoice_number ?? '—').'.')
+                        ->success()
+                        ->send();
+                } catch (Throwable $exception) {
+                    Notification::make()
+                        ->title('SAP parking failed')
+                        ->body($exception->getMessage())
+                        ->danger()
+                        ->persistent()
+                        ->send();
+                }
+
+                $this->redirectBack();
+            });
+    }
+
     protected function returnToApProcessorAction(): Action
     {
         return Action::make('returnToApProcessor')
@@ -1220,6 +1453,7 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
         }
 
         $this->persistTax($invoice);
+        $this->persistRfpLink($invoice);
 
         $from = $invoice->status;
 
@@ -1258,13 +1492,26 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             return;
         }
 
-        app(P2pInvoiceParkingService::class)->park($invoice, $this->currentUser(), $remarks);
+        try {
+            $parked = app(P2pInvoiceParkingService::class)->park($invoice, $this->currentUser(), $remarks);
 
-        Notification::make()
-            ->title('Approved')
-            ->body('The invoice has been queued for parking in SAP.')
-            ->success()
-            ->send();
+            $message = $parked->status === P2pStatus::InvoiceParked
+                ? 'Invoice parked in SAP'.($parked->invoice_number ? " (doc {$parked->invoice_number})" : '').'.'
+                : 'The invoice is queued for parking in SAP (Pending Post).';
+
+            Notification::make()
+                ->title('Approved')
+                ->body($message)
+                ->success()
+                ->send();
+        } catch (Throwable $exception) {
+            Notification::make()
+                ->title('SAP parking failed')
+                ->body($exception->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+        }
 
         $this->redirectBack();
     }
@@ -1355,13 +1602,19 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             return;
         }
 
-        // Per-line: only the GR lines the processor ticked are escalated.
+        // The per-line Report tick has been removed, so the footer Escalate
+        // covers the whole request. Prefer ticked lines first so a line-level UI
+        // can be reintroduced without changing this handler.
         $stateIds = $this->tickedGoodReceiptStateIds();
 
         if ($stateIds === []) {
+            $stateIds = $this->allGoodReceiptStateIds();
+        }
+
+        if ($stateIds === []) {
             Notification::make()
-                ->title('Select at least one item')
-                ->body('Tick the GR line(s) you want to escalate.')
+                ->title('Nothing to escalate')
+                ->body('This request has no goods receipt lines to escalate.')
                 ->warning()
                 ->send();
 
@@ -1370,13 +1623,24 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
         $this->persistTax($invoice);
 
-        app(P2pEscalationRoutingService::class)->start(
-            $invoice,
-            $reason,
-            $stateIds,
-            $this->currentUser(),
-            $remarks,
-        );
+        try {
+            app(P2pEscalationRoutingService::class)->start(
+                $invoice,
+                $reason,
+                $stateIds,
+                $this->currentUser(),
+                $remarks,
+            );
+        } catch (ValidationException $exception) {
+            Notification::make()
+                ->title('Escalation failed')
+                ->body($exception->validator?->errors()->first() ?? $exception->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+
+            return;
+        }
 
         Notification::make()
             ->title('Escalated')
@@ -1397,6 +1661,23 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
         return collect($this->data['goods_receipts'] ?? [])
             ->filter(fn (array $gr): bool => collect($gr['goodReceiptItems'] ?? [])
                 ->contains(fn (array $item): bool => ! empty($item['escalate'])))
+            ->pluck('p2p_good_receipt_state_id')
+            ->filter()
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Every GR state on the request, used when no line was ticked (the per-line
+     * Report column was removed and Escalate now covers the whole request).
+     *
+     * @return array<int, int>
+     */
+    protected function allGoodReceiptStateIds(): array
+    {
+        return collect($this->data['goods_receipts'] ?? [])
             ->pluck('p2p_good_receipt_state_id')
             ->filter()
             ->map(fn ($id): int => (int) $id)
