@@ -107,7 +107,7 @@
                                     {{ $summary['dueToday'] }} due today
                                 </span>
                             </div>
-                            <a href="{{ $approvals->isNotEmpty() ? $detailUrl($approvals->first()) : '#' }}" class="flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-xs font-semibold text-slate-900 shadow-sm transition hover:bg-indigo-50 active:scale-95 lg:px-5 lg:py-2.5 lg:text-sm">
+                            <a href="{{ Approvals::getUrl() }}" class="flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-xs font-semibold text-slate-900 shadow-sm transition hover:bg-indigo-50 active:scale-95 lg:px-5 lg:py-2.5 lg:text-sm">
                                 Review now
                                 <x-filament::icon :icon="Heroicon::ArrowRight" class="size-4" />
                             </a>

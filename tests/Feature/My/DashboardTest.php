@@ -53,3 +53,13 @@ it('shows requestors no approval notifications', function () {
         ->assertSee('Your RFP was returned')
         ->assertDontSee('waiting for your approval');
 });
+
+it('sends Review now to the approvals list', function () {
+    $approver = User::factory()->create();
+    CompanyRole::factory()->for($approver)->create(['role' => RoleName::DepartmentHead]);
+
+    $this->actingAs($approver)
+        ->get(route('filament.my.pages.dashboard'))
+        ->assertOk()
+        ->assertSeeInOrder([route('filament.my.pages.approvals'), 'Review now'], escape: false);
+});
