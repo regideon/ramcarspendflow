@@ -26,6 +26,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -147,6 +148,37 @@ class Rfp extends Model
     public function items(): HasMany
     {
         return $this->hasMany(Item::class)->orderBy('sort');
+    }
+
+    /**
+     * Relations the RFP view pages show (header, items, tax entries, history, route),
+     * loaded up front so the page runs no query per line.
+     *
+     * @var list<string>
+     */
+    public const array VIEW_RELATIONS = [
+        'company', 'requestor', 'dueType', 'accountGroup', 'vendor', 'paymentMethod',
+        'items.currency', 'items.subcategory', 'items.glAccount', 'items.costCenter',
+        'items.company', 'items.vendor', 'items.oneTimeVendor',
+        'items.taxCode', 'items.withholdingTaxCode', 'items.withholdingTaxType',
+        'histories.user', 'approvalSteps',
+    ];
+
+    /**
+     * Reload the RFP and the relations it had loaded, nested ones included (a plain
+     * refresh() reloads only the top level, so a view page would then query per line).
+     */
+    public function reloadWithRelations(): void
+    {
+        $loaded = array_keys($this->getRelations());
+
+        $this->setRawAttributes(static::withTrashed()->findOrFail($this->getKey())->getAttributes(), sync: true);
+        $this->setRelations([]);
+
+        $this->load([
+            ...array_filter(self::VIEW_RELATIONS, fn (string $relation): bool => in_array(Str::before($relation, '.'), $loaded, true)),
+            ...array_diff($loaded, array_map(fn (string $relation): string => Str::before($relation, '.'), self::VIEW_RELATIONS)),
+        ]);
     }
 
     /**

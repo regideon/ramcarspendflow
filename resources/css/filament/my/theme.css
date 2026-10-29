@@ -1,0 +1,49 @@
+@import url('https://fonts.bunny.net/css?family=manrope:600,700,800&display=swap');
+@import '../../../../vendor/filament/filament/resources/css/theme.css';
+@import '../comments-chat.css';
+
+@source '../../../../app/Filament/My/**/*';
+@source '../../../../resources/views/filament/my/**/*';
+@source '../../../../resources/views/components/my/**/*';
+@source '../../../../resources/views/filament/livewire/comments-chat.blade.php';
+
+@theme {
+    /* Headings and amounts */
+    --font-display: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+}
+
+.fi-body.fi-panel-my {
+    background-color: #f5f6fb;
+}
+
+/* Soft glass card used across the panel (a utility, so `lg:my-glass` works) */
+@utility my-glass {
+    background-color: rgb(255 255 255 / 0.7);
+    border: 1px solid rgb(255 255 255 / 0.8);
+    box-shadow: 0 8px 30px rgb(15 23 42 / 0.04);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+}
+
+/* Aurora glow behind all content */
+.my-aurora {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+    filter: blur(120px);
+}
+
+.my-aurora span {
+    position: absolute;
+    border-radius: 9999px;
+}
+
+/* Chat bubble: on phones it ends the floating nav row */
+@media (width < 64rem) {
+    .fi-panel-my .fi-comments-chat {
+        right: 1rem;
+        bottom: max(1.5rem, env(safe-area-inset-bottom));
+    }
+}

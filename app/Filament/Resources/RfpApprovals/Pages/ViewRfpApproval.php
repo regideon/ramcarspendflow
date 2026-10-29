@@ -11,7 +11,9 @@ use App\Filament\Resources\RfpApprovals\Actions\StepActions;
 use App\Filament\Resources\RfpApprovals\Actions\TreasuryActions;
 use App\Filament\Resources\RfpApprovals\RfpApprovalResource;
 use App\Filament\Resources\Rfps\Widgets\RfpProgress;
+use App\Models\Rfp\Rfp;
 use Filament\Resources\Pages\ViewRecord;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * The RFP as Accounting sees it, with the actions of the step the user holds now.
@@ -35,6 +37,11 @@ class ViewRfpApproval extends ViewRecord
             ...TreasuryActions::make(),
             ...StepActions::make(),
         ];
+    }
+
+    protected function resolveRecord(int|string $key): Model
+    {
+        return parent::resolveRecord($key)->load(Rfp::VIEW_RELATIONS);
     }
 
     protected function getHeaderWidgets(): array

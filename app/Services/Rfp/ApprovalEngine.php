@@ -236,12 +236,12 @@ class ApprovalEngine
             return null;
         }
 
-        return $rfp->approvalSteps()
-            ->where('round', $rfp->approval_round)
-            ->where('state', RfpApprovalStepState::Active)
-            ->whereIn('role', $user->rolesIn($rfp->company_id))
-            ->orderBy('id')
-            ->first();
+        $roles = $user->rolesIn($rfp->company_id);
+
+        // From the loaded route (refreshed after every engine action): a page asks once per action.
+        return $rfp->approvalSteps->first(fn (ApprovalStep $step): bool => $step->round === $rfp->approval_round
+            && $step->state === RfpApprovalStepState::Active
+            && in_array($step->role?->value, $roles, true));
     }
 
     /**
@@ -587,6 +587,6 @@ class ApprovalEngine
             $callback(Rfp::query()->lockForUpdate()->findOrFail($rfp->getKey()));
         });
 
-        $rfp->refresh();
+        $rfp->reloadWithRelations();
     }
 }

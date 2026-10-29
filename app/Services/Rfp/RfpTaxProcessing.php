@@ -81,7 +81,8 @@ class RfpTaxProcessing
     }
 
     /**
-     * Every line needs both codes, and each currency's gross total must not change.
+     * Every line needs both codes, only PHP lines may be re-split (legacy rule), and each
+     * currency's gross total must not change.
      *
      * @param  Collection<int, Item>  $items
      * @param  Collection<int, array<string, mixed>>  $lines
@@ -96,17 +97,22 @@ class RfpTaxProcessing
             throw ValidationException::withMessages(['lines' => 'The lines changed while you were working. Reload the request and try again.']);
         }
 
-        foreach ($lines as $line) {
-            if (blank($line['tax_code_id'] ?? null) || ! TaxCode::query()->whereKey($line['tax_code_id'])->where('is_active', true)->exists()) {
+        $activeTaxCodes = TaxCode::query()->where('is_active', true)->whereKey($lines->pluck('tax_code_id')->filter())->pluck('id')->all();
+        $activeWithholdingCodes = WithholdingTaxCode::query()->where('is_active', true)->whereKey($lines->pluck('withholding_tax_code_id')->filter())->pluck('id')->all();
+
+        foreach ($lines as $id => $line) {
+            if (! in_array((int) ($line['tax_code_id'] ?? 0), $activeTaxCodes, true)) {
                 $problems[] = 'Choose an input tax on every line.';
             }
 
-            if (blank($line['withholding_tax_code_id'] ?? null) || ! WithholdingTaxCode::query()->whereKey($line['withholding_tax_code_id'])->where('is_active', true)->exists()) {
+            if (! in_array((int) ($line['withholding_tax_code_id'] ?? 0), $activeWithholdingCodes, true)) {
                 $problems[] = 'Choose a withholding tax on every line.';
             }
 
             if (! is_numeric($line['amount'] ?? null) || bccomp($this->money($line['amount']), '0', 2) <= 0) {
                 $problems[] = 'Every gross amount must be more than zero.';
+            } elseif ($items->get($id)?->currency?->code !== 'PHP' && bccomp($this->money($line['amount']), (string) $items->get($id)?->amount, 2) !== 0) {
+                $problems[] = 'Only PHP lines can be re-split; foreign currency amounts stay as submitted.';
             }
         }
 

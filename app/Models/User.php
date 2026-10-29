@@ -79,8 +79,11 @@ class User extends Authenticatable implements FilamentUser
             return [];
         }
 
-        return $this->companyRoles()->where('company_id', $companyId)->pluck('role')
-            ->map(fn (RoleName $role): string => $role->value)
+        // From the loaded assignments: pages ask once per action, so this queries once.
+        return $this->companyRoles
+            ->filter(fn (CompanyRole $assignment): bool => (int) $assignment->company_id === $companyId)
+            ->map(fn (CompanyRole $assignment): string => $assignment->role->value)
+            ->values()
             ->all();
     }
 
@@ -111,6 +114,8 @@ class User extends Authenticatable implements FilamentUser
                 ...$assignments->pluck('role')->unique()->all(),
             ]);
         });
+
+        $this->unsetRelation('companyRoles');
     }
 
     /**
@@ -125,6 +130,16 @@ class User extends Authenticatable implements FilamentUser
             ->map(fn ($assignments, string $role): array => ['role' => $role, 'companies' => $assignments->pluck('company_id')->all()])
             ->values()
             ->all();
+    }
+
+    /**
+     * Whether the user holds a matrix approver role in any company.
+     */
+    public function isMatrixApprover(): bool
+    {
+        return $this->companyRoles->contains(
+            fn (CompanyRole $assignment): bool => in_array($assignment->role, RoleName::rfpApprovers(), true),
+        );
     }
 
     /**

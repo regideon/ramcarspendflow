@@ -8,8 +8,8 @@ use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Panel;
 use Filament\PanelProvider;
-use Filament\Support\Assets\Css;
 use Filament\Support\Colors\Color;
+use Filament\View\PanelsRenderHook;
 use Filament\Widgets\AccountWidget;
 use Filament\Widgets\FilamentInfoWidget;
 use Hammadzafar05\MobileBottomNav\MobileBottomNav;
@@ -18,6 +18,7 @@ use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\HtmlString;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class HubPanelProvider extends PanelProvider
@@ -56,13 +57,12 @@ class HubPanelProvider extends PanelProvider
             ->profile(isSimple: false)
             ->topNavigation()
             ->maxContentWidth('screen-2xl')
-            // Custom CSS turned off for now, to see Filament's native styling
-            ->assets([
-                Css::make('custom-stylesheet', asset('css/app/custom-stylesheet.css')),
-                //     Css::make('custom-stylesheet-fontawesome-all.min', asset('css/app/custom-stylesheet-fontawesome-all.min.css')),
-                //     Css::make('spreadsheet', asset('css/app/spreadsheet.css')),
-                //     Css::make('knowledge-base', asset('css/app/knowledge-base.css')),
-            ])
+            // A render hook, not ->assets(): panel assets load in every panel, and this
+            // stylesheet's overrides (e.g. .text-base) must not reach the My panel.
+            ->renderHook(
+                PanelsRenderHook::STYLES_BEFORE,
+                fn (): HtmlString => new HtmlString('<link rel="stylesheet" href="'.asset('css/app/custom-stylesheet.css').'" />'),
+            )
             ->brandLogo(asset('images/logo-01.png'))
 
             // Enterprise blue (DigitalOcean-like): primary-600 is #0069FF; slate greys,
