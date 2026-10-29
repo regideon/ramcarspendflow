@@ -13,6 +13,7 @@ use App\Models\P2p\GoodReceiptState;
 use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
 use App\Models\P2p\SapGoodReceiptItem;
+use App\Models\Rfp\Rfp;
 use App\Models\TaxCode;
 use App\Models\User;
 use App\Models\WithholdingTaxCode;
@@ -44,6 +45,8 @@ use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\HtmlString;
@@ -127,6 +130,13 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
      * The open escalation waiting on the signed-in user, if any. Cached per request.
      */
     protected ?Escalation $escalationForUser = null;
+
+    /**
+     * The RFP selected in the linkage dropdown, loaded once per request.
+     */
+    protected ?Rfp $selectedRfp = null;
+
+    protected bool $selectedRfpResolved = false;
 
     public function getMaxContentWidth(): Width
     {
@@ -260,6 +270,8 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
         $this->data['vendor_code'] = $invoice->vendor?->code ?? 'N/A';
         $this->data['company_code'] = $invoice->company?->code ?? 'N/A';
         $this->data['grc_number'] = $invoice->grc_number;
+        $this->data['p2p_number'] = $invoice->p2p_number;
+        $this->data['rfp_id'] = $invoice->rfp_id;
         $this->data['invoice_at'] = $invoice->invoice_at?->toDateString();
         $this->data['attachments'] = $invoice->attachments ?? [];
         $this->data['reference_number'] = $invoice->reference_number ?? [];
@@ -455,6 +467,34 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
                 Group::make()
                     ->columnSpan(['default' => 12])
+                    ->schema([
+                        Section::make('RFP Linkage')
+                            ->description('Link this request to the RFP it settles, for example a supplier down payment.')
+                            ->icon(Heroicon::OutlinedLink)
+                            ->iconColor('primary')
+                            ->columns(['default' => 1, 'md' => 12])
+                            ->schema([
+                                Select::make('rfp_id')
+                                    ->label('RFP')
+                                    ->placeholder('Not linked to an RFP')
+                                    ->searchable()
+                                    ->getSearchResultsUsing(fn (string $search): array => $this->rfpOptions($search))
+                                    ->getOptionLabelUsing(fn (mixed $value): ?string => $this->rfpOptionLabelForValue($value))
+                                    ->live()
+                                    ->disabled($this->isViewOnly || $this->isSupervisor())
+                                    ->dehydrated()
+                                    ->columnSpan(['default' => 12, 'md' => 6]),
+
+                                Callout::make('Already linked')
+                                    ->description(fn (): string => $this->selectedRfpLinkedMessage() ?? '')
+                                    ->warning()
+                                    ->visible(fn (): bool => $this->selectedRfpLinkedMessage() !== null)
+                                    ->columnSpan(['default' => 12, 'md' => 6]),
+                            ]),
+                    ]),
+
+                Group::make()
+                    ->columnSpan(['default' => 12])
                     ->columns(['default' => 1, 'lg' => 12])
                     ->schema([
                         Group::make()
@@ -608,6 +648,12 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
             TextInput::make('company_name')
                 ->label('Company')
+                ->readOnly()
+                ->dehydrated(false)
+                ->columnSpan(['default' => 12, 'md' => 4]),
+
+            TextInput::make('p2p_number')
+                ->label('P2P ID')
                 ->readOnly()
                 ->dehydrated(false)
                 ->columnSpan(['default' => 12, 'md' => 4]),
@@ -811,6 +857,16 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
     }
 
     /**
+     * Persist the RFP link chosen on the processing screen.
+     */
+    protected function persistRfpLink(Invoice $invoice): void
+    {
+        $invoice->forceFill([
+            'rfp_id' => filled($this->data['rfp_id'] ?? null) ? (int) $this->data['rfp_id'] : null,
+        ])->save();
+    }
+
+    /**
      * @return array<string, string>
      */
     protected static function taxCodeOptions(): array
@@ -830,6 +886,126 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             ->pluck('description', 'code')
             ->map(fn (string $description, string $code): string => $code.' - '.$description)
             ->all();
+    }
+
+    /**
+     * RFPs matching the search, labelled with their number, vendor, total and how
+     * many other P2P requests already point at them. Limited to keep the response small.
+     *
+     * @return array<int, string>
+     */
+    protected function rfpOptions(string $search = ''): array
+    {
+        $query = Rfp::query()
+            ->with('vendor')
+            ->withCount([
+                'p2pInvoices as linked_p2p_count' => fn (Builder $query): Builder => $this->excludingCurrentInvoice($query),
+            ]);
+
+        $search = trim($search);
+
+        if ($search !== '') {
+            $like = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $search).'%';
+
+            $query->where(fn (Builder $query) => $query
+                ->where('rfp_number', 'like', $like)
+                ->orWhere('purpose', 'like', $like)
+                ->orWhereHas('vendor', fn (Builder $query) => $query->where('name', 'like', $like)));
+        }
+
+        return $query->latest('id')
+            ->limit(50)
+            ->get()
+            ->mapWithKeys(fn (Rfp $rfp): array => [$rfp->id => $this->rfpOptionLabel($rfp)])
+            ->all();
+    }
+
+    /**
+     * The label of the already-selected RFP, for the closed select.
+     */
+    protected function rfpOptionLabelForValue(mixed $value): ?string
+    {
+        if (blank($value)) {
+            return null;
+        }
+
+        $rfp = Rfp::query()->with('vendor')->find((int) $value);
+
+        return $rfp === null ? null : $this->rfpOptionLabel($rfp);
+    }
+
+    protected function rfpOptionLabel(Rfp $rfp): string
+    {
+        $parts = array_filter([
+            $rfp->rfp_number,
+            $rfp->vendor?->name,
+            $rfp->total_php_amount !== null
+                ? $this->currencySymbol.number_format((float) $rfp->total_php_amount, 2)
+                : null,
+        ]);
+
+        $linked = $rfp->linked_p2p_count ?? $this->linkedP2pCount($rfp);
+
+        return implode(' · ', $parts).($linked > 0
+            ? ' — already linked to '.($linked === 1 ? '1 P2P request' : $linked.' P2P requests')
+            : '');
+    }
+
+    protected function linkedP2pCount(Rfp $rfp): int
+    {
+        return $this->excludingCurrentInvoice($rfp->p2pInvoices())->count();
+    }
+
+    /**
+     * The RFP's links, ignoring this request when it is already one of them.
+     */
+    protected function excludingCurrentInvoice(Builder|Relation $query): Builder|Relation
+    {
+        return $query->when(
+            $this->invoice !== null,
+            fn (Builder|Relation $query): Builder|Relation => $query->whereKeyNot((int) $this->invoice),
+        );
+    }
+
+    protected function selectedRfp(): ?Rfp
+    {
+        if ($this->selectedRfpResolved) {
+            return $this->selectedRfp;
+        }
+
+        $this->selectedRfpResolved = true;
+
+        if (blank($this->data['rfp_id'] ?? null)) {
+            return null;
+        }
+
+        return $this->selectedRfp = Rfp::query()->find((int) $this->data['rfp_id']);
+    }
+
+    /**
+     * The warning shown when another P2P request already points at the chosen RFP.
+     * It is informational: the link is still allowed.
+     */
+    protected function selectedRfpLinkedMessage(): ?string
+    {
+        $rfp = $this->selectedRfp();
+
+        if ($rfp === null) {
+            return null;
+        }
+
+        $numbers = $this->excludingCurrentInvoice($rfp->p2pInvoices())
+            ->orderBy('id')
+            ->get(['id', 'p2p_number', 'grc_number'])
+            ->map(fn (Invoice $invoice): string => $invoice->p2p_number ?? $invoice->grc_number ?? 'P2P #'.$invoice->id)
+            ->filter()
+            ->values();
+
+        if ($numbers->isEmpty()) {
+            return null;
+        }
+
+        return 'This RFP is already linked to '.$numbers->implode(', ').'. You can still link it to this request.';
     }
 
     // ---------------------------------------------------------------------
@@ -1150,6 +1326,7 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
         }
 
         $this->persistTax($invoice);
+        $this->persistRfpLink($invoice);
 
         $from = $invoice->status;
 

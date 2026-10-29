@@ -12,6 +12,7 @@ use App\Models\AccountGroup;
 use App\Models\Company;
 use App\Models\CompanyRole;
 use App\Models\Concerns\HasComments;
+use App\Models\P2p\Invoice;
 use App\Models\PaymentMethod;
 use App\Models\User;
 use App\Models\Vendor;
@@ -147,6 +148,16 @@ class Rfp extends Model
     public function items(): HasMany
     {
         return $this->hasMany(Item::class)->orderBy('sort');
+    }
+
+    /**
+     * P2P requests that point at this RFP (e.g. the invoice that settles a down payment).
+     *
+     * @return HasMany<Invoice, $this>
+     */
+    public function p2pInvoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class, 'rfp_id');
     }
 
     /**

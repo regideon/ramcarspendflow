@@ -26,7 +26,7 @@ class ApprovalsTable
     {
         return $table
             ->modifyQueryUsing(fn (Builder $query): Builder => $query
-                ->with(['vendor', 'company'])
+                ->with(['vendor', 'company', 'rfp'])
                 ->withUnreadCommentsCountFor(auth()->user()))
             ->columns([
                 // Hidden for now; keep the column so it can be re-enabled.
@@ -36,6 +36,11 @@ class ApprovalsTable
                     ->sortable()
                     ->weight('medium')
                     ->hidden(),
+
+                TextColumn::make('rfp.rfp_number')
+                    ->label('RFP')
+                    ->placeholder('-')
+                    ->searchable(),
 
                 TextColumn::make('vendor.name')
                     ->label('Vendor')

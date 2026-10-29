@@ -114,6 +114,8 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
     public ?string $grc_number = null;
 
+    public ?string $p2p_number = null;
+
     /**
      * @var array<int, string>
      */
@@ -199,6 +201,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             $this->isViewOnly = ! $this->isReturned;
 
             $this->grc_number = $invoice->grc_number;
+            $this->p2p_number = $invoice->p2p_number;
             $this->reference_number = array_values($invoice->reference_number ?? []);
             $this->attachments = array_values($invoice->attachments ?? []);
             $this->invoiceAt = optional($invoice->invoice_at)->toDateString() ?? now()->toDateString();
@@ -275,6 +278,11 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                                 ->readOnly()
                                 ->dehydrated(false)
                                 ->hidden(),
+
+                            TextInput::make('p2p_number')
+                                ->label('P2P ID')
+                                ->readOnly()
+                                ->dehydrated(false),
 
                             DatePicker::make('invoiceAt')
                                 ->label('Invoice Date')

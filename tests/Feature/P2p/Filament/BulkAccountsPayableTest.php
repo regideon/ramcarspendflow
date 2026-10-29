@@ -11,6 +11,7 @@ use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
 use App\Models\P2p\SapGoodReceipt;
 use App\Models\P2p\SapGoodReceiptItem;
+use App\Models\Rfp\Rfp;
 use App\Models\TaxCode;
 use App\Models\User;
 use App\Models\Vendor;
@@ -426,4 +427,37 @@ it('opens the processor queue read-only for a supervisor', function () {
         ->all();
 
     expect($actions)->not->toContain('approve', 'returnToApProcessor');
+});
+
+it('links the submission to an RFP when it is submitted', function () {
+    [$processor, $invoice] = apPageContext();
+    $this->actingAs($processor);
+
+    TaxCode::factory()->create(['code' => 'I2', 'description' => 'Input VAT 12%', 'rate' => 12]);
+    $rfp = Rfp::factory()->create();
+
+    Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
+        ->set('data.tax_code', 'I2')
+        ->set('data.rfp_id', $rfp->id)
+        ->call('submit');
+
+    expect($invoice->fresh()->rfp_id)->toBe($rfp->id);
+});
+
+it('warns but still links an RFP already used by another request', function () {
+    [$processor, $invoice] = apPageContext();
+    $this->actingAs($processor);
+
+    TaxCode::factory()->create(['code' => 'I2', 'description' => 'Input VAT 12%', 'rate' => 12]);
+
+    $rfp = Rfp::factory()->create();
+    $alreadyLinked = Invoice::factory()->create(['rfp_id' => $rfp->id]);
+
+    Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
+        ->set('data.rfp_id', $rfp->id)
+        ->assertSee('already linked to '.$alreadyLinked->p2p_number)
+        ->set('data.tax_code', 'I2')
+        ->call('submit');
+
+    expect($invoice->fresh()->rfp_id)->toBe($rfp->id);
 });
