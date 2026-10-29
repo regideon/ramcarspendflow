@@ -145,10 +145,10 @@ class StepActions
     {
         $position = static::builtStep($rfp)?->return_to_position;
 
-        return $position === null ? null : $rfp->approvalSteps()
+        return $position === null ? null : $rfp->approvalSteps
             ->where('round', $rfp->approval_round)
-            ->where('stage_position', $position)
-            ->value('label');
+            ->firstWhere('stage_position', $position)
+            ?->label;
     }
 
     /**
@@ -156,7 +156,7 @@ class StepActions
      */
     protected static function matrixApproved(Rfp $rfp): bool
     {
-        $matrix = $rfp->approvalSteps()->where('round', $rfp->approval_round)->where('kind', RfpStageKind::Matrix)->get();
+        $matrix = $rfp->approvalSteps->where('round', $rfp->approval_round)->where('kind', RfpStageKind::Matrix);
 
         return $matrix->isNotEmpty()
             && $matrix->every(fn (ApprovalStep $step): bool => in_array($step->state, [RfpApprovalStepState::Approved, RfpApprovalStepState::Skipped], true));

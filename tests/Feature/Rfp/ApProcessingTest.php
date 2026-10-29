@@ -24,6 +24,7 @@ use Database\Seeders\TaxCodeSeeder;
 use Database\Seeders\WithholdingTaxSeeder;
 use Filament\Forms\Components\Repeater;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 pest()->use(RefreshDatabase::class);
@@ -164,13 +165,66 @@ it('keeps foreign lines at the rate captured on submit', function () {
     expect($line->refresh())->exchange_rate->toBe('58.000000')->php_amount->toBe('58000.00');
 });
 
+it('refuses to re-split a foreign currency line', function () {
+    $usd = Currency::firstWhere('code', 'USD');
+    $rfp = rfpInApProcessing(['1000.00', '500.00']);
+    $rfp->items()->update(['currency_id' => $usd->id, 'exchange_rate' => '58.000000']);
+
+    $this->actingAs($this->apProcessor);
+
+    Livewire::test(ViewRfpApproval::class, ['record' => $rfp->getRouteKey()])
+        ->callAction('processTaxCodes', ['lines' => taxLines($rfp, [0 => ['amount' => '900.00'], 1 => ['amount' => '600.00']])])
+        ->assertNotified('Not saved yet');
+
+    expect($rfp->refresh()->status)->toBe(RfpStatus::ForApProcessing);
+});
+
+it('opens the tax entries with the same number of queries however many lines there are', function () {
+    $this->actingAs($this->apProcessor);
+
+    $queriesToOpen = function (int $lineCount): int {
+        $rfp = rfpInApProcessing(array_fill(0, $lineCount, '1000.00'));
+        $component = Livewire::test(ViewRfpApproval::class, ['record' => $rfp->getRouteKey()]);
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $component->mountAction('processTaxCodes')->assertActionMounted('processTaxCodes');
+        DB::disableQueryLog();
+
+        return count(DB::getQueryLog());
+    };
+
+    $queriesToOpen(1); // warm the per-request caches (tax code lists, permissions)
+
+    expect($queriesToOpen(30))->toBe($queriesToOpen(2));
+});
+
+it('draws the tax entries as one browser-side table, without a server call per change', function () {
+    $html = view('filament.rfps.tax-entries-field', [
+        'getStatePath' => fn (): string => 'mountedActions.0.data.lines',
+        'taxCodeOptions' => [$this->inputTax->id => 'I2 - Input Tax 12% - Goods'],
+        'withholdingOptions' => [$this->withholding->id => '04 - prime /sub-contractors (corp) (2%)'],
+        'taxRates' => [$this->inputTax->id => 12.0],
+        'withholdingRates' => [$this->withholding->id => 2.0],
+        'withholdingTypeLabel' => 'EI',
+        'lockInputTax' => false,
+    ])->render();
+
+    expect($html)
+        ->toContain("\$wire.\$entangle('mountedActions.0.data.lines')")
+        ->toContain('x-for="(line, index) in lines"')
+        ->toContain('overflow-x-auto')
+        ->toContain('WHT type')
+        ->not->toContain('wire:model');
+});
+
 it('needs an input tax and a withholding tax on every line', function () {
     $rfp = rfpInApProcessing();
     $this->actingAs($this->apProcessor);
 
     Livewire::test(ViewRfpApproval::class, ['record' => $rfp->getRouteKey()])
         ->callAction('processTaxCodes', ['lines' => taxLines($rfp, [1 => ['tax_code_id' => null, 'withholding_tax_code_id' => null]])])
-        ->assertHasActionErrors();
+        ->assertNotified('Not saved yet');
 
     expect($rfp->refresh()->status)->toBe(RfpStatus::ForApProcessing);
 });
@@ -253,4 +307,23 @@ it('shows the booked tax entries and the total net of withholding tax', function
         ->assertSee('Tax entries')
         ->assertSee('I2')
         ->assertSee('PHP 16,500.00'); // 11,000 + 5,500 net of 2% withholding
+});
+
+it('opens an RFP with the same number of queries however many lines it has', function () {
+    $this->actingAs($this->apProcessor);
+
+    $queriesToView = function (int $lineCount): int {
+        $rfp = rfpInApProcessing(array_fill(0, $lineCount, '1000.00'));
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        Livewire::test(ViewRfpApproval::class, ['record' => $rfp->getRouteKey()])->assertOk();
+        DB::disableQueryLog();
+
+        return count(DB::getQueryLog());
+    };
+
+    $queriesToView(1); // warm the per-request caches (permissions, roles)
+
+    expect($queriesToView(20))->toBe($queriesToView(2));
 });

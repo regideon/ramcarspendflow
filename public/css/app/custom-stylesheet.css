@@ -1,3 +1,5 @@
+@import url('https://fonts.bunny.net/css?family=manrope:600,700,800&display=swap');
+
 /* ---------------------------------------------------------
    Local PHP Debugbar vs Filament modals
    The debugbar is fixed at z-index 100000000, so when it overlaps a modal
@@ -17,32 +19,69 @@ body:has(.fi-modal-open) .phpdebugbar {
    Brand blue is Filament's primary palette (HubPanelProvider::BRAND_BLUE,
    primary-600 = #0069FF), so these rules use the CSS variables and follow
    dark mode on their own.
+   SPEND FLOW INDIGO: the look of the My panel (/my), applied to the Hub.
+   Indigo brand (Filament primary = Color::Indigo in HubPanelProvider), slate
+   greys, a soft "aurora" canvas, frosted-glass cards and a deep ink top bar.
+   Scoped to .fi-panel-hub so nothing reaches the My panel. Looks only.
 --------------------------------------------------------- */
 :root {
-    --sf-navy: #031b4e;
-    --sf-navy-2: #0b2a66;
-    --sf-navy-dark: #020c24;
-    --sf-canvas: #f5f7fb;
-    --sf-canvas-dark: #0a1020;
+    --sf-ink: #0f172a;          /* slate-900: active items, top bar */
+    --sf-ink-2: #1e1b4b;        /* indigo-950: top bar accent */
+    --sf-navy-dark: #020617;    /* sign-in page fallback */
+    --sf-canvas: #f5f6fb;       /* same canvas as /my */
+    --sf-canvas-dark: #0b1020;
+    --sf-glass: rgb(255 255 255 / 0.72);
+    --sf-glass-border: rgb(255 255 255 / 0.85);
+    --sf-shadow: 0 0 0 1px rgb(15 23 42 / 0.05), 0 8px 30px rgb(15 23 42 / 0.05);
 }
 
-nav.fi-topbar,
-header.fi-sidebar-header {
-    background: linear-gradient(90deg, var(--sf-navy) 0%, var(--sf-navy) 55%, var(--sf-navy-2) 100%);
-    box-shadow: inset 0 -1px 0 rgb(255 255 255 / 0.06);
+/* Canvas + aurora glow behind everything (as on /my) */
+.fi-body.fi-panel-hub {
+    background-color: var(--sf-canvas);
 }
+.fi-body.fi-panel-hub::before {
+    content: '';
+    position: fixed;
+    inset: -10%;
+    z-index: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(28rem 28rem at 4% 6%, rgb(196 181 253 / 0.5), transparent 70%),
+        radial-gradient(30rem 26rem at 98% 38%, rgb(165 180 252 / 0.45), transparent 70%),
+        radial-gradient(28rem 28rem at 22% 92%, rgb(186 230 253 / 0.4), transparent 70%),
+        radial-gradient(24rem 24rem at 92% 96%, rgb(254 215 170 / 0.28), transparent 70%);
+    filter: blur(60px);
+}
+.fi-panel-hub .fi-layout {
+    position: relative;
+    z-index: 1;
+    background: transparent;
+}
+.dark .fi-body.fi-panel-hub {
+    background-color: var(--sf-canvas-dark);
+}
+.dark .fi-body.fi-panel-hub::before {
+    opacity: 0.18;
+}
+
+/* Top bar: the same look as /my's "Awaiting your approval" card
+   (slate-950 → indigo-950 → indigo-800, indigo glow top right, violet glow
+   bottom left, a faint diagonal sheen and a light hairline on top) */
+nav.fi-topbar,
+header.fi-sidebar-header,
 .dark nav.fi-topbar,
 .dark header.fi-sidebar-header {
-    background: var(--sf-navy-dark);
+    background:
+        linear-gradient(90deg, transparent, rgb(255 255 255 / 0.4), transparent) top / 100% 1px no-repeat,
+        linear-gradient(115deg, transparent 40%, rgb(255 255 255 / 0.06) 50%, transparent 60%),
+        radial-gradient(32rem 14rem at 96% -40%, rgb(99 102 241 / 0.4), transparent 70%),
+        radial-gradient(28rem 12rem at 4% 150%, rgb(139 92 246 / 0.25), transparent 70%),
+        linear-gradient(100deg, #020617 0%, #1e1b4b 55%, #3730a3 100%);
+    border-bottom: 1px solid rgb(255 255 255 / 0.1);
+    box-shadow: 0 24px 48px -16px rgb(30 27 75 / 0.55);
 }
 nav.fi-topbar {
     max-height: 6px;
-}
-.fi-layout {
-    background: var(--sf-canvas);
-}
-.dark .fi-layout {
-    background: var(--sf-canvas-dark);
 }
 
 .dark .fi-ta-actions > a:hover {
@@ -63,37 +102,107 @@ nav.fi-topbar {
 .fi-logo {
     color: #fff;
     height: 5.5rem !important;
-    /*margin-bottom: 12px; */
-    /* height: 3.2rem !important; */
 }
-.fi-topbar .fi-icon-btn {
-    color: #b7c4dd;
+.fi-panel-hub .fi-topbar .fi-icon-btn {
+    color: rgb(199 210 254 / 0.75); /* indigo-200 */
 }
-.fi-topbar .fi-icon-btn:hover {
+.fi-panel-hub .fi-topbar .fi-icon-btn:hover {
     color: #fff;
 }
-.fi-topbar-item .fi-topbar-item-btn {
-    border-radius: 0.5rem;
-    transition: background-color 120ms ease;
+
+/* Top bar items: muted slate; the active one is a white pill (like /my's nav) */
+.fi-panel-hub .fi-topbar-item .fi-topbar-item-btn {
+    border-radius: 0.75rem;
+    transition: background-color 150ms ease, color 150ms ease;
 }
-.fi-topbar-item:hover .fi-topbar-item-btn {
+.fi-panel-hub .fi-topbar-item .fi-topbar-item-label,
+.fi-panel-hub .fi-topbar-item .fi-topbar-item-icon,
+.fi-panel-hub .fi-topbar-item .fi-topbar-group-toggle-icon {
+    color: rgb(199 210 254 / 0.85); /* indigo-200, as the card's muted text */
+}
+.fi-panel-hub .fi-topbar-item:hover .fi-topbar-item-btn {
     background-color: rgb(255 255 255 / 0.08);
 }
-.fi-topbar-item.fi-active .fi-topbar-item-btn {
-    background-color: rgb(255 255 255 / 0.12);
-    box-shadow: inset 0 -2px 0 var(--primary-400);
+.fi-panel-hub .fi-topbar-item:hover .fi-topbar-item-label,
+.fi-panel-hub .fi-topbar-item:hover .fi-topbar-item-icon {
+    color: #fff;
 }
-.fi-active > a.fi-sidebar-item-btn {
-    background-color: var(--primary-50);
-    color: var(--primary-700);
+.fi-panel-hub .fi-topbar-item.fi-active .fi-topbar-item-btn {
+    background-color: #fff;
+    box-shadow: 0 6px 16px -6px rgb(0 0 0 / 0.45);
 }
-.dark .fi-active > a.fi-sidebar-item-btn {
+.fi-panel-hub .fi-topbar-item.fi-active .fi-topbar-item-label,
+.fi-panel-hub .fi-topbar-item.fi-active .fi-topbar-item-icon,
+.fi-panel-hub .fi-topbar-item.fi-active .fi-topbar-group-toggle-icon {
+    color: var(--sf-ink);
+}
+
+/* Mobile sidebar: active item in ink, like /my */
+.fi-panel-hub .fi-active > a.fi-sidebar-item-btn {
+    background-color: var(--sf-ink);
+    color: #fff;
+}
+.fi-panel-hub .fi-active > a.fi-sidebar-item-btn .fi-sidebar-item-label,
+.fi-panel-hub .fi-active > a.fi-sidebar-item-btn .fi-icon {
+    color: #fff;
+}
+.dark .fi-panel-hub .fi-active > a.fi-sidebar-item-btn {
     background-color: color-mix(in oklab, var(--primary-500) 18%, transparent);
     color: var(--primary-300);
 }
 .dark a.fi-sidebar-item-btn:hover {
     background-color: color-mix(in oklab, var(--primary-500) 12%, transparent);
     color: var(--primary-200);
+}
+
+/* Frosted-glass cards: sections, tables, widgets, stats */
+.fi-panel-hub .fi-section,
+.fi-panel-hub .fi-ta-ctn,
+.fi-panel-hub .fi-wi-stats-overview-stat,
+.fi-panel-hub .fi-wi-widget > .fi-section {
+    background-color: var(--sf-glass);
+    border: 1px solid var(--sf-glass-border);
+    border-radius: 1rem;
+    box-shadow: var(--sf-shadow);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+}
+.dark .fi-panel-hub .fi-section,
+.dark .fi-panel-hub .fi-ta-ctn,
+.dark .fi-panel-hub .fi-wi-stats-overview-stat {
+    background-color: rgb(15 23 42 / 0.6);
+    border-color: rgb(255 255 255 / 0.06);
+    box-shadow: none;
+}
+
+/* Headings in Manrope, as on /my */
+.fi-panel-hub .fi-header-heading,
+.fi-panel-hub .fi-section-header-heading,
+.fi-panel-hub .fi-modal-heading,
+.fi-panel-hub .fi-wi-stats-overview-stat-value {
+    font-family: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.015em;
+}
+.fi-panel-hub .fi-header-heading {
+    font-weight: 800;
+    color: var(--sf-ink);
+}
+.dark .fi-panel-hub .fi-header-heading {
+    color: #fff;
+}
+
+/* Buttons: rounded, primary with a soft indigo glow (like /my's New RFP) */
+.fi-panel-hub .fi-btn {
+    border-radius: 0.75rem;
+}
+.fi-panel-hub .fi-btn.fi-color-primary:not(.fi-outlined) {
+    box-shadow: 0 4px 14px rgb(79 70 229 / 0.25);
+}
+.fi-panel-hub .fi-btn.fi-color-primary:not(.fi-outlined):hover {
+    box-shadow: 0 6px 18px rgb(79 70 229 / 0.32);
+}
+.fi-panel-hub .fi-input-wrp {
+    border-radius: 0.75rem;
 }
 
 aside.fi-sidebar.fi-main-sidebar.fi-sidebar-open {

@@ -128,6 +128,16 @@ class CommentsChat extends Component implements HasActions, HasSchemas
     }
 
     /**
+     * Opens the inbox from a button outside the bubble (e.g. the My panel's Messages button).
+     */
+    #[On('open-comments-inbox')]
+    public function openInbox(): void
+    {
+        $this->showInbox();
+        $this->open = true;
+    }
+
+    /**
      * Runs on each poll: while a thread is open, new messages count as read.
      */
     public function refreshThread(): void

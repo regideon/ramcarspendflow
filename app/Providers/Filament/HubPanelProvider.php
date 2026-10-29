@@ -8,7 +8,6 @@ use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Panel;
 use Filament\PanelProvider;
-use Filament\Support\Assets\Css;
 use Filament\Support\Colors\Color;
 use Filament\View\PanelsRenderHook;
 use Filament\Widgets\AccountWidget;
@@ -19,29 +18,11 @@ use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\HtmlString;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class HubPanelProvider extends PanelProvider
 {
-    /**
-     * Hand-tuned so the mid shades keep their saturation (Color::hex() mutes them).
-     *
-     * @var array<int, string>
-     */
-    public const array BRAND_BLUE = [
-        50 => 'oklch(0.97 0.014 255)',
-        100 => 'oklch(0.94 0.034 256)',
-        200 => 'oklch(0.885 0.066 257)',
-        300 => 'oklch(0.81 0.112 258)',
-        400 => 'oklch(0.71 0.165 259)',
-        500 => 'oklch(0.63 0.21 260)',
-        600 => 'oklch(0.569 0.237 260.4)',
-        700 => 'oklch(0.49 0.215 261)',
-        800 => 'oklch(0.42 0.18 262)',
-        900 => 'oklch(0.355 0.14 263)',
-        950 => 'oklch(0.25 0.095 264)',
-    ];
-
     public function panel(Panel $panel): Panel
     {
         return $panel
@@ -57,13 +38,12 @@ class HubPanelProvider extends PanelProvider
             ->profile(isSimple: false)
             ->topNavigation()
             ->maxContentWidth('screen-2xl')
-            // Custom CSS turned off for now, to see Filament's native styling
-            ->assets([
-                Css::make('custom-stylesheet', asset('css/app/custom-stylesheet.css')),
-                //     Css::make('custom-stylesheet-fontawesome-all.min', asset('css/app/custom-stylesheet-fontawesome-all.min.css')),
-                //     Css::make('spreadsheet', asset('css/app/spreadsheet.css')),
-                //     Css::make('knowledge-base', asset('css/app/knowledge-base.css')),
-            ])
+            // A render hook, not ->assets(): panel assets load in every panel, and this
+            // stylesheet's overrides (e.g. .text-base) must not reach the My panel.
+            ->renderHook(
+                PanelsRenderHook::STYLES_BEFORE,
+                fn (): HtmlString => new HtmlString('<link rel="stylesheet" href="'.asset('css/app/custom-stylesheet.css').'" />'),
+            )
             ->brandLogo(asset('images/logo-01.png'))
             ->renderHook(
                 PanelsRenderHook::HEAD_END,
@@ -190,12 +170,11 @@ class HubPanelProvider extends PanelProvider
 HTML,
             )
 
-            // Enterprise blue (DigitalOcean-like): primary-600 is #0069FF; slate greys,
-            // sky for "info" so in-progress badges stay distinct from the brand blue.
+            // Same palette as the My panel (/my): indigo brand, slate greys
             ->colors([
-                'primary' => self::BRAND_BLUE,
+                'primary' => Color::Indigo,
                 'gray' => Color::Slate,
-                'info' => Color::Sky,
+                'info' => Color::Indigo,
                 'success' => Color::Emerald,
                 'warning' => Color::Amber,
                 'danger' => Color::Rose,
