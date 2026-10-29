@@ -1,0 +1,80 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 1402 >>
+stream
+BT
+/F1 14 Tf
+50 792 Td
+(RAMCAR SPEND FLOW) Tj
+/F1 10 Tf
+0 -26 Td
+(SAMPLE VENDOR INVOICE) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Vendor      : Demo Vendor Inc. \(DEMO000001\)) Tj
+0 -14 Td
+(Company     : Ramcar Inc \(0002\)) Tj
+0 -14 Td
+(Invoice No. : INV-SAMPLE-0001) Tj
+0 -14 Td
+(Invoice Date: 2026-10-25) Tj
+0 -14 Td
+(PO No.      : 4500099001) Tj
+0 -14 Td
+(GR No.      : 5000099001) Tj
+0 -14 Td
+(DR No.      : DR-SAMPLE-0001) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(Code      Description                       Qty UOM       Unit Price          Amount) Tj
+0 -14 Td
+(----------------------------------------------------------------------------------------) Tj
+0 -14 Td
+(RM-0001   Lead Ingot                        100 KG             85.00        8,500.00) Tj
+0 -14 Td
+(SP-0001   Conveyor Belt                      20 M           1,250.00       25,000.00) Tj
+0 -14 Td
+(SP-0002   Hydraulic Hose 1/2 in              15 M             320.00        4,800.00) Tj
+0 -14 Td
+(----------------------------------------------------------------------------------------) Tj
+0 -14 Td
+(Vatable Sales                                          38,300.00) Tj
+0 -14 Td
+(VAT \(12%\)                                               4,596.00) Tj
+0 -14 Td
+(Total                                                  42,896.00) Tj
+0 -14 Td
+() Tj
+0 -14 Td
+(System-generated sample: the lines, PO, GR and totals above match the invoice on file.) Tj
+0 -14 Td
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1765
+%%EOF

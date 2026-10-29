@@ -24,7 +24,6 @@ use App\Services\P2p\P2pThreeWayMatchService;
 use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
-use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Repeater\TableColumn;
@@ -430,8 +429,6 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
 
     public function form(Schema $schema): Schema
     {
-        // Only the roles that escalate individual lines see the Report tick.
-        $showReportColumn = ! $this->isSupervisor() && ! $this->isViewOnly && $this->userHasRole(RoleName::ApProcessor->value);
         $showEscalationColumn = $this->showEscalationColumn;
 
         return $schema
@@ -493,7 +490,6 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                                                     ->compact()
                                                     ->hiddenLabel()
                                                     ->table([
-                                                        ...($showReportColumn ? [TableColumn::make('Report')] : []),
                                                         ...($showEscalationColumn ? [TableColumn::make('Scope')] : []),
                                                         TableColumn::make('Description'),
                                                         TableColumn::make('Item No.'),
@@ -505,13 +501,6 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                                                         TableColumn::make('3-Way'),
                                                     ])
                                                     ->schema([
-                                                        ...($showReportColumn ? [
-                                                            Checkbox::make('escalate')
-                                                                ->hiddenLabel()
-                                                                ->default(false)
-                                                                ->extraFieldWrapperAttributes(['style' => 'justify-items: center;']),
-                                                        ] : []),
-
                                                         ...($showEscalationColumn ? [
                                                             TextEntry::make('escalation_status')
                                                                 ->hiddenLabel()
@@ -1309,13 +1298,19 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
             return;
         }
 
-        // Per-line: only the GR lines the processor ticked are escalated.
+        // The per-line Report tick has been removed, so the footer Escalate
+        // covers the whole request. Prefer ticked lines first so a line-level UI
+        // can be reintroduced without changing this handler.
         $stateIds = $this->tickedGoodReceiptStateIds();
 
         if ($stateIds === []) {
+            $stateIds = $this->allGoodReceiptStateIds();
+        }
+
+        if ($stateIds === []) {
             Notification::make()
-                ->title('Select at least one item')
-                ->body('Tick the GR line(s) you want to escalate.')
+                ->title('Nothing to escalate')
+                ->body('This request has no goods receipt lines to escalate.')
                 ->warning()
                 ->send();
 
@@ -1362,6 +1357,23 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
         return collect($this->data['goods_receipts'] ?? [])
             ->filter(fn (array $gr): bool => collect($gr['goodReceiptItems'] ?? [])
                 ->contains(fn (array $item): bool => ! empty($item['escalate'])))
+            ->pluck('p2p_good_receipt_state_id')
+            ->filter()
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Every GR state on the request, used when no line was ticked (the per-line
+     * Report column was removed and Escalate now covers the whole request).
+     *
+     * @return array<int, int>
+     */
+    protected function allGoodReceiptStateIds(): array
+    {
+        return collect($this->data['goods_receipts'] ?? [])
             ->pluck('p2p_good_receipt_state_id')
             ->filter()
             ->map(fn ($id): int => (int) $id)

@@ -125,7 +125,7 @@ it('moves the submission to the checker once a tax code is set', function () {
         ->and((float) $invoice->total)->toBeGreaterThan(0);
 });
 
-it('escalates only the ticked goods receipts', function () {
+it('escalates only the ticked goods receipts when lines are ticked', function () {
     [$processor, $invoice, $state] = apPageContext();
     $this->actingAs($processor);
 
@@ -142,14 +142,6 @@ it('escalates only the ticked goods receipts', function () {
 
     $component = Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id]);
 
-    // Nothing ticked: the escalation must be refused.
-    $component->callAction('escalate', [
-        'escalationReason' => 'qty_issue',
-        'escalationRemarks' => 'Numbers do not agree.',
-    ]);
-
-    expect($invoice->fresh()->escalations()->count())->toBe(0);
-
     // Tick the line, then escalate.
     $goodsReceipts = $component->get('data.goods_receipts');
     $goodsReceipts[0]['goodReceiptItems'][0]['escalate'] = true;
@@ -159,6 +151,33 @@ it('escalates only the ticked goods receipts', function () {
         'escalationReason' => 'qty_issue',
         'escalationRemarks' => 'Numbers do not agree.',
     ]);
+
+    expect($invoice->fresh()->escalations()->count())->toBe(1)
+        ->and($state->fresh()->status)->toBe(P2pStatus::EscalateToProcurement);
+});
+
+it('escalates the whole request when no line is ticked', function () {
+    [$processor, $invoice, $state] = apPageContext();
+    $this->actingAs($processor);
+
+    EscalationReason::create([
+        'code' => 'qty_issue',
+        'name' => 'Quantity Issue',
+        'origin_role' => 'processor',
+        'is_active' => true,
+    ])->steps()->create([
+        'step_order' => 1,
+        'role' => 'procurement',
+        'status_id' => P2pStatus::EscalateToProcurement->value,
+    ]);
+
+    // The per-line Report column is gone; escalating without a tick now covers
+    // every goods receipt on the request.
+    Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
+        ->callAction('escalate', [
+            'escalationReason' => 'qty_issue',
+            'escalationRemarks' => 'The whole request needs review.',
+        ]);
 
     expect($invoice->fresh()->escalations()->count())->toBe(1)
         ->and($state->fresh()->status)->toBe(P2pStatus::EscalateToProcurement);
