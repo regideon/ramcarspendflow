@@ -63,3 +63,22 @@ it('sends Review now to the approvals list', function () {
         ->assertOk()
         ->assertSeeInOrder([route('filament.my.pages.approvals'), 'Review now'], escape: false);
 });
+
+it('has a User Guide beside the notifications that walks approvers through their approvals', function () {
+    $approver = User::factory()->create();
+    CompanyRole::factory()->for($approver)->create(['role' => RoleName::DepartmentHead]);
+
+    $this->actingAs($approver)
+        ->get(route('filament.my.pages.dashboard'))
+        ->assertOk()
+        ->assertSeeInOrder(['aria-label="User Guide"', "\$dispatch('start-user-guide')", 'aria-label="Notifications"', 'aria-label="Messages"'], escape: false)
+        ->assertSeeInOrder(['Welcome to Ramcar AP', 'Needs your action', 'Raise a new RFP', 'Need this again?']);
+});
+
+it('leaves the approval steps out of the User Guide for requestors', function () {
+    $this->actingAs(User::factory()->create())
+        ->get(route('filament.my.pages.dashboard'))
+        ->assertOk()
+        ->assertSee('Welcome to Ramcar AP')
+        ->assertDontSee('approval-queue');
+});

@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../../../../rfp-portal"
+		},
+		{
+			"path": "../../../../treasury-market-updates"
 		}
 	],
 	"settings": {

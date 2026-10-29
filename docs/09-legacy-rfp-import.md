@@ -2,7 +2,7 @@
 
 _Last updated: 2026-10-23_
 
-`php artisan rfp:import-legacy` copies the legacy **RFP Portal** database into Spend Flow so we work with real data. It reads the `legacy_rfp` connection (`LEGACY_RFP_DB_*` in `.env`; defaults to the `rfp-portal` database on the same MySQL server).
+`php artisan rfp:import-legacy` copies the legacy **RFP Portal** database into Ramcar AP so we work with real data. It reads the `legacy_rfp` connection (`LEGACY_RFP_DB_*` in `.env`; defaults to the `rfp-portal` database on the same MySQL server).
 
 ```sh
 php artisan migrate
@@ -28,7 +28,7 @@ php artisan rfp:import-legacy       # asks first; add --force to skip the questi
 
 ## What is imported
 
-| Legacy | Spend Flow | How it is matched / mapped |
+| Legacy | Ramcar AP | How it is matched / mapped |
 |---|---|---|
 | `companies`, `currencies`, `payment_methods`, `account_groups` | same tables | By code (`company_code`, `short_code`, `country`+`type`, `account_group`); missing ones are added |
 | `cost_centers` (one row per cost center **and** G/L) | `cost_centers` + `cost_center_gl_account` + `gl_accounts` | By company + cost center code; G/L by code. Demo cost centers are deactivated |

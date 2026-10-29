@@ -28,6 +28,23 @@ class Dashboard extends BaseDashboard
 {
     use HasCommentsChat;
 
+    /**
+     * Kept for comparison while the redesigned Home is built role by role.
+     */
+    public static function getNavigationLabel(): string
+    {
+        return Home::canAccess() ? 'Dashboard (OLD)' : parent::getNavigationLabel();
+    }
+
+    /**
+     * Hidden from the menu for all users. The page still opens at /hub (the panel's home,
+     * where users land after logging in). See docs/13-hidden-pages.md.
+     */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public function getWidgets(): array
     {
         return match ($this->role()) {

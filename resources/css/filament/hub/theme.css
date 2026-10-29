@@ -1,5 +1,13 @@
 @import '../../../../vendor/filament/filament/resources/css/theme.css';
 @import '../comments-chat.css';
+@import '../spendflow-ui.css';
 
 @source '../../../../app/Filament/**/*';
 @source '../../../../resources/views/filament/**/*';
+@source '../../../../resources/views/components/sf/**/*';
+@source '../../../../resources/views/components/user-guide.blade.php';
+
+@theme {
+    /* Headings and amounts, as on /my (Manrope is loaded by public/css/app/custom-stylesheet.css) */
+    --font-display: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+}

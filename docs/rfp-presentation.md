@@ -1,4 +1,4 @@
-# The New RFP — Ramcar Spend Flow
+# The New RFP — Ramcar AP
 
 _Presentation notes · Last updated: 2026-10-23_
 
@@ -16,7 +16,7 @@ The legacy RFP Portal works, but:
 - Requestors type every receipt **by hand**, and mistakes are found late.
 - The approval matrix and due dates are **fixed in code**.
 
-**Ramcar Spend Flow** puts RFP and P2P in **one app**, keeps **our approval process exactly as approved**, and adds the tools the big AP platforms have.
+**Ramcar AP** puts RFP and P2P in **one app**, keeps **our approval process exactly as approved**, and adds the tools the big AP platforms have.
 
 ---
 
@@ -40,6 +40,8 @@ Our approval flow stays the same:
 - **Suggests the sub category** (and so the G/L account).
 - **Flags possible duplicates:** "Invoice no. 12345 for this amount is already on RFP-2026-000118."
 - The requestor **reviews and corrects** everything before applying it. The AI never submits on its own.
+- **Side-by-side check:** the review opens near full screen with the receipt on the left (zoom and rotate photos, scroll PDFs) and what was read on the right, so each value is compared with the document before it is applied.
+- **Several receipts at once:** upload up to 10 files, or one PDF with several receipts. The AI finds each receipt and adds **one item per receipt**, each with its own document and the same charging. A **Show on the left** link jumps to that receipt's file and page.
 - Works with PDFs and photos (JPG/PNG). A receipt already read is not read again.
 
 **Benefit:** less typing, fewer typos, and duplicate payments caught before they reach AP.
@@ -86,6 +88,9 @@ Our approval flow stays the same:
 - **Urgency chips** above the tabs, one click to filter: **Overdue · Due today · Urgent**, plus **Back on my desk** (AP Processor), **Waiting 3+ days** (AP Supervisor / Manager), **Foreign currency** (AP Manager) and **Stuck 5+ days** (Admin).
 - A **Due** column that turns **red when overdue** and **amber when due today**.
 - **My Requests** gets its own chips: **Returned to me · Drafts not submitted · In progress · Paid this month** (with PHP totals).
+- **New look (RFP › RFP Approvals):** the step tabs read as a route (1 → 6 with arrows), one **Filters** panel (Company, Vendor, Urgency, RFP type, Status, dates) shows each filter in use as a **removable chip** with **Clear all**, a **Columns** menu hides the columns you don't need, and **Export CSV** downloads what you see. A **Guide** button explains each part. The old list stays under RFP (OLD) for comparison.
+- **Mass approval (approver portal, /my/approvals):** approvers tick several RFPs and approve them in one go, with a **running peso total**. High amounts (**PHP 200,000 and above** by default) can't be ticked and must be approved one by one, and one batch can add up to **PHP 500,000** at most: once the total is reached, the other RFPs are locked with a note explaining why. *(Preview: the portal still runs on sample data.)*
+- **New RFP screen (opened from the new list):** a 7-step **progress tracker** at the top, the request overview with the **total amount** highlighted, items, tax entries, history and comments side by side (with **Add comment**), and a **sticky decision bar** at the bottom of the screen with your step's buttons (Endorse / Process tax codes / Review and approve / Final review / Release payment on the right, Return and Cancel on the left), so you never scroll back up to act.
 
 ---
 
@@ -104,6 +109,8 @@ Our approval flow stays the same:
 
 **AP Processor:** work queue, queue aging, RFPs back on the desk, tax summary, and "keeping up" (in vs out).
 
+**New look + built-in User Guide:** the AP Processor dashboard is redesigned (premium, cleaner layout). A **Guide** button beside the Messages bubble walks users through each part of the page, step by step, in plain language.
+
 ---
 
 ## 9. ✅ Run by the business, not by code
@@ -114,6 +121,7 @@ Admins change these in **Settings**, with no developer needed:
 - **Approval roles by company:** the same person can approve for several companies, or hold different roles in different companies.
 - **Approval matrix:** tiers, amounts and approver roles, with a **visual matrix at a glance**: each tier's approver chain, who holds each role in a chosen company, and the tier a sample amount falls in.
 - **Due types:** processing days.
+- **Bulk approval limits:** the highest amount per RFP and the highest total per batch for mass approval.
 - **Expense categories and sub categories**, mapped to G/L accounts.
 - **Master data:** companies, vendors, cost centers, G/L, tax codes, exchange rates.
 
@@ -140,7 +148,7 @@ Also built: the **legacy RFP Portal data is imported**, so history is not lost, 
 
 ## 11. How we compare
 
-| Capability | Stampli / Medius / Coupa | Ramcar Spend Flow |
+| Capability | Stampli / Medius / Coupa | Ramcar AP |
 |---|---|---|
 | AI document reading | ✅ | ✅ |
 | Comments with @mentions on the record | ✅ | ✅ |

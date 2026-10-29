@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * Copies the legacy RFP Portal into Spend Flow: users (with roles and their password
+ * Copies the legacy RFP Portal into Ramcar AP: users (with roles and their password
  * hashes), the master data the RFPs use, and every RFP with its items and history.
  *
  * Legacy codes become our tables and enums (see docs/09-legacy-rfp-import.md):

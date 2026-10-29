@@ -425,6 +425,7 @@
     <button
         type="button"
         wire:click="toggle"
+        data-tour="messages"
         class="group relative flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-xl shadow-primary-600/30 ring-4 ring-white/60 transition duration-200 hover:scale-105 hover:shadow-primary-600/40 active:scale-95 focus:outline-none focus-visible:ring-primary-300 dark:ring-gray-900/60"
         aria-label="{{ $open ? 'Close messages' : 'Open messages' }}"
     >

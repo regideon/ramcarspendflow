@@ -19,7 +19,7 @@ flowchart LR
         OPS[Procurement / Warehouse]
     end
 
-    subgraph SpendFlow["Ramcar Spend Flow (one Filament panel: /hub)"]
+    subgraph SpendFlow["Ramcar AP (one Filament panel: /hub)"]
         RFP[RFP module]
         P2P[P2P module]
         MD[(Shared master data<br/>users · roles · companies · vendors · tax · GL · cost centers)]
@@ -37,7 +37,7 @@ flowchart LR
     OPS --> P2P
     RFP --- MD
     P2P --- MD
-    SAP -- master data, PO, GR, FI docs --> SpendFlow
+    SAP -- master data, PO, GR, FI docs --> Ramcar AP
     SpendFlow -- invoices / payment requests --> SAP
 ```
 

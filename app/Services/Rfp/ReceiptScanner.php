@@ -12,8 +12,11 @@ use App\Models\Rfp\Subcategory;
 use App\Models\Vendor;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Laravel\Ai\Files;
+use Livewire\Features\SupportFileUploads\FileUploadConfiguration;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Throwable;
 
@@ -25,23 +28,25 @@ class ReceiptScanner
 {
     public const array READABLE_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
 
-    /** One document per read: Supporting Documents takes one file per item. */
-    public const int MAX_FILES = 1;
+    /** Files read together; their receipts become one item each. */
+    public const int MAX_FILES = 10;
 
     /**
      * PDFs and images from a Supporting Documents upload (new uploads or saved files).
      *
+     * key is the file's key in the upload's state, to move it to the item its receipt goes to.
+     *
      * @param  array<mixed>|null  $state
-     * @return list<array{path: string, mime: string}>
+     * @return list<array{path: string, mime: string, key: int|string}>
      */
     public static function readableFiles(?array $state, string $disk = 'local'): array
     {
         return collect($state ?? [])
-            ->map(function (mixed $file) use ($disk): ?array {
+            ->map(function (mixed $file, int|string $key) use ($disk): ?array {
                 try {
                     return match (true) {
-                        $file instanceof TemporaryUploadedFile => ['path' => $file->getRealPath(), 'mime' => (string) $file->getMimeType()],
-                        is_string($file) && Storage::disk($disk)->exists($file) => ['path' => Storage::disk($disk)->path($file), 'mime' => (string) Storage::disk($disk)->mimeType($file)],
+                        $file instanceof TemporaryUploadedFile => ['path' => $file->getRealPath(), 'mime' => (string) $file->getMimeType(), 'key' => $key],
+                        is_string($file) && Storage::disk($disk)->exists($file) => ['path' => Storage::disk($disk)->path($file), 'mime' => (string) Storage::disk($disk)->mimeType($file), 'key' => $key],
                         default => null,
                     };
                 } catch (Throwable) {
@@ -49,6 +54,51 @@ class ReceiptScanner
                 }
             })
             ->filter(fn (?array $file): bool => $file !== null && in_array($file['mime'], self::READABLE_TYPES, true))
+            ->take(self::MAX_FILES)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * The same documents as readableFiles(), as short-lived links the review modal shows next to
+     * what was read, so the requestor can compare. Served by ReceiptPreviewController.
+     *
+     * @param  array<mixed>|null  $state
+     * @return list<array{url: string, mime: string, name: string, key: int|string}>
+     */
+    public static function previewFiles(?array $state, string $disk = 'local'): array
+    {
+        return collect($state ?? [])
+            ->map(function (mixed $file, int|string $key) use ($disk): ?array {
+                try {
+                    [$fileDisk, $path, $name, $mime] = match (true) {
+                        $file instanceof TemporaryUploadedFile => [
+                            FileUploadConfiguration::disk(),
+                            FileUploadConfiguration::path($file->getFilename(), false),
+                            $file->getClientOriginalName(),
+                            (string) $file->getMimeType(),
+                        ],
+                        is_string($file) && Storage::disk($disk)->exists($file) => [$disk, $file, basename($file), (string) Storage::disk($disk)->mimeType($file)],
+                        default => [null, null, null, null],
+                    };
+                } catch (Throwable) {
+                    return null;
+                }
+
+                if (! in_array($mime, self::READABLE_TYPES, true)) {
+                    return null;
+                }
+
+                return [
+                    'url' => URL::temporarySignedRoute('rfp.receipt-preview', now()->addHours(2), [
+                        'file' => Crypt::encryptString(json_encode([$fileDisk, $path])),
+                    ]),
+                    'mime' => $mime,
+                    'name' => $name,
+                    'key' => $key,
+                ];
+            })
+            ->filter()
             ->take(self::MAX_FILES)
             ->values()
             ->all();
@@ -78,7 +128,9 @@ class ReceiptScanner
     public function read(array $files, array $subcategories = []): array
     {
         $response = (new ReceiptReader($subcategories))->prompt(
-            'Read the attached supporting document.',
+            count($files) === 1
+                ? 'Read the attached supporting document.'
+                : 'Read the '.count($files).' attached supporting documents.',
             attachments: array_map(fn (array $file) => $file['mime'] === 'application/pdf'
                 ? Files\Document::fromPath($file['path'])
                 : Files\Image::fromPath($file['path']), $files),
@@ -92,6 +144,24 @@ class ReceiptScanner
         );
 
         return $result;
+    }
+
+    /**
+     * The receipts in a read, each with the file it is on (0-based, among the files read) and its
+     * page. Reads saved before several receipts were supported hold one receipt.
+     *
+     * @param  array<string, mixed>  $read  ReceiptReader output
+     * @return list<array<string, mixed>>
+     */
+    public static function receipts(array $read, int $fileCount = 1): array
+    {
+        $receipts = array_key_exists('receipts', $read) ? array_values(array_filter((array) $read['receipts'], 'is_array')) : [$read];
+
+        return array_map(fn (array $receipt): array => [
+            ...$receipt,
+            'file' => is_numeric($receipt['file'] ?? null) && $receipt['file'] >= 1 && $receipt['file'] <= $fileCount ? (int) $receipt['file'] - 1 : null,
+            'page' => is_numeric($receipt['page'] ?? null) && $receipt['page'] >= 1 ? (int) $receipt['page'] : null,
+        ], $receipts);
     }
 
     /**

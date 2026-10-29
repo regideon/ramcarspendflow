@@ -10,6 +10,7 @@ use Database\Seeders\P2p\P2pDemoTransactionSeeder;
 use Database\Seeders\P2p\P2pItemSeeder;
 use Database\Seeders\P2p\P2pSlocMasterSeeder;
 use Database\Seeders\P2p\P2pVendorSeeder;
+use Database\Seeders\P2p\VendorDownPaymentRfpSampleSeeder;
 use Database\Seeders\Rfp\ApprovalMatrixSeeder;
 use Database\Seeders\Rfp\DueTypeSeeder;
 use Database\Seeders\Rfp\WorkflowSeeder;
@@ -47,6 +48,7 @@ class DatabaseSeeder extends Seeder
             ApprovalMatrixSeeder::class,
             WorkflowSeeder::class,
             DueTypeSeeder::class,
+            VendorDownPaymentRfpSampleSeeder::class, // needs the P2P sample, the workflow and due types
         ]);
     }
 }

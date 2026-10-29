@@ -77,6 +77,16 @@ class ApProcessorDashboard
     }
 
     /**
+     * Items I processed per day this week, oldest first (the "Processed this week" sparkline).
+     *
+     * @return list<int>
+     */
+    public function processedPerDay(): array
+    {
+        return [4, 6, 5, 7, 6, 8, 9];
+    }
+
+    /**
      * The work queue, most urgent first. `checks` are chips (label, color); `match`
      * and `ai_read` only apply to P2P rows.
      *

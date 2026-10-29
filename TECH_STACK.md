@@ -1,8 +1,8 @@
-# Ramcar Spend Flow — Tech Stack
+# Ramcar AP — Tech Stack
 
 > Roadmap, flows, roles and conventions are documented in [docs/](docs/README.md).
 
-Ramcar Spend Flow is one Laravel app that **replaces two legacy systems**:
+Ramcar AP is one Laravel app that **replaces two legacy systems**:
 
 - **P2P**: Procure-to-Pay. Vendors (external users) submit invoices against POs and GRs from SAP.
 - **RFP Portal**: Request for Payment. Internal employees submit payment requests.
@@ -27,7 +27,7 @@ Both legacy codebases (`../p2p` and `../rfp-portal`) are **read-only references*
 
 ## 2. Supporting packages (installed)
 
-| Package | Version | Purpose in Spend Flow |
+| Package | Version | Purpose in Ramcar AP |
 |---|---|---|
 | `spatie/laravel-permission` | 8.3 | Roles and permissions, **shared across P2P and RFP** (one `users` and `roles` set) |
 | `spatie/laravel-activitylog` | 5.1 | Audit trail for model changes (sits alongside the module-specific approval histories) |
@@ -62,7 +62,7 @@ None of these are installed yet. Each one is added only when its module needs it
 
 ## 5. Reference projects (do not edit)
 
-| | P2P (`../p2p`) | RFP Portal (`../rfp-portal`) | **Spend Flow** |
+| | P2P (`../p2p`) | RFP Portal (`../rfp-portal`) | **Ramcar AP** |
 |---|---|---|---|
 | Laravel | 12 | 12 | **13** |
 | Filament | 4 | 3 | **5** |

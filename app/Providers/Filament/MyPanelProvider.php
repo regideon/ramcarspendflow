@@ -28,7 +28,7 @@ class MyPanelProvider extends PanelProvider
             ->id('my')
             ->path('my')
             ->login()
-            ->brandName('SpendFlow')
+            ->brandName('Ramcar AP')
             ->viteTheme('resources/css/filament/my/theme.css')
             ->font('Inter')
             // The shell is designed light-only for now.

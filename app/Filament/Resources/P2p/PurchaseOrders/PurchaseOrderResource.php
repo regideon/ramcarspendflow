@@ -24,7 +24,7 @@ class PurchaseOrderResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedShoppingCart;
 
-    protected static string|UnitEnum|null $navigationGroup = 'P2P';
+    protected static string|UnitEnum|null $navigationGroup = '-';
 
     protected static ?string $navigationLabel = 'Purchase Orders';
 

@@ -55,7 +55,7 @@ class ApReviewActions
                     ->success()
                     ->send();
 
-                $action->redirect(RfpApprovalResource::getUrl());
+                $action->redirect(RfpApprovalResource::queueUrl($action->getLivewire()));
             });
     }
 

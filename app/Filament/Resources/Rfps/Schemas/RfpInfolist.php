@@ -222,7 +222,7 @@ class RfpInfolist
             ]);
     }
 
-    protected static function fileLink(string $path): HtmlString
+    public static function fileLink(string $path): HtmlString
     {
         return new HtmlString(sprintf(
             '<a href="%s" target="_blank" class="text-primary-600 hover:underline">%s</a>',
@@ -234,7 +234,7 @@ class RfpInfolist
     /**
      * Who returned the RFP and why, from the latest return in its history.
      */
-    protected static function revisionNote(Rfp $rfp): string
+    public static function revisionNote(Rfp $rfp): string
     {
         $return = $rfp->histories()->where('to_status', RfpStatus::ForRevision)->latest('id')->with('user')->first();
 

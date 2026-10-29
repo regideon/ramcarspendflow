@@ -1,7 +1,7 @@
 @import url('https://fonts.bunny.net/css?family=manrope:600,700,800&display=swap');
 
 /* ---------------------------------------------------------
-   SPEND FLOW INDIGO: the look of the My panel (/my), applied to the Hub.
+   RAMCAR AP INDIGO: the look of the My panel (/my), applied to the Hub.
    Indigo brand (Filament primary = Color::Indigo in HubPanelProvider), slate
    greys, a soft "aurora" canvas, frosted-glass cards and a deep ink top bar.
    Scoped to .fi-panel-hub so nothing reaches the My panel. Looks only.

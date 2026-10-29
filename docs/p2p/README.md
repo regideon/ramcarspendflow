@@ -1,8 +1,8 @@
-# Ramcar Spend Flow — P2P Module Documentation
+# Ramcar AP — P2P Module Documentation
 
 _Last updated: 2026-10-10 · Branch: `p2p/docs/initial-documentation`_
 
-Ramcar Spend Flow unifies two legacy systems into one Laravel 13 / Filament 5 /
+Ramcar AP unifies two legacy systems into one Laravel 13 / Filament 5 /
 Livewire 4 app (single panel `hub`):
 
 - **RFP** — internal payment requests (already built).
@@ -44,7 +44,7 @@ P2P is delivered **module by module**, in phases:
 | 5 | [Services](05-services.md) | Domain/SAP services, jobs, console, escalation framework, mail |
 | 6 | [Workflow & statuses](06-workflow-statuses.md) | State machines, partials, returns, escalation routing, redesign |
 | 7 | [SAP integration](07-sap-integration.md) | OData/SOAP/AL11, security fixes, deferred scope |
-| 8 | [Conventions & migration](08-conventions-and-migration.md) | How legacy is reworked into Spend Flow conventions |
+| 8 | [Conventions & migration](08-conventions-and-migration.md) | How legacy is reworked into Ramcar AP conventions |
 | 9 | [Open questions](09-open-questions.md) | Blockers and confirmations |
 | 10 | [Demo data plan](10-demo-data-plan.md) | Tuesday's mancom dataset (fresh, generic) |
 | — | [gh-issues/](gh-issues/README.md) | Work items (GH epics + sub-issues) |
@@ -54,5 +54,5 @@ P2P is delivered **module by module**, in phases:
 1. `../p2p` and `../rfp-portal` are **read-only**. Use them as a behaviour spec only — their Filament 3/4 and Livewire 3 APIs do not apply here.
 2. **SAP is the source of truth.** POs/GRs are read-only in the portal; every submission starts by choosing synced GRs.
 3. **Statuses and flow are strict** — replicate the legacy IDs for flow parity (`06-workflow-statuses.md`).
-4. **Adopt Spend Flow conventions:** `p2p_*` table prefix, PHP backed enums (no lookup tables), new migrations only, `decimal` money, `DB::transaction` + row locks, everything slow on the queue.
+4. **Adopt Ramcar AP conventions:** `p2p_*` table prefix, PHP backed enums (no lookup tables), new migrations only, `decimal` money, `DB::transaction` + row locks, everything slow on the queue.
 5. Every change ships with Pest tests; the suite stays green.

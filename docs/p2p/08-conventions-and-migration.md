@@ -2,12 +2,12 @@
 
 _Last updated: 2026-10-10_
 
-How legacy P2P code is reworked into Ramcar Spend Flow conventions. The reference is a
+How legacy P2P code is reworked into Ramcar AP conventions. The reference is a
 **specification of behaviour**, never code to copy (Filament 3/4 ≠ 5, Livewire 3 ≠ 4).
 
 ## 8.1 Version gap
 
-| | Legacy P2P | Spend Flow |
+| | Legacy P2P | Ramcar AP |
 |---|---|---|
 | Laravel | 12 | **13** |
 | Filament | 4 | **5** |

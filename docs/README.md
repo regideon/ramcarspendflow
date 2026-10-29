@@ -1,6 +1,6 @@
-# Ramcar Spend Flow — Documentation
+# Ramcar AP — Documentation
 
-Ramcar Spend Flow puts two legacy finance systems into one Laravel + Filament app:
+Ramcar AP puts two legacy finance systems into one Laravel + Filament app:
 
 - **RFP (Request for Payment):** internal employees, and suppliers for down payments, request a payment. It goes through business approvers and then Accounting.
 - **P2P (Procure-to-Pay):** external vendors submit invoices against SAP POs and GRs. Accounting checks them and parks them in SAP.
@@ -22,6 +22,7 @@ The two modules share users, roles, companies, vendors and SAP master data. Thei
 | 9 | [Legacy RFP import](09-legacy-rfp-import.md) | How `rfp:import-legacy` brings over real RFP Portal data, and how legacy codes map to our tables |
 | 10 | [Premium initiatives](10-premium-initiatives.md) | The feature plan for making RFP and P2P a premium app, and its status |
 | 11 | [Benchmarks](11-benchmarks.md) | Best-in-class tools (Stampli, Coupa, Medius, Concur, …), what we borrow from each, and candidate ideas |
+| 13 | [Hidden pages](13-hidden-pages.md) | Old pages hidden from the menu after their redesign, the ones to hide next, and how to hide one |
 
 Also: [RFP presentation](rfp-presentation.md), slide-by-slide notes on the new RFP's highlights (kept current as features ship).
 

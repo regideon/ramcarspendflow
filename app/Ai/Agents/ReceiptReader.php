@@ -3,6 +3,7 @@
 namespace App\Ai\Agents;
 
 use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Illuminate\JsonSchema\Types\Type;
 use Laravel\Ai\Attributes\Provider;
 use Laravel\Ai\Attributes\Timeout;
 use Laravel\Ai\Contracts\Agent;
@@ -12,8 +13,9 @@ use Laravel\Ai\Promptable;
 use Stringable;
 
 /**
- * Reads a receipt, invoice or bill (PDF or image) into the fields of an RFP line.
- * The requestor reviews the result before it is applied (App\Services\Rfp\ReceiptScanner).
+ * Reads the receipts, invoices or bills in a line's documents (PDFs or images) into RFP line
+ * fields: one entry per receipt, so several receipts become several lines. The requestor
+ * reviews the result before it is applied (App\Services\Rfp\ReceiptScanner).
  */
 #[Provider(Lab::OpenAI)]
 #[Timeout(90)]
@@ -24,7 +26,7 @@ class ReceiptReader implements Agent, HasStructuredOutput
     public const array CONFIDENCE = ['high', 'medium', 'low'];
 
     /** Bump when the instructions or schema change, so saved reads (ReceiptRead) are not reused. */
-    public const int VERSION = 2;
+    public const int VERSION = 3;
 
     /**
      * @param  list<string>  $subcategories  sub category names the line may use, to suggest one from
@@ -47,7 +49,16 @@ class ReceiptReader implements Agent, HasStructuredOutput
             official receipts (OR), sales or service invoices (SI), billing statements, utility bills and
             foreign invoices. Photos may be skewed, faded thermal paper or handwritten.
 
-            Rules:
+            Several receipts:
+            - Files are attached in order, numbered from 1. A file can hold several receipts (e.g. several
+              receipts scanned into one PDF, or two receipts in one photo), and several files can be one receipt.
+            - Return one entry in receipts for each separate receipt, invoice or bill, in the order they appear.
+            - file: the number of the file the receipt is on. page: the PDF page it starts on (1 for an image).
+            - Pages that only support a receipt (import permit, delivery receipt, packing list, PO, payment slip,
+              a continuation page) are not separate receipts: count them with the receipt they belong to.
+            - When unsure whether two pages are one receipt or two, return them as one and say so in notes.
+
+            Rules (for each receipt):
             - Only return what is printed or written on the document. Never guess. Use null when a value is missing or unreadable.
             - invoice_number: the OR / SI / invoice / statement number, exactly as printed, without labels like "No.".
             - invoice_date: the document date as YYYY-MM-DD. Philippine documents usually write dates as MM/DD/YYYY.
@@ -78,6 +89,18 @@ class ReceiptReader implements Agent, HasStructuredOutput
     public function schema(JsonSchema $schema): array
     {
         return [
+            'receipts' => $schema->array()->items($schema->object(fn (JsonSchema $schema): array => static::receiptSchema($schema)))->required(),
+        ];
+    }
+
+    /**
+     * @return array<string, Type>
+     */
+    protected static function receiptSchema(JsonSchema $schema): array
+    {
+        return [
+            'file' => $schema->integer()->required(),
+            'page' => $schema->integer()->nullable()->required(),
             'document_type' => $schema->string()->enum(['official_receipt', 'sales_invoice', 'service_invoice', 'billing_statement', 'utility_bill', 'other'])->required(),
             'invoice_number' => $schema->string()->nullable()->required(),
             'invoice_date' => $schema->string()->nullable()->required(),

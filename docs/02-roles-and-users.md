@@ -50,7 +50,7 @@ Role names are defined in code in `App\Enums\RoleName`. The system roles cannot 
 
 ## 3. Legacy role mapping
 
-| Legacy P2P | Legacy RFP | Spend Flow |
+| Legacy P2P | Legacy RFP | Ramcar AP |
 |---|---|---|
 | `admin` | Admin | Admin |
 | `supplier` | Vendor Admin | Vendor |

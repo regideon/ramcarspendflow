@@ -5,8 +5,11 @@ namespace App\Filament\My\Pages;
 use App\Enums\RfpRequestType;
 use App\Enums\RfpStatus;
 use App\Filament\My\Support\SampleRfps;
+use App\Models\Rfp\Setting;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Support\Collection;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\Url;
 
 /**
@@ -49,6 +52,14 @@ class Approvals extends Page
     public array $filters = self::NO_FILTERS;
 
     public const array NO_FILTERS = ['due' => '', 'decided' => '', 'type' => [], 'department' => [], 'min' => '', 'max' => ''];
+
+    /**
+     * Numbers mass approved on this page. Preview only: nothing is saved yet, so they
+     * just drop out of the list until the page is reloaded.
+     *
+     * @var list<string>
+     */
+    public array $approved = [];
 
     /** @var array<string, string> */
     public const array DUE_FILTERS = ['overdue' => 'Overdue', 'today' => 'Due today', 'week' => 'Due this week'];
@@ -162,7 +173,7 @@ class Approvals extends Page
      */
     public function summary(): array
     {
-        $waiting = SampleRfps::awaitingMyApproval();
+        $waiting = $this->awaiting();
 
         return [
             'count' => $waiting->count(),
@@ -178,7 +189,7 @@ class Approvals extends Page
      */
     public function waiting(): Collection
     {
-        $waiting = SampleRfps::awaitingMyApproval()->filter($this->matchesSearch(...))->filter($this->matchesFilters(...));
+        $waiting = $this->awaiting()->filter($this->matchesSearch(...))->filter($this->matchesFilters(...));
 
         $sorted = match ($this->sort) {
             'amount' => $waiting->sortByDesc('amount'),
@@ -187,6 +198,77 @@ class Approvals extends Page
         };
 
         return $sorted->values();
+    }
+
+    /**
+     * Mass approval limits from RFP Settings → Bulk Approval: `item` is the amount from
+     * which an RFP must be approved one by one, `total` the most one batch may add up to.
+     *
+     * @return array{item: float, total: float}
+     */
+    #[Computed]
+    public function bulkLimits(): array
+    {
+        $settings = Setting::current();
+
+        return ['item' => $settings->bulk_approval_item_limit, 'total' => $settings->bulk_approval_total_limit];
+    }
+
+    /**
+     * @param  array<string, mixed>  $rfp
+     */
+    public function canBulkApprove(array $rfp): bool
+    {
+        return $rfp['amount'] < $this->bulkLimits['item'];
+    }
+
+    /**
+     * Amount of each RFP that can be mass approved, keyed by number, for the selection total.
+     *
+     * @return array<string, float>
+     */
+    public function bulkAmounts(): array
+    {
+        return $this->awaiting()->filter($this->canBulkApprove(...))->pluck('amount', 'number')->all();
+    }
+
+    /**
+     * Approve several RFPs at once. Refused when one is a high amount, the batch adds up
+     * to more than the total limit, or one is not waiting on this approver.
+     *
+     * @param  list<string>  $numbers
+     */
+    public function approveSelected(array $numbers): void
+    {
+        $rfps = $this->awaiting()->whereIn('number', $numbers);
+
+        if ($rfps->isEmpty() || $rfps->count() !== count(array_unique($numbers)) || $rfps->contains(fn (array $rfp): bool => ! $this->canBulkApprove($rfp))) {
+            Notification::make()
+                ->title('Those RFPs can’t be approved together')
+                ->body('RFPs of ₱'.number_format($this->bulkLimits['item'], 2).' and above must be approved one by one.')
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        if ($rfps->sum('amount') > $this->bulkLimits['total']) {
+            Notification::make()
+                ->title('Over the bulk approval limit')
+                ->body('Only a total of ₱'.number_format($this->bulkLimits['total'], 2).' can be approved at once. These add up to ₱'.number_format($rfps->sum('amount'), 2).': untick some and approve them in another batch.')
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $this->approved = [...$this->approved, ...$rfps->pluck('number')->all()];
+
+        Notification::make()
+            ->title($rfps->count() === 1 ? '1 RFP approved' : $rfps->count().' RFPs approved')
+            ->body('₱'.number_format($rfps->sum('amount'), 2).' sent on to the next approver.')
+            ->success()
+            ->send();
     }
 
     /**
@@ -221,6 +303,16 @@ class Approvals extends Page
             MyRequests::stageOf($status) > 0 => 'Now in '.MyRequests::STAGES[MyRequests::stageOf($status) - 1],
             default => $status->getLabel(),
         };
+    }
+
+    /**
+     * Waiting on the signed-in approver, minus what was just mass approved.
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    protected function awaiting(): Collection
+    {
+        return SampleRfps::awaitingMyApproval()->whereNotIn('number', $this->approved)->values();
     }
 
     /**

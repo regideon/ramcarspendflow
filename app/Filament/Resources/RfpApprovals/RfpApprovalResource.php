@@ -3,7 +3,9 @@
 namespace App\Filament\Resources\RfpApprovals;
 
 use App\Enums\RoleName;
+use App\Filament\Pages\Rfp\Approvals;
 use App\Filament\Resources\RfpApprovals\Pages\ListRfpApprovals;
+use App\Filament\Resources\RfpApprovals\Pages\ReviewRfpApproval;
 use App\Filament\Resources\RfpApprovals\Pages\ViewRfpApproval;
 use App\Filament\Resources\RfpApprovals\Tables\RfpApprovalsTable;
 use App\Filament\Resources\Rfps\Schemas\RfpInfolist;
@@ -27,9 +29,18 @@ class RfpApprovalResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClipboardDocumentCheck;
 
-    protected static string|UnitEnum|null $navigationGroup = 'RFP';
+    protected static string|UnitEnum|null $navigationGroup = 'RFP (OLD)';
 
     protected static ?string $navigationLabel = 'RFP Approvals';
+
+    /**
+     * Hidden from the menu for all users: replaced by the redesigned pages. The pages still
+     * open from links (view, edit, create). See docs/13-hidden-pages.md.
+     */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
 
     protected static ?string $modelLabel = 'RFP approval';
 
@@ -82,6 +93,14 @@ class RfpApprovalResource extends Resource
     public static function getNavigationBadgeTooltip(): ?string
     {
         return 'Waiting for your action';
+    }
+
+    /**
+     * Where a step action returns to: the redesigned queue from the redesigned review, the old list otherwise.
+     */
+    public static function queueUrl(mixed $livewire): string
+    {
+        return $livewire instanceof ReviewRfpApproval ? Approvals::getUrl() : static::getUrl();
     }
 
     public static function canAccess(): bool

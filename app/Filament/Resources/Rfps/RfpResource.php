@@ -31,9 +31,18 @@ class RfpResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBanknotes;
 
-    protected static string|UnitEnum|null $navigationGroup = 'RFP';
+    protected static string|UnitEnum|null $navigationGroup = 'RFP (OLD)';
 
     protected static ?string $navigationLabel = 'RFP Requests'; // My Requests
+
+    /**
+     * Hidden from the menu for all users: replaced by the redesigned pages. The pages still
+     * open from links (view, edit, create). See docs/13-hidden-pages.md.
+     */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
 
     protected static ?string $modelLabel = 'request for payment';
 

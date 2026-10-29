@@ -3,11 +3,13 @@
 namespace App\Models\P2p;
 
 use App\Enums\P2pStatus;
+use App\Enums\RfpStatus;
 use App\Enums\RoleName;
 use App\Filament\Pages\P2p\BulkAccountsPayable;
 use App\Filament\Pages\P2p\BulkGoodsReceipt;
 use App\Models\Company;
 use App\Models\Concerns\HasComments;
+use App\Models\Rfp\Rfp;
 use App\Models\User;
 use App\Models\Vendor;
 use Database\Factories\P2p\InvoiceFactory;
@@ -18,6 +20,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 
@@ -61,6 +64,42 @@ class Invoice extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * RFPs linked to this invoice for reference (usually the vendor's down payments).
+     *
+     * @return BelongsToMany<Rfp, $this>
+     */
+    public function linkedRfps(): BelongsToMany
+    {
+        return $this->belongsToMany(Rfp::class, 'p2p_invoice_rfp', 'p2p_invoice_id', 'rfp_id')
+            ->withPivot('linked_by_id')
+            ->withTimestamps();
+    }
+
+    /**
+     * The vendor's RFPs that may be linked: paid (completed) RFPs with this vendor as payee.
+     *
+     * @return Builder<Rfp>
+     */
+    public function linkableRfps(): Builder
+    {
+        return Rfp::query()
+            ->where('vendor_id', $this->vendor_id)
+            ->where('status', RfpStatus::Completed);
+    }
+
+    /**
+     * Link exactly these RFPs, keeping only the vendor's completed RFPs.
+     *
+     * @param  list<int|string>  $rfpIds
+     */
+    public function syncLinkedRfps(array $rfpIds, ?User $by): void
+    {
+        $allowed = $this->linkableRfps()->whereKey($rfpIds)->pluck('id');
+
+        $this->linkedRfps()->syncWithPivotValues($allowed->all(), ['linked_by_id' => $by?->id]);
     }
 
     /**

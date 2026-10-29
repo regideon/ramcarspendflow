@@ -24,7 +24,7 @@ class GoodsReceiptResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClipboardDocumentCheck;
 
-    protected static string|UnitEnum|null $navigationGroup = 'P2P';
+    protected static string|UnitEnum|null $navigationGroup = '-';
 
     protected static ?string $navigationLabel = 'Goods Receipts';
 

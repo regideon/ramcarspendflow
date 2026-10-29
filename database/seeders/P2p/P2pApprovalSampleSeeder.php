@@ -21,8 +21,6 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
 
-
-
 // sample
 
 /**
@@ -264,7 +262,7 @@ class P2pApprovalSampleSeeder extends Seeder
         $rule = str_repeat('-', 88);
 
         $lines = [
-            'RAMCAR SPEND FLOW',
+            'RAMCAR AP',
             'SAMPLE VENDOR INVOICE',
             '',
             'Vendor      : '.$vendor->name.' ('.$vendor->code.')',

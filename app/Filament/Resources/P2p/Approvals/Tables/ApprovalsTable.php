@@ -26,7 +26,7 @@ class ApprovalsTable
     {
         return $table
             ->modifyQueryUsing(fn (Builder $query): Builder => $query
-                ->with(['vendor', 'company'])
+                ->with(['vendor', 'company', 'linkedRfps'])
                 ->withUnreadCommentsCountFor(auth()->user()))
             ->columns([
                 // Hidden for now; keep the column so it can be re-enabled.
@@ -67,6 +67,19 @@ class ApprovalsTable
                     ->numeric(decimalPlaces: 2, thousandsSeparator: ',')
                     ->alignEnd()
                     ->sortable(),
+
+                // RFPs (usually down payments) the AP Processor linked for reference
+                TextColumn::make('rfp_down_payment')
+                    ->label('RFP Down Payment')
+                    ->state(fn (Invoice $record): array => $record->linkedRfps->pluck('rfp_number')->all())
+                    ->listWithLineBreaks()
+                    ->limitList(2)
+                    ->expandableLimitedList()
+                    ->description(fn (Invoice $record): ?string => $record->linkedRfps->isNotEmpty()
+                        ? 'PHP '.number_format((float) $record->linkedRfps->sum('total_php_amount'), 2)
+                        : null)
+                    ->placeholder('—')
+                    ->toggleable(),
 
                 TextColumn::make('three_way')
                     ->label('3-Way Match')

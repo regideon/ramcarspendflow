@@ -12,6 +12,7 @@ use App\Models\AccountGroup;
 use App\Models\Company;
 use App\Models\CompanyRole;
 use App\Models\Concerns\HasComments;
+use App\Models\P2p\Invoice;
 use App\Models\PaymentMethod;
 use App\Models\User;
 use App\Models\Vendor;
@@ -23,6 +24,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
@@ -234,6 +236,18 @@ class Rfp extends Model
         return $user->id === $this->requestor_id || ! $user->hasAnyRole(RoleName::rfpApprovalsUsers())
             ? RfpResource::getUrl('view', ['record' => $this])
             : RfpApprovalResource::getUrl('view', ['record' => $this]);
+    }
+
+    /**
+     * P2P invoices this RFP is linked to for reference (e.g. a down payment applied later).
+     *
+     * @return BelongsToMany<Invoice, $this>
+     */
+    public function linkedP2pInvoices(): BelongsToMany
+    {
+        return $this->belongsToMany(Invoice::class, 'p2p_invoice_rfp', 'rfp_id', 'p2p_invoice_id')
+            ->withPivot('linked_by_id')
+            ->withTimestamps();
     }
 
     /**

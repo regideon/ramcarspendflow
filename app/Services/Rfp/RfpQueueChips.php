@@ -75,7 +75,7 @@ class RfpQueueChips
         ];
     }
 
-    protected static function overdue(string $tab): QueueChip
+    public static function overdue(string $tab): QueueChip
     {
         return new QueueChip('overdue', 'Overdue', Heroicon::OutlinedExclamationTriangle, 'danger', $tab,
             fn (Builder $query): Builder => static::open($query)->whereDate('due_date', '<', today()));

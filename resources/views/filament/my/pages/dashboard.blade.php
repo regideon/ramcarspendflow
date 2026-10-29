@@ -40,7 +40,7 @@
 <div class="flex flex-col gap-6 lg:gap-8">
     {{-- Greeting: a plain header on phones, a glass card on laptops --}}
     <section class="flex items-center justify-between gap-4 lg:my-glass lg:rounded-2xl lg:p-6">
-        <div class="flex min-w-0 items-center gap-3 lg:gap-4">
+        <div data-guide="greeting" class="flex min-w-0 items-center gap-3 lg:gap-4">
             <a href="{{ Profile::getUrl() }}" aria-label="Profile" class="relative shrink-0">
                 <img src="{{ filament()->getUserAvatarUrl($user) }}" alt="" class="size-11 rounded-full object-cover shadow-sm ring-2 ring-white/80 lg:size-14 lg:rounded-2xl" />
                 <span class="absolute right-0 bottom-0 size-3 rounded-full bg-emerald-500 ring-2 ring-white"></span>
@@ -60,7 +60,20 @@
         <div class="flex shrink-0 items-center gap-2">
             <button
                 type="button"
+                aria-label="User Guide"
+                title="User Guide"
+                data-guide="user-guide"
+                x-data
+                x-on:click="$dispatch('start-user-guide')"
+                class="flex h-9 items-center justify-center gap-1.5 rounded-full border border-white/90 bg-white/80 px-2 text-slate-700 shadow-sm backdrop-blur-md transition active:scale-95 lg:h-11 lg:rounded-xl lg:px-3.5"
+            >
+                <x-filament::icon :icon="Heroicon::OutlinedQuestionMarkCircle" class="size-5" />
+                <span class="hidden text-sm font-semibold sm:inline">User Guide</span>
+            </button>
+            <button
+                type="button"
                 aria-label="Notifications"
+                data-guide="notifications"
                 x-data="{ unread: @js(SampleNotifications::for($user)->where('unread', true)->count()) }"
                 x-on:notifications-unread.window="unread = $event.detail"
                 x-on:click="$dispatch('open-notifications')"
@@ -69,7 +82,7 @@
                 <x-filament::icon :icon="Heroicon::OutlinedBell" class="size-5" />
                 <span x-show="unread" class="absolute top-2 right-2 size-2 rounded-full bg-rose-500 ring-1 ring-white lg:top-2.5 lg:right-2.5"></span>
             </button>
-            <button type="button" aria-label="Messages" x-on:click="$dispatch('open-comments-inbox')" class="flex size-9 items-center justify-center rounded-full border border-white/90 bg-white/80 text-slate-700 shadow-sm backdrop-blur-md transition active:scale-95 lg:size-11 lg:rounded-xl">
+            <button type="button" aria-label="Messages" data-guide="messages" x-on:click="$dispatch('open-comments-inbox')" class="flex size-9 items-center justify-center rounded-full border border-white/90 bg-white/80 text-slate-700 shadow-sm backdrop-blur-md transition active:scale-95 lg:size-11 lg:rounded-xl">
                 <x-filament::icon :icon="Heroicon::OutlinedChatBubbleOvalLeft" class="size-5" />
             </button>
         </div>
@@ -83,7 +96,7 @@
             {{-- Approvals: always first for matrix approvers --}}
             <div class="flex flex-col gap-4 lg:col-span-7 lg:gap-6">
                 {{-- Hero: a dark "bank card" with soft light --}}
-                <div class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-indigo-950 to-indigo-800 p-6 text-white shadow-[0_24px_48px_-16px_rgba(30,27,75,0.55)] ring-1 ring-white/10 lg:p-7">
+                <div data-guide="approval-summary" class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-indigo-950 to-indigo-800 p-6 text-white shadow-[0_24px_48px_-16px_rgba(30,27,75,0.55)] ring-1 ring-white/10 lg:p-7">
                     <div class="pointer-events-none absolute -top-24 -right-16 size-64 rounded-full bg-indigo-500/40 blur-3xl"></div>
                     <div class="pointer-events-none absolute -bottom-28 -left-10 size-56 rounded-full bg-violet-500/25 blur-3xl"></div>
                     <div class="pointer-events-none absolute -top-16 -right-16 size-48 rounded-full border border-white/10 lg:size-60"></div>
@@ -124,7 +137,7 @@
                     <a href="{{ Approvals::getUrl() }}" class="text-xs font-semibold text-indigo-600 hover:underline lg:text-sm">See all ({{ $summary['count'] }})</a>
                 </div>
 
-                <div class="flex flex-col gap-3">
+                <div data-guide="approval-queue" class="flex flex-col gap-3">
                     @foreach ($approvals as $approval)
                         <article class="my-glass flex flex-col gap-3 rounded-2xl p-4 transition hover:shadow-md lg:gap-4 lg:p-5">
                             <div class="flex items-start justify-between gap-3">
@@ -184,7 +197,7 @@
         @endif
 
         {{-- My requests --}}
-        <section @class([
+        <section data-guide="my-requests" @class([
             'flex flex-col gap-3 lg:my-glass lg:rounded-2xl lg:p-6',
             'lg:sticky lg:top-8 lg:col-span-5' => $isApprover,
         ])>
@@ -193,7 +206,7 @@
                 <a href="{{ MyRequests::getUrl() }}" class="text-xs font-semibold text-indigo-600 hover:underline lg:text-sm">See all ({{ $requests['total'] }})</a>
             </div>
 
-            <div class="flex items-center gap-2 overflow-x-auto py-0.5 lg:grid lg:grid-cols-3 lg:gap-2.5">
+            <div data-guide="request-tabs" class="flex items-center gap-2 overflow-x-auto py-0.5 lg:grid lg:grid-cols-3 lg:gap-2.5">
                 <a href="{{ MyRequests::getUrl(['tab' => 'drafts']) }}" class="my-glass flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 lg:flex-col lg:gap-0.5 lg:rounded-xl lg:p-3">
                     <span class="text-xs font-medium text-slate-600 lg:text-[11px] lg:tracking-wider lg:uppercase">Drafts</span>
                     <span class="rounded-full bg-slate-100 px-1.5 text-[10px] font-bold text-slate-700 lg:bg-transparent lg:font-display lg:text-lg">{{ $requests['drafts'] }}</span>
@@ -232,4 +245,6 @@
             </div>
         </section>
     </div>
+
+    @include('filament.my.user-guide', ['steps' => $this->guideSteps()])
 </div>

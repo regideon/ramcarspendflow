@@ -52,18 +52,25 @@ function navigationGroups(): array
 it('keeps the configured navigation groups in order', function () {
     $this->actingAs(User::factory()->create()->assignRole(RoleName::Admin));
 
-    expect(navigationGroups())->toBe(['P2P', 'Settings']);
+    expect(navigationGroups())->toBe(['RFP', 'P2P', '-', 'Settings']);
 });
 
-it('files Approvals and Escalations under the P2P group', function () {
+it('files the redesigned P2P Approvals under P2P and the old P2P pages under "-"', function () {
     $this->actingAs(User::factory()->create()->assignRole(RoleName::ApProcessor));
 
-    $p2pItems = collect(navigationShape())
-        ->where('group', 'P2P')
-        ->pluck('item')
-        ->all();
+    $items = collect(navigationShape());
 
-    expect($p2pItems)->toContain('Approvals');
+    expect($items->where('group', 'P2P')->pluck('item')->all())->toBe(['P2P Requests', 'P2P Approvals'])
+        ->and($items->where('group', '-')->pluck('item')->all())->toContain('P2P Approvals');
+});
+
+it('files P2P Escalations with P2P Requests and P2P Approvals under P2P', function () {
+    $this->actingAs(User::factory()->create()->assignRole(RoleName::Admin));
+
+    $items = collect(navigationShape());
+
+    expect($items->where('group', 'P2P')->pluck('item')->all())->toContain('P2P Requests', 'P2P Approvals', 'P2P Escalations')
+        ->and($items->where('group', '-')->pluck('item')->all())->not->toContain('P2P Escalations');
 });
 
 it('does not create separate Approvals or Escalations groups', function () {
@@ -80,7 +87,7 @@ it('shows the approvals destination to an AP processor and the supervisor', func
 
     $items = collect(navigationShape())->where('group', 'P2P')->pluck('item')->all();
 
-    expect($items)->toContain('Approvals');
+    expect($items)->toContain('P2P Approvals');
 })->with([
     'ap processor' => RoleName::ApProcessor,
     'ap supervisor' => RoleName::ApSupervisor,
@@ -91,5 +98,5 @@ it('hides the approvals destination from a vendor', function () {
 
     $items = collect(navigationShape())->where('group', 'P2P')->pluck('item')->all();
 
-    expect($items)->not->toContain('Approvals');
+    expect($items)->not->toContain('P2P Approvals');
 });

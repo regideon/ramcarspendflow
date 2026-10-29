@@ -1,6 +1,8 @@
 <?php
 
+use App\Enums\RfpRequestType;
 use App\Enums\RfpStatus;
+use App\Enums\RfpVendorType;
 use App\Enums\RoleName;
 use App\Filament\Resources\RfpApprovals\Pages\ListRfpApprovals;
 use App\Filament\Resources\RfpApprovals\Pages\ViewRfpApproval;
@@ -10,6 +12,7 @@ use App\Models\Company;
 use App\Models\Rfp\Item;
 use App\Models\Rfp\Rfp;
 use App\Models\User;
+use App\Models\Vendor;
 use Database\Seeders\AccountGroupSeeder;
 use Database\Seeders\CompanySeeder;
 use Database\Seeders\CurrencySeeder;
@@ -154,3 +157,34 @@ it('loads the History users with the record', function () {
         ->assertOk()
         ->assertSee([$this->lineManager->name, $this->departmentHead->name]);
 })->after(fn () => Model::preventLazyLoading(false));
+
+it('shows, searches and filters by the vendors paid on the lines', function () {
+    $vendor = Vendor::firstWhere('code', '200001');
+    $otherVendor = Vendor::firstWhere('code', '200002');
+
+    $reimbursement = saved(approvalRfp(RfpStatus::ForApProcessing, RoleName::ApProcessor));
+    $reimbursement->update(['request_type' => RfpRequestType::Reimbursement]);
+    Item::factory()->for($reimbursement)->create([
+        'company_id' => $this->company->id,
+        'vendor_type' => RfpVendorType::Vendor,
+        'vendor_id' => $vendor->id,
+    ]);
+
+    $payeeIsVendor = saved(approvalRfp(RfpStatus::ForApProcessing, RoleName::ApProcessor));
+    $payeeIsVendor->update(['vendor_id' => $vendor->id]);
+
+    $unrelated = saved(approvalRfp(RfpStatus::ForApProcessing, RoleName::ApProcessor));
+    $unrelated->update(['vendor_id' => $otherVendor->id]);
+
+    $this->actingAs($this->apProcessor);
+
+    Livewire::test(ListRfpApprovals::class, ['activeTab' => 'all'])
+        ->assertTableColumnStateSet('vendors', [$vendor->name], $reimbursement)
+        ->searchTable($vendor->name)
+        ->assertCanSeeTableRecords([$reimbursement, $payeeIsVendor])
+        ->assertCanNotSeeTableRecords([$unrelated])
+        ->searchTable(null)
+        ->filterTable('vendor', $vendor->id)
+        ->assertCanSeeTableRecords([$reimbursement, $payeeIsVendor])
+        ->assertCanNotSeeTableRecords([$unrelated]);
+});

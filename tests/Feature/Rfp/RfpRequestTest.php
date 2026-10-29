@@ -476,5 +476,5 @@ it('accepts PDF, Excel and Word supporting documents', function (string $name, s
 
 it('shows the accepted file types under Supporting Document', function () {
     Livewire::test(CreateRfp::class)
-        ->assertSee('Accepted files: PDF, JPG/PNG, Excel (.xls, .xlsx), Word (.doc, .docx) or CSV, up to 10 MB.');
+        ->assertSee('Accepted files: PDF, JPG/PNG, Excel (.xls, .xlsx), Word (.doc, .docx) or CSV, up to 10 MB each, up to 10 files.');
 });

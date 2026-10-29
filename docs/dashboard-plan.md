@@ -1,9 +1,9 @@
-# Dashboard / Analytics Plan — P2P + RFP Unification (RamcarSpendFlow)
+# Dashboard / Analytics Plan — P2P + RFP Unification (Ramcar AP)
 
 _Last updated: 2026-10-12_
 
 This plan identifies the data available for a Dashboard/Analytics layer across the
-unified Ramcar Spend Flow app, and sets out which datapoints each **user role** should see.
+unified Ramcar AP app, and sets out which datapoints each **user role** should see.
 It is grounded in the live databases and the current source code.
 
 ## 1. Current state (verified against live DB + code)

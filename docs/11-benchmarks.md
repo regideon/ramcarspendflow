@@ -2,7 +2,7 @@
 
 _Last updated: 2026-10-14_
 
-The products we compare Ramcar Spend Flow (RFP + P2P) against, and the ideas we borrow from each. Use this doc to decide **what to build next and how good it needs to be**. The build tracker itself is [10 – Premium initiatives](10-premium-initiatives.md).
+The products we compare Ramcar AP (RFP + P2P) against, and the ideas we borrow from each. Use this doc to decide **what to build next and how good it needs to be**. The build tracker itself is [10 – Premium initiatives](10-premium-initiatives.md).
 
 > **How to use it:** before designing a feature, look at how the products below handle it. Copy the idea, not the complexity. Ramcar's approval process never changes to match a product.
 >
@@ -30,7 +30,7 @@ The products we compare Ramcar Spend Flow (RFP + P2P) against, and the ideas we 
 
 From Stampli's AP Automation and Procurement pages:
 
-| Stampli capability | Ramcar Spend Flow | Initiative |
+| Stampli capability | Ramcar AP | Initiative |
 |---|---|---|
 | Questions, documents and decisions kept **on the record** | ✅ Comments with @mentions (RFP and P2P) | #1 |
 | Routing by entity, amount, department, vendor, request type | ✅ 2026 approval matrix by type + amount, Direct to VP, Pre-approved | Roadmap 2.4 |

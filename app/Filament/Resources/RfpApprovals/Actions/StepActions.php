@@ -55,7 +55,7 @@ class StepActions
                     ->success()
                     ->send();
 
-                $action->redirect(RfpApprovalResource::getUrl());
+                $action->redirect(RfpApprovalResource::queueUrl($action->getLivewire()));
             });
     }
 
@@ -88,7 +88,7 @@ class StepActions
                     ->success()
                     ->send();
 
-                $action->redirect(RfpApprovalResource::getUrl());
+                $action->redirect(RfpApprovalResource::queueUrl($action->getLivewire()));
             });
     }
 
@@ -116,7 +116,7 @@ class StepActions
                     ->success()
                     ->send();
 
-                $action->redirect(RfpApprovalResource::getUrl());
+                $action->redirect(RfpApprovalResource::queueUrl($action->getLivewire()));
             });
     }
 

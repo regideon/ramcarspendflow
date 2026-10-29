@@ -1,4 +1,4 @@
-# Ramcar Spend Flow — agent notes
+# Ramcar AP — agent notes
 
 A real Laravel 13 + Filament 5 + Livewire 4 + Tailwind 4 + Pest 5 app (despite the `laravel/laravel` name in `composer.json`). It replaces two legacy systems: **RFP** (internal payment requests) and **P2P** (vendor invoices matched against SAP POs/GRs). One Filament panel, id `hub`, at `/hub`.
 

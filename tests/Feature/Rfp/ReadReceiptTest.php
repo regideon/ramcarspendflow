@@ -30,7 +30,9 @@ use Filament\Actions\Testing\TestAction;
 use Filament\Forms\Components\Repeater;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Livewire\Livewire;
 
 pest()->use(RefreshDatabase::class);
@@ -63,6 +65,8 @@ afterEach(function () {
 function receiptRead(array $overrides = []): array
 {
     return array_replace([
+        'file' => 1,
+        'page' => 1,
         'document_type' => 'sales_invoice',
         'invoice_number' => 'SI-0045821',
         'invoice_date' => now()->subDays(3)->toDateString(),
@@ -78,6 +82,16 @@ function receiptRead(array $overrides = []): array
         'confidence' => ['invoice_number' => 'high', 'invoice_date' => 'high', 'vendor' => 'high', 'amount' => 'low'],
         'notes' => null,
     ], $overrides);
+}
+
+/**
+ * ReceiptReader output: one entry per receipt.
+ *
+ * @return array{receipts: list<array<string, mixed>>}
+ */
+function receiptReads(array ...$receipts): array
+{
+    return ['receipts' => array_map(fn (array $overrides): array => receiptRead($overrides), $receipts ?: [[]])];
 }
 
 function receiptForm(array $overrides = []): array
@@ -99,17 +113,17 @@ function receiptForm(array $overrides = []): array
 }
 
 it('reads the receipt and applies the reviewed values to the item', function () {
-    ReceiptReader::fake([receiptRead()])->preventStrayPrompts();
+    ReceiptReader::fake([receiptReads()])->preventStrayPrompts();
 
     Livewire::test(CreateRfp::class)
         ->fillForm(receiptForm())
         ->mountAction(TestAction::make('readReceipt')->schemaComponent('items.0.attachments'))
         ->assertSchemaStateSet([
-            'invoice_number' => 'SI-0045821',
-            'amount' => 1120.0,
-            'rfp_subcategory_id' => $this->officeSupplies->id,
+            'receipts.0.invoice_number' => 'SI-0045821',
+            'receipts.0.amount' => 1120.0,
+            'receipts.0.rfp_subcategory_id' => $this->officeSupplies->id,
         ])
-        ->setActionData(['invoice_number' => 'SI-0045821-A']) // the requestor corrects a value
+        ->setActionData(['receipts.0.invoice_number' => 'SI-0045821-A']) // the requestor corrects a value
         ->callMountedAction()
         ->assertNotified('Applied to the item')
         ->assertFormSet([
@@ -131,6 +145,120 @@ it('reads the receipt and applies the reviewed values to the item', function () 
     ReceiptReader::assertPrompted(fn ($prompt): bool => count($prompt->attachments) === 1);
 });
 
+it('adds an item for each further receipt, with its own document and the same charging', function () {
+    ReceiptReader::fake([receiptReads(
+        ['file' => 1, 'invoice_number' => 'OR-1001', 'total_amount' => 500.00, 'description' => 'Taxi fare'],
+        ['file' => 2, 'invoice_number' => 'OR-1002', 'total_amount' => 750.00, 'description' => 'Parking fees', 'invoice_date' => null],
+    )])->preventStrayPrompts();
+
+    $first = UploadedFile::fake()->image('taxi.jpg');
+    $second = UploadedFile::fake()->image('parking.jpg', 20, 30);
+
+    Livewire::test(CreateRfp::class)
+        ->fillForm(receiptForm(['items' => [[
+            'cost_center_id' => $this->financeCostCenter->id,
+            'currency_id' => Currency::firstWhere('code', 'PHP')->id,
+            'attachments' => [$first, $second],
+        ]]]))
+        ->mountAction(TestAction::make('readReceipt')->schemaComponent('items.0.attachments'))
+        ->assertSchemaStateSet([
+            'receipts.0.invoice_number' => 'OR-1001',
+            'receipts.1.invoice_number' => 'OR-1002',
+            'receipts.1.file' => 1,
+        ])
+        ->callMountedAction()
+        ->assertNotified('2 receipts applied')
+        ->assertFormSet([
+            'items.0.invoice_number' => 'OR-1001',
+            'items.0.amount' => 500.0,
+            'items.1.invoice_number' => 'OR-1002',
+            'items.1.amount' => 750.0,
+            'items.1.description' => 'Parking fees',
+            'items.1.invoice_date' => null, // not carried over from the first receipt
+            'items.1.cost_center_id' => $this->financeCostCenter->id,
+        ])
+        ->assertFormSet(function (array $state): array {
+            $items = array_values($state['items']);
+
+            expect($items[0]['attachments'])->toHaveCount(1)
+                ->and($items[1]['attachments'])->toHaveCount(1)
+                ->and(array_keys($items[0]['attachments']))->not->toBe(array_keys($items[1]['attachments']));
+
+            return [];
+        })
+        ->set('data.items.1.invoice_date', today()->toDateString()) // left blank on the receipt: the requestor fills it in
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    expect(Item::orderBy('sort')->pluck('invoice_number')->all())->toBe(['OR-1001', 'OR-1002'])
+        ->and(Item::firstWhere('invoice_number', 'OR-1002')->receipt_scan)->receipt->toBe(2)->receipts->toBe(2);
+
+    ReceiptReader::assertPromptedTimes(1);
+});
+
+it('splits several receipts in one PDF, each item keeping the PDF', function () {
+    ReceiptReader::fake([receiptReads(
+        ['page' => 1, 'invoice_number' => 'OR-2001', 'total_amount' => 100.00],
+        ['page' => 3, 'invoice_number' => 'OR-2002', 'total_amount' => 200.00],
+    )]);
+
+    Livewire::test(CreateRfp::class)
+        ->fillForm(receiptForm(['items' => [[
+            'cost_center_id' => $this->financeCostCenter->id,
+            'currency_id' => Currency::firstWhere('code', 'PHP')->id,
+            'attachments' => [UploadedFile::fake()->createWithContent('receipts.pdf', "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n")],
+        ]]]))
+        ->mountAction(TestAction::make('readReceipt')->schemaComponent('items.0.attachments'))
+        ->assertSchemaStateSet(['receipts.1.page' => 3, 'receipts.1.file' => 0])
+        ->callMountedAction()
+        ->assertFormSet([
+            'items.0.invoice_number' => 'OR-2001',
+            'items.1.invoice_number' => 'OR-2002',
+        ])
+        ->assertFormSet(function (array $state): array {
+            expect(array_values($state['items'])[1]['attachments'])->toHaveCount(1);
+
+            return [];
+        });
+});
+
+it('skips a receipt the requestor removes from the review', function () {
+    ReceiptReader::fake([receiptReads(['invoice_number' => 'OR-3001'], ['invoice_number' => 'OR-3002', 'file' => 1])]);
+
+    Livewire::test(CreateRfp::class)
+        ->fillForm(receiptForm())
+        ->mountAction(TestAction::make('readReceipt')->schemaComponent('items.0.attachments'))
+        ->setActionData(['receipts' => [receiptRead(['invoice_number' => 'OR-3001'])]])
+        ->callMountedAction()
+        ->assertNotified('Applied to the item')
+        ->assertFormSet(['items.0.invoice_number' => 'OR-3001'])
+        ->assertCount('data.items', 1);
+});
+
+it('warns about a receipt billed twice in the same read', function () {
+    ReceiptReader::fake([receiptReads(['invoice_number' => 'OR-4001'], ['invoice_number' => 'OR-4001'])]);
+
+    Livewire::test(CreateRfp::class)
+        ->fillForm(receiptForm())
+        ->mountAction(TestAction::make('readReceipt')->schemaComponent('items.0.attachments'))
+        ->assertSchemaStateSet(function (array $state): array {
+            $receipts = array_values($state['receipts']);
+
+            expect($receipts[0]['warnings'])->toBe([])
+                ->and(implode(' ', $receipts[1]['warnings']))->toContain('also on receipt 1 here');
+
+            return [];
+        });
+});
+
+it('still uses a read saved before several receipts were supported', function () {
+    expect(ReceiptScanner::receipts(receiptRead(['file' => null, 'page' => null])))
+        ->toHaveCount(1)
+        ->{0}->invoice_number->toBe('SI-0045821')
+        ->{0}->file->toBeNull()
+        ->and(ReceiptScanner::receipts(receiptReads(['file' => 5]), fileCount: 2))->{0}->file->toBeNull(); // out of range
+});
+
 it('only reads PDFs and images', function () {
     Storage::disk('local')->put('rfp-attachments/list.csv', "a,b\n1,2\n");
     Storage::disk('local')->put('rfp-attachments/receipt.png', UploadedFile::fake()->image('receipt.png')->getContent());
@@ -140,8 +268,40 @@ it('only reads PDFs and images', function () {
         ->{0}->mime->toBe('image/png');
 });
 
+it('shows the uploaded document beside the review to compare', function () {
+    ReceiptReader::fake([receiptReads()]);
+
+    Livewire::test(CreateRfp::class)
+        ->fillForm(receiptForm())
+        ->mountAction(TestAction::make('readReceipt')->schemaComponent('items.0.attachments'))
+        ->assertSchemaStateSet(function (array $state): array {
+            expect($state['documents'])->toHaveCount(1)
+                ->{0}->mime->toBe('image/jpeg')
+                ->{0}->name->toBe('receipt.jpg')
+                ->{0}->url->toContain('/rfp/receipt-preview');
+
+            return [];
+        });
+});
+
+it('serves a supporting document only through its signed preview link', function () {
+    Storage::disk('local')->put('rfp-attachments/receipt.png', UploadedFile::fake()->image('receipt.png')->getContent());
+    Storage::disk('local')->put('secrets/other.png', UploadedFile::fake()->image('other.png')->getContent());
+
+    $url = ReceiptScanner::previewFiles(['rfp-attachments/receipt.png'])[0]['url'];
+
+    $this->get($url)->assertOk()->assertHeader('Content-Type', 'image/png');
+
+    // Tampered or unsigned links, files outside the supporting documents, and guests are refused
+    $this->get($url.'x')->assertForbidden();
+    $this->get(URL::temporarySignedRoute('rfp.receipt-preview', now()->addHour(), ['file' => Crypt::encryptString(json_encode(['local', 'secrets/other.png']))]))->assertNotFound();
+
+    auth()->logout();
+    $this->get($url)->assertForbidden();
+});
+
 it('keeps a purpose the requestor already wrote, showing the AI suggestion', function () {
-    ReceiptReader::fake([receiptRead()]);
+    ReceiptReader::fake([receiptReads()]);
 
     Livewire::test(CreateRfp::class)
         ->fillForm(receiptForm(['purpose' => 'Q4 office supplies']))
@@ -175,7 +335,7 @@ it('closes the review with a message when the reader fails', function () {
 });
 
 it('reuses the saved read when the same document is read again', function () {
-    ReceiptReader::fake([receiptRead()]);
+    ReceiptReader::fake([receiptReads()]);
 
     $page = Livewire::test(CreateRfp::class)->fillForm(receiptForm());
     $action = TestAction::make('readReceipt')->schemaComponent('items.0.attachments');
@@ -184,30 +344,30 @@ it('reuses the saved read when the same document is read again', function () {
     $page->call('unmountAction'); // closed by accident
 
     $page->mountAction($action)
-        ->assertSchemaStateSet(['reused' => true, 'invoice_number' => 'SI-0045821']);
+        ->assertSchemaStateSet(['reused' => true, 'receipts.0.invoice_number' => 'SI-0045821']);
 
     ReceiptReader::assertPromptedTimes(1);
     expect(ReceiptRead::count())->toBe(1)
-        ->and(ReceiptRead::first())->reader_version->toBe(ReceiptReader::VERSION)->result->invoice_number->toBe('SI-0045821');
+        ->and(ReceiptRead::first())->reader_version->toBe(ReceiptReader::VERSION)->result->receipts->{0}->invoice_number->toBe('SI-0045821');
 });
 
 it('reads the document again after the reader changes', function () {
-    ReceiptReader::fake([receiptRead()]);
+    ReceiptReader::fake([receiptReads()]);
     $image = UploadedFile::fake()->image('receipt.jpg');
 
-    ReceiptRead::create(['file_hash' => hash_file('sha256', $image->getRealPath()), 'reader_version' => ReceiptReader::VERSION - 1, 'result' => receiptRead(['invoice_number' => 'OLD'])]);
+    ReceiptRead::create(['file_hash' => hash_file('sha256', $image->getRealPath()), 'reader_version' => ReceiptReader::VERSION - 1, 'result' => receiptReads(['invoice_number' => 'OLD'])]);
 
     Livewire::test(CreateRfp::class)
         ->fillForm(receiptForm(['items' => [['attachments' => [$image]]]]))
         ->mountAction(TestAction::make('readReceipt')->schemaComponent('items.0.attachments'))
-        ->assertSchemaStateSet(['reused' => false, 'invoice_number' => 'SI-0045821']);
+        ->assertSchemaStateSet(['reused' => false, 'receipts.0.invoice_number' => 'SI-0045821']);
 
     ReceiptReader::assertPromptedTimes(1);
 });
 
 it('limits how many new documents a user can read per hour', function () {
     config(['services.receipt_reader.per_hour' => 1]);
-    ReceiptReader::fake([receiptRead(), receiptRead()]);
+    ReceiptReader::fake([receiptReads(), receiptReads()]);
 
     $action = TestAction::make('readReceipt')->schemaComponent('items.0.attachments');
 
@@ -223,7 +383,7 @@ it('limits how many new documents a user can read per hour', function () {
 });
 
 it('sets who was paid on a reimbursement, using a one-time vendor when no vendor has the TIN', function () {
-    ReceiptReader::fake([receiptRead(['vendor_name' => 'Jollibee Foods Corp.', 'vendor_tin' => '000-388-474-00000'])]);
+    ReceiptReader::fake([receiptReads(['vendor_name' => 'Jollibee Foods Corp.', 'vendor_tin' => '000-388-474-00000'])]);
 
     Livewire::test(CreateRfp::class)
         ->fillForm(receiptForm(['request_type' => RfpRequestType::Reimbursement->value]))

@@ -107,7 +107,7 @@
                     Sign out
                 </button>
             </form>
-            <p class="hidden text-center text-[11px] text-slate-400 lg:block">SpendFlow v1.0</p>
+            <p class="hidden text-center text-[11px] text-slate-400 lg:block">Ramcar AP v1.0</p>
         </div>
 
         {{-- Right: settings --}}
@@ -198,7 +198,7 @@
                     Sign out
                 </button>
             </form>
-            <p class="text-center text-[11px] text-slate-400 lg:hidden">SpendFlow v1.0</p>
+            <p class="text-center text-[11px] text-slate-400 lg:hidden">Ramcar AP v1.0</p>
         </div>
     </div>
 

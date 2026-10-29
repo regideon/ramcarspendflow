@@ -322,10 +322,21 @@ class RfpForm
                             ->visibility('private')
                             ->acceptedFileTypes(self::DOCUMENT_TYPES)
                             ->maxSize(10_240)
-                            ->maxFiles(1)
+                            // Several receipts are read together and split into one item each (ReadReceiptAction)
+                            ->maxFiles(ReceiptScanner::MAX_FILES)
                             ->downloadable()
                             ->openable()
                             ->panelLayout('grid')
+                            // AI look when the reader is on: hint by the label, AI drop zone (spendflow-ui.css)
+                            ->hint(fn (): ?string => ReadReceiptAction::available() ? 'AI-assisted' : null)
+                            ->hintIcon(fn (): ?Heroicon => ReadReceiptAction::available() ? Heroicon::Sparkles : null)
+                            ->hintIconTooltip('Upload a PDF or photo and AI reads the invoice no., date, amount and vendor for you to check.')
+                            ->hintColor('primary')
+                            ->placeholder(fn (): ?string => ReadReceiptAction::available()
+                                ? '<span class="sf-ai-drop-title">✨ Drop your receipts here or <span class="filepond--label-action">browse</span></span>'
+                                    .'<span class="sf-ai-drop-sub">AI reads PDFs and photos and fills in the item for you to check. Several receipts become one item each.</span>'
+                                : null)
+                            ->extraFieldWrapperAttributes(fn (): array => ReadReceiptAction::available() ? ['class' => 'sf-ai-upload'] : [])
                             ->live() // shows Read receipt once a PDF or image is uploaded
                             // Removing a file doesn't re-render the form, so refresh to hide Read receipt
                             ->afterStateUpdated(fn (FileUpload $component, Component $livewire) => ReceiptScanner::readableFiles($component->getRawState(), $component->getDiskName()) === []
@@ -333,7 +344,7 @@ class RfpForm
                                 : null)
                             // helperText() and belowContent() share one slot, so the helper text goes here too
                             ->belowContent([
-                                Text::make('Accepted files: PDF, JPG/PNG, Excel (.xls, .xlsx), Word (.doc, .docx) or CSV, up to 10 MB.'),
+                                Text::make('Accepted files: PDF, JPG/PNG, Excel (.xls, .xlsx), Word (.doc, .docx) or CSV, up to 10 MB each, up to '.ReceiptScanner::MAX_FILES.' files.'),
                                 ReadReceiptAction::make(),
                             ])
                             ->columnSpanFull(),

@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Pages\Auth\EditProfile;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -31,11 +32,12 @@ class HubPanelProvider extends PanelProvider
             ->path('hub')
             ->login()
             ->viteTheme('resources/css/filament/hub/theme.css')
+            ->font('Inter')
 
             ->passwordReset()
             ->unsavedChangesAlerts()
             ->databaseNotifications()
-            ->profile(isSimple: false)
+            ->profile(EditProfile::class, isSimple: false)
             ->topNavigation()
             ->maxContentWidth('screen-2xl')
             // A render hook, not ->assets(): panel assets load in every panel, and this
@@ -55,9 +57,13 @@ class HubPanelProvider extends PanelProvider
                 'warning' => Color::Amber,
                 'danger' => Color::Rose,
             ])
+            // "RFP" / "P2P" hold the redesigned pages (Google Stitch) as they ship; the "(OLD)"
+            // groups (P2P's is labelled "-") keep the current ones for comparison. A group with no pages yet is not shown.
             ->navigationGroups([
                 'RFP',
+                'RFP (OLD)',
                 'P2P',
+                '-',
                 'Settings',
                 'Help',
             ])

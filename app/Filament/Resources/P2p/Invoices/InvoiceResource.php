@@ -23,7 +23,7 @@ class InvoiceResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedDocumentText;
 
-    protected static string|UnitEnum|null $navigationGroup = 'P2P';
+    protected static string|UnitEnum|null $navigationGroup = '-';
 
     protected static ?string $slug = 'p2p/invoices';
 

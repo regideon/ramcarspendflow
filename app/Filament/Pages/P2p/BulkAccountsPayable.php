@@ -7,11 +7,13 @@ use App\Enums\P2pStatus;
 use App\Enums\RoleName;
 use App\Filament\Concerns\HasCommentsChat;
 use App\Filament\Resources\P2p\Approvals\ApprovalResource;
+use App\Filament\Resources\RfpApprovals\RfpApprovalResource;
 use App\Models\P2p\Escalation;
 use App\Models\P2p\EscalationReason;
 use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
 use App\Models\P2p\SapGoodReceiptItem;
+use App\Models\Rfp\Rfp;
 use App\Models\TaxCode;
 use App\Models\User;
 use App\Models\WithholdingTaxCode;
@@ -182,6 +184,105 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
     }
 
     /**
+     * Anyone holding the AP Processor or Admin role links RFPs while the invoice is in the
+     * AP Processor queue, even if they also hold AP Supervisor (linking is reference only).
+     * Everyone else sees the linked list.
+     */
+    public function canLinkRfps(): bool
+    {
+        $invoice = $this->invoiceModel();
+
+        return $invoice !== null
+            && ($this->userHasRole(RoleName::ApProcessor->value) || $this->userHasRole(RoleName::Admin->value))
+            && in_array($invoice->status, [P2pStatus::SubmittedToAp, P2pStatus::ApReview, P2pStatus::ReturnedToApProcessor], true);
+    }
+
+    /**
+     * The vendor's paid RFPs, newest first: "RFP-2026-012122 · PHP 11,490.00 · PO 4500099001".
+     *
+     * @return array<int, string>
+     */
+    protected function linkableRfpOptions(): array
+    {
+        $invoice = $this->invoiceModel();
+
+        if ($invoice === null) {
+            return [];
+        }
+
+        return $invoice->linkableRfps()
+            ->with('items')
+            ->latest('id')
+            ->limit(200)
+            ->get()
+            ->mapWithKeys(fn (Rfp $rfp): array => [$rfp->id => $this->rfpLabel($rfp)])
+            ->all();
+    }
+
+    /**
+     * @param  list<int|string>  $rfpIds
+     */
+    public function saveLinkedRfps(array $rfpIds): void
+    {
+        $invoice = $this->invoiceModel();
+
+        if ($invoice === null || ! $this->canLinkRfps()) {
+            return;
+        }
+
+        $invoice->syncLinkedRfps($rfpIds, $this->currentUser());
+        $this->data['linked_rfp_ids'] = $invoice->linkedRfps()->pluck('rfps.id')->map(fn (int $id): string => (string) $id)->all();
+
+        Notification::make()->title('Linked RFPs saved')->success()->send();
+    }
+
+    protected function linkedRfpsHtml(): HtmlString
+    {
+        $rfps = $this->invoiceModel()?->linkedRfps()->with('items')->orderBy('rfps.id')->get() ?? collect();
+
+        if ($rfps->isEmpty()) {
+            return new HtmlString('<p class="text-sm text-gray-500 dark:text-gray-400">No RFP linked yet.</p>');
+        }
+
+        $canOpen = RfpApprovalResource::canAccess();
+
+        $rows = $rfps->map(function (Rfp $rfp) use ($canOpen): string {
+            $number = e($rfp->rfp_number);
+            $link = $canOpen
+                ? '<a href="'.e(RfpApprovalResource::getUrl('view', ['record' => $rfp])).'" target="_blank" class="font-medium text-primary-600 hover:underline dark:text-primary-400">'.$number.'</a>'
+                : '<span class="font-medium">'.$number.'</span>';
+
+            return '<tr class="border-t border-gray-100 dark:border-white/10">'
+                .'<td class="py-2 pe-4">'.$link.'</td>'
+                .'<td class="py-2 pe-4">'.e(str($rfp->purpose)->limit(70)).'</td>'
+                .'<td class="py-2 pe-4">'.e($this->rfpPoNumbers($rfp) ?: '—').'</td>'
+                .'<td class="py-2 pe-4">'.e($rfp->status->getLabel()).' · '.e($rfp->updated_at?->format('M j, Y')).'</td>'
+                .'<td class="py-2 text-end tabular-nums">PHP '.number_format((float) $rfp->total_php_amount, 2).'</td>'
+                .'</tr>';
+        })->implode('');
+
+        $total = number_format((float) $rfps->sum('total_php_amount'), 2);
+
+        return new HtmlString('<table class="w-full text-sm"><thead><tr class="text-start text-xs text-gray-500 dark:text-gray-400">'
+            .'<th class="pb-1 pe-4 text-start font-medium">RFP</th><th class="pb-1 pe-4 text-start font-medium">Purpose</th><th class="pb-1 pe-4 text-start font-medium">PO</th><th class="pb-1 pe-4 text-start font-medium">Status</th><th class="pb-1 text-end font-medium">Amount</th>'
+            .'</tr></thead><tbody>'.$rows.'</tbody><tfoot><tr class="border-t border-gray-200 font-semibold dark:border-white/10">'
+            .'<td class="pt-2" colspan="4">Total linked (reference only)</td><td class="pt-2 text-end tabular-nums">PHP '.$total.'</td>'
+            .'</tr></tfoot></table>');
+    }
+
+    protected function rfpLabel(Rfp $rfp): string
+    {
+        $po = $this->rfpPoNumbers($rfp);
+
+        return $rfp->rfp_number.' · PHP '.number_format((float) $rfp->total_php_amount, 2).($po ? ' · PO '.$po : '').' · '.$rfp->updated_at?->format('M j, Y');
+    }
+
+    protected function rfpPoNumbers(Rfp $rfp): string
+    {
+        return $rfp->items->pluck('po_number')->filter()->unique()->implode(', ');
+    }
+
+    /**
      * Whether the submission sits in the viewer's own queue, so it is safe to act
      * on. A supervisor acts on the checker queue, a processor on the processor
      * queue, and an admin on either. Everything else (other queues, escalated,
@@ -253,6 +354,7 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
         $this->data['reference_number'] = $invoice->reference_number ?? [];
         $this->data['invoice_number'] = $invoice->invoice_number;
         $this->data['remarks_ap'] = $invoice->remarks_ap;
+        $this->data['linked_rfp_ids'] = $invoice->linkedRfps()->pluck('rfps.id')->map(fn (int $id): string => (string) $id)->all();
 
         $this->data['tax_code'] = $invoice->tax_code;
         $this->data['withholding_tax_code'] = $invoice->withholding_tax_code;
@@ -428,6 +530,32 @@ class BulkAccountsPayable extends Page implements HasActions, HasForms
                             ->icon(Heroicon::OutlinedDocumentText)
                             ->iconColor('primary')
                             ->schema($this->getAccountsPayableFields()),
+                    ]),
+
+                // Reference only: the vendor's paid RFPs (usually down payments) linked to this invoice
+                Group::make()
+                    ->columnSpan(['default' => 12])
+                    ->schema([
+                        Section::make('RFP Down Payments')
+                            ->description('Link the vendor\'s paid RFPs, usually supplier down payments, to this invoice. For reference only: no amounts or entries change.')
+                            ->icon(Heroicon::OutlinedLink)
+                            ->iconColor('primary')
+                            ->schema([
+                                Select::make('linked_rfp_ids')
+                                    ->label('Link RFPs')
+                                    ->multiple()
+                                    ->searchable()
+                                    ->options(fn (): array => $this->linkableRfpOptions())
+                                    ->helperText(fn (): string => 'Only RFPs paid to '.($this->invoiceModel()?->vendor?->name ?? 'this vendor').' (Completed). Saved as you choose.')
+                                    ->visible(fn (): bool => $this->canLinkRfps())
+                                    ->live()
+                                    ->afterStateUpdated(fn (?array $state) => $this->saveLinkedRfps($state ?? []))
+                                    ->dehydrated(false),
+                                TextEntry::make('linked_rfps_list')
+                                    ->hiddenLabel()
+                                    ->state(fn (): HtmlString => $this->linkedRfpsHtml())
+                                    ->html(),
+                            ]),
                     ]),
 
                 Group::make()

@@ -250,10 +250,73 @@
             </div>
         </section>
     @elseif ($tab === 'waiting')
+        {{--
+            Mass approval: tick RFPs, see the running total, approve them in one go. Limits come from
+            RFP Settings → Bulk Approval: high-amount RFPs can't be ticked, and a batch can't add up
+            to more than the total limit (RFPs that would push it over are locked until some are unticked).
+        --}}
+        <div
+            class="contents"
+            x-data="{
+                selected: [],
+                onScreen: [],
+                confirming: false,
+                amounts: @js($this->bulkAmounts()),
+                totalLimit: @js($this->bulkLimits['total']),
+                get total() {
+                    return this.selected.reduce((sum, number) => sum + (this.amounts[number] ?? 0), 0)
+                },
+                peso(amount) {
+                    return '₱' + amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                },
+                // Would ticking this RFP take the batch over the total limit?
+                blocked(number) {
+                    return ! this.selected.includes(number) && this.total + (this.amounts[number] ?? 0) > this.totalLimit
+                },
+                // Tickable RFPs on screen that the total limit is keeping out
+                get blockedCount() {
+                    return this.onScreen.filter((number) => this.blocked(number)).length
+                },
+                allSelected() {
+                    return this.onScreen.length > 0 && this.onScreen.every((number) => this.selected.includes(number) || this.blocked(number))
+                },
+                // Tick RFPs in the order shown until the next one would go over the total limit
+                toggleAll() {
+                    if (this.allSelected()) {
+                        this.selected = []
+                        return
+                    }
+                    let total = this.total
+                    for (const number of this.onScreen) {
+                        if (this.selected.includes(number) || total + this.amounts[number] > this.totalLimit) continue
+                        this.selected.push(number)
+                        total += this.amounts[number]
+                    }
+                },
+                // Tickable RFPs on screen, in order (cards and table rows carry the same numbers).
+                // Ticks on RFPs a search or filter has hidden are dropped, so nothing unseen gets approved.
+                refresh() {
+                    this.onScreen = [...new Set([...this.$root.querySelectorAll('input[data-bulk]')].map((el) => el.value))]
+                    this.selected = this.selected.filter((number) => this.onScreen.includes(number))
+                    if (! this.selected.length) this.confirming = false
+                },
+                approve() {
+                    $wire.approveSelected(this.selected).then(() => { this.selected = []; this.confirming = false })
+                },
+            }"
+            x-init="$nextTick(() => refresh()); $wire.$hook('morphed', () => $nextTick(() => refresh()))"
+        >
         {{-- Phones and tablets: one card per RFP --}}
         <section class="flex flex-col gap-3 lg:hidden">
+            @if ($waiting->contains($this->canBulkApprove(...)))
+                <label class="flex items-center gap-2.5 px-1 text-xs font-semibold text-slate-600">
+                    <input type="checkbox" class="fi-checkbox-input" x-bind:checked="selected.length && allSelected()" x-on:change="toggleAll()" />
+                    Select all under {{ $peso($this->bulkLimits['item']) }}
+                    <span class="font-medium text-slate-400">· up to {{ $peso($this->bulkLimits['total']) }} per batch</span>
+                </label>
+            @endif
             @foreach ($waiting as $rfp)
-                <article class="my-glass relative overflow-hidden rounded-[20px] p-4">
+                <article wire:key="card-{{ $rfp['number'] }}" class="my-glass relative overflow-hidden rounded-[20px] p-4 transition" x-bind:class="selected.includes(@js($rfp['number'])) && 'ring-2 ring-indigo-500/60'">
                     <span @class([
                         'absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent to-transparent',
                         'via-amber-400/50' => $rfp['dueTone'] === 'amber',
@@ -263,6 +326,11 @@
 
                     <div class="flex items-start justify-between gap-3">
                         <div class="flex min-w-0 items-center gap-3">
+                            @if ($this->canBulkApprove($rfp))
+                                <input type="checkbox" data-bulk value="{{ $rfp['number'] }}" x-model="selected" x-bind:disabled="blocked(@js($rfp['number']))" x-bind:title="blocked(@js($rfp['number'])) && 'Over the ' + peso(totalLimit) + ' bulk approval total'" aria-label="Select {{ $rfp['number'] }}" class="fi-checkbox-input disabled:opacity-40 shrink-0" />
+                            @else
+                                <input type="checkbox" disabled aria-label="{{ $rfp['number'] }} is a high amount: approve it one by one" title="High amount: approve it one by one" class="fi-checkbox-input shrink-0 opacity-40" />
+                            @endif
                             <span class="flex size-11 shrink-0 items-center justify-center rounded-full font-display text-sm font-bold {{ $avatarTones[$rfp['tone']] }}">{{ $initials($rfp['payee']) }}</span>
                             <div class="min-w-0">
                                 <a href="{{ $detailUrl($rfp) }}" class="block truncate font-display text-base font-bold text-slate-900">{{ $rfp['payee'] }}</a>
@@ -276,7 +344,15 @@
                     </div>
 
                     <div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/60 pb-3">
-                        <span class="font-display text-[22px] leading-tight font-extrabold tracking-tight text-slate-900 tabular-nums">{{ $peso($rfp['amount']) }}</span>
+                        <span class="flex flex-col items-start gap-1">
+                            <span class="font-display text-[22px] leading-tight font-extrabold tracking-tight text-slate-900 tabular-nums">{{ $peso($rfp['amount']) }}</span>
+                            @unless ($this->canBulkApprove($rfp))
+                                <span class="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200/70">
+                                    <x-filament::icon :icon="Heroicon::OutlinedLockClosed" class="size-3" />
+                                    High amount · approve one by one
+                                </span>
+                            @endunless
+                        </span>
                         <span class="flex items-center gap-1.5">
                             <span class="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[10px] font-medium text-slate-500">{{ $rfp['number'] }}</span>
                             <span @class([
@@ -316,7 +392,12 @@
             <table class="w-full border-collapse text-left text-xs">
                 <thead>
                     <tr class="border-b border-slate-200/60 bg-white/30 font-mono text-[10px] tracking-wider text-slate-400 uppercase">
-                        <th class="py-3 pr-3 pl-5 font-semibold">Payee &amp; purpose</th>
+                        <th class="w-10 py-3 pr-0 pl-5">
+                            @if ($waiting->contains($this->canBulkApprove(...)))
+                                <input type="checkbox" class="fi-checkbox-input" aria-label="Select all under {{ $peso($this->bulkLimits['item']) }}" title="Select all under {{ $peso($this->bulkLimits['item']) }}, up to {{ $peso($this->bulkLimits['total']) }} per batch" x-bind:checked="selected.length && allSelected()" x-on:change="toggleAll()" />
+                            @endif
+                        </th>
+                        <th class="py-3 pr-3 pl-3 font-semibold">Payee &amp; purpose</th>
                         <th class="px-3 py-3 font-semibold">Requestor</th>
                         <th class="px-3 py-3 font-semibold">Due</th>
                         <th class="px-3 py-3 font-semibold">Your step</th>
@@ -326,11 +407,18 @@
                 </thead>
                 <tbody class="divide-y divide-slate-100/70">
                     @foreach ($waiting as $rfp)
-                        <tr @class([
+                        <tr wire:key="row-{{ $rfp['number'] }}" x-bind:class="selected.includes(@js($rfp['number'])) && 'bg-indigo-50/70'" @class([
                             'transition-colors hover:bg-white/60',
                             'bg-rose-50/30 shadow-[inset_4px_0_0_0_var(--color-rose-400)]' => $rfp['dueTone'] === 'rose',
                         ])>
-                            <td class="max-w-80 py-3.5 pr-3 pl-5">
+                            <td class="py-3.5 pr-0 pl-5">
+                                @if ($this->canBulkApprove($rfp))
+                                    <input type="checkbox" data-bulk value="{{ $rfp['number'] }}" x-model="selected" x-bind:disabled="blocked(@js($rfp['number']))" x-bind:title="blocked(@js($rfp['number'])) && 'Over the ' + peso(totalLimit) + ' bulk approval total'" aria-label="Select {{ $rfp['number'] }}" class="fi-checkbox-input disabled:opacity-40" />
+                                @else
+                                    <input type="checkbox" disabled aria-label="{{ $rfp['number'] }} is a high amount: approve it one by one" title="High amount: approve it one by one" class="fi-checkbox-input opacity-40" />
+                                @endif
+                            </td>
+                            <td class="max-w-80 py-3.5 pr-3 pl-3">
                                 <span class="flex items-center gap-3">
                                     <span class="flex size-9 shrink-0 items-center justify-center rounded-xl font-display text-xs font-bold {{ $avatarTones[$rfp['tone']] }}">{{ $initials($rfp['payee']) }}</span>
                                     <span class="min-w-0">
@@ -363,7 +451,15 @@
                                     @endforeach
                                 </span>
                             </td>
-                            <td class="px-3 py-3.5 text-right font-display text-sm font-bold whitespace-nowrap text-slate-900 tabular-nums">{{ $peso($rfp['amount']) }}</td>
+                            <td class="px-3 py-3.5 text-right whitespace-nowrap">
+                                <span class="block font-display text-sm font-bold text-slate-900 tabular-nums">{{ $peso($rfp['amount']) }}</span>
+                                @unless ($this->canBulkApprove($rfp))
+                                    <span class="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700" title="RFPs of {{ $peso($this->bulkLimits['item']) }} and above can't be mass approved">
+                                        <x-filament::icon :icon="Heroicon::OutlinedLockClosed" class="size-3" />
+                                        High amount
+                                    </span>
+                                @endunless
+                            </td>
                             <td class="py-3.5 pr-5 pl-3 whitespace-nowrap">
                                 <span class="flex items-center justify-end gap-1.5">
                                     <a href="{{ $detailUrl($rfp) }}" class="rounded-lg px-3 py-1.5 font-semibold text-slate-600 transition hover:bg-white hover:text-slate-900">Review</a>
@@ -382,6 +478,50 @@
                 </span>
             </div>
         </section>
+
+        {{-- Mass approval bar: above the floating nav on phones, along the bottom of the content on laptops --}}
+        <div
+            x-cloak
+            x-show="selected.length"
+            x-transition:enter="transition duration-200 ease-out"
+            x-transition:enter-start="translate-y-4 opacity-0"
+            x-transition:leave="transition duration-150 ease-in"
+            x-transition:leave-end="translate-y-4 opacity-0"
+            class="fixed inset-x-4 bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+4.5rem)] z-40 mx-auto max-w-xl lg:right-8 lg:bottom-6 lg:left-72 lg:max-w-[1056px]"
+        >
+            <div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-900/95 px-4 py-3 text-white shadow-2xl ring-1 ring-white/10 backdrop-blur-xl lg:px-5">
+                <div class="flex min-w-0 flex-col">
+                    <span class="text-[11px] font-medium text-slate-300" x-text="selected.length + (selected.length === 1 ? ' RFP selected' : ' RFPs selected')"></span>
+                    <span class="font-display text-lg leading-tight font-extrabold tabular-nums">
+                        <span x-text="peso(total)"></span>
+                        <span class="text-xs font-semibold text-slate-400" x-text="'of ' + peso(totalLimit)"></span>
+                    </span>
+                </div>
+
+                <div x-show="! confirming" class="flex items-center gap-2">
+                    <button type="button" x-on:click="selected = []" class="rounded-xl px-3 py-2 text-xs font-semibold text-slate-300 transition hover:text-white">Clear</button>
+                    <button type="button" x-on:click="confirming = true" class="flex items-center gap-1.5 rounded-xl bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-indigo-500/30 transition hover:bg-indigo-400 active:scale-95">
+                        <x-filament::icon :icon="Heroicon::Check" class="size-4" />
+                        <span x-text="'Approve ' + selected.length"></span>
+                    </button>
+                </div>
+
+                <div x-show="confirming" class="flex w-full flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-3 sm:w-auto sm:border-0 sm:pt-0">
+                    <span class="text-xs text-slate-300" x-text="'Approve ' + selected.length + ' for ' + peso(total) + '?'"></span>
+                    <span class="flex items-center gap-2">
+                        <button type="button" x-on:click="confirming = false" class="rounded-xl px-3 py-2 text-xs font-semibold text-slate-300 transition hover:text-white">Cancel</button>
+                        <button type="button" x-on:click="approve()" wire:loading.attr="disabled" wire:target="approveSelected" class="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-emerald-500/30 transition hover:bg-emerald-400 active:scale-95 disabled:opacity-60">Yes, approve</button>
+                    </span>
+                </div>
+
+                {{-- Safeguard: the batch total limit is (nearly) reached --}}
+                <p x-show="blockedCount" role="status" class="flex w-full items-start gap-2 rounded-xl bg-amber-400/15 px-3 py-2 text-xs leading-snug text-amber-100 ring-1 ring-amber-300/30">
+                    <x-filament::icon :icon="Heroicon::OutlinedExclamationTriangle" class="mt-px size-4 shrink-0 text-amber-300" />
+                    <span x-text="'Bulk approval is limited to a total of ' + peso(totalLimit) + '. ' + blockedCount + (blockedCount === 1 ? ' other request' : ' other requests') + ' can’t be added to this batch: approve ' + (blockedCount === 1 ? 'it' : 'them') + ' in another batch or one by one.'"></span>
+                </p>
+            </div>
+        </div>
+        </div>
     @else
         {{-- Phones and tablets: past decisions grouped by month --}}
         <section class="flex flex-col gap-5 lg:hidden">

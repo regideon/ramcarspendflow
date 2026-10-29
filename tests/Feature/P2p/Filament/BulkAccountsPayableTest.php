@@ -1,8 +1,10 @@
 <?php
 
 use App\Enums\P2pStatus;
+use App\Enums\RfpStatus;
 use App\Enums\RoleName;
 use App\Filament\Pages\P2p\BulkAccountsPayable;
+use App\Filament\Resources\P2p\Approvals\Pages\ListApprovals;
 use App\Models\Company;
 use App\Models\P2p\Escalation;
 use App\Models\P2p\EscalationReason;
@@ -11,6 +13,7 @@ use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
 use App\Models\P2p\SapGoodReceipt;
 use App\Models\P2p\SapGoodReceiptItem;
+use App\Models\Rfp\Rfp;
 use App\Models\TaxCode;
 use App\Models\User;
 use App\Models\Vendor;
@@ -359,4 +362,81 @@ it('opens the processor queue read-only for a supervisor', function () {
         ->all();
 
     expect($actions)->not->toContain('approve', 'returnToApProcessor');
+});
+
+/**
+ * @return array{0: Rfp, 1: Rfp, 2: Rfp}
+ */
+function vendorRfps(Invoice $invoice): array
+{
+    $paid = Rfp::factory()->create(['vendor_id' => $invoice->vendor_id, 'status' => RfpStatus::Completed, 'total_php_amount' => '300.00']);
+    $inProgress = Rfp::factory()->create(['vendor_id' => $invoice->vendor_id, 'status' => RfpStatus::ForApproval]);
+    $otherVendor = Rfp::factory()->create(['status' => RfpStatus::Completed]);
+
+    return [$paid, $inProgress, $otherVendor];
+}
+
+it('links only paid RFPs of the same vendor to the invoice', function () {
+    [$processor, $invoice] = apPageContext();
+    [$paid, $inProgress, $otherVendor] = vendorRfps($invoice);
+
+    $invoice->syncLinkedRfps([$paid->id, $inProgress->id, $otherVendor->id], $processor);
+
+    expect($invoice->linkedRfps()->pluck('rfps.id')->all())->toBe([$paid->id])
+        ->and($invoice->linkedRfps()->first()->pivot->linked_by_id)->toBe($processor->id);
+});
+
+it('lets the AP Processor link RFPs from the page, for reference only', function () {
+    [$processor, $invoice] = apPageContext();
+    [$paid, , $otherVendor] = vendorRfps($invoice);
+    $amountBefore = $invoice->amount_submitted;
+    $this->actingAs($processor);
+
+    $component = Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
+        ->assertSee('RFP Down Payments')
+        ->assertFormFieldExists('linked_rfp_ids', fn ($field): bool => array_keys($field->getOptions()) === [$paid->id])
+        ->set('data.linked_rfp_ids', [(string) $paid->id])
+        ->assertNotified('Linked RFPs saved')
+        ->assertSee($paid->rfp_number);
+
+    expect($invoice->fresh()->linkedRfps->pluck('id')->all())->toBe([$paid->id])
+        ->and($invoice->fresh()->amount_submitted)->toBe($amountBefore);
+});
+
+it('shows linked RFPs read-only outside the AP Processor queue', function () {
+    [, $invoice] = apPageContext(P2pStatus::SubmittedToChecker);
+    [$paid] = vendorRfps($invoice);
+    $invoice->linkedRfps()->attach($paid->id);
+    $supervisor = User::factory()->create()->assignRole(RoleName::ApSupervisor);
+    $this->actingAs($supervisor);
+
+    Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
+        ->assertSee('RFP Down Payments')
+        ->assertSee($paid->rfp_number)
+        ->assertFormFieldHidden('linked_rfp_ids');
+});
+
+it('lists the linked RFP down payments on the Approvals queue', function () {
+    [$processor, $invoice] = apPageContext();
+    [$paid] = vendorRfps($invoice);
+    $invoice->linkedRfps()->attach($paid->id);
+    $this->actingAs($processor);
+
+    Livewire::test(ListApprovals::class)
+        ->assertTableColumnStateSet('rfp_down_payment', [$paid->rfp_number], $invoice);
+});
+
+it('lets a user who also holds AP Supervisor link RFPs while the invoice is with the AP Processor', function () {
+    [, $invoice] = apPageContext();
+    [$paid] = vendorRfps($invoice);
+    $multiRole = User::factory()->create();
+    $multiRole->assignRole([RoleName::Admin, RoleName::ApProcessor, RoleName::ApSupervisor]);
+    $this->actingAs($multiRole);
+
+    Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
+        ->assertFormFieldVisible('linked_rfp_ids')
+        ->set('data.linked_rfp_ids', [(string) $paid->id])
+        ->assertNotified('Linked RFPs saved');
+
+    expect($invoice->fresh()->linkedRfps->pluck('id')->all())->toBe([$paid->id]);
 });

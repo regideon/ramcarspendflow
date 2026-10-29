@@ -41,17 +41,17 @@
                     <x-filament::icon :icon="Heroicon::OutlinedBuildingLibrary" class="size-5" />
                 </span>
                 <span class="flex flex-col">
-                    <span class="font-display text-lg leading-none font-bold tracking-tight text-slate-900">SpendFlow</span>
+                    <span class="font-display text-lg leading-none font-bold tracking-tight text-slate-900">Ramcar AP</span>
                     <span class="mt-1 text-[11px] font-medium tracking-wider text-slate-500 uppercase">Request for Payment</span>
                 </span>
             </a>
 
-            <a href="{{ CreateRfp::getUrl() }}" @if ($onCreate) aria-current="page" @endif @class(['flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_4px_14px_rgba(79,70,229,0.25)] transition hover:bg-indigo-500', 'ring-4 ring-indigo-500/20' => $onCreate])>
+            <a href="{{ CreateRfp::getUrl() }}" data-guide="new-rfp" @if ($onCreate) aria-current="page" @endif @class(['flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_4px_14px_rgba(79,70,229,0.25)] transition hover:bg-indigo-500', 'ring-4 ring-indigo-500/20' => $onCreate])>
                 <x-filament::icon :icon="Heroicon::Plus" class="size-4" />
                 New RFP
             </a>
 
-            <nav class="flex flex-col gap-1">
+            <nav data-guide="navigation" class="flex flex-col gap-1">
                 @foreach ($navigation as $item)
                     <a
                         href="{{ $item['url'] }}"
@@ -108,12 +108,13 @@
         array_splice($mobileNav, intdiv(count($mobileNav), 2), 0, [['create' => true]]);
     @endphp
     <div class="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex px-4 pe-[5.25rem] pb-[max(1.5rem,env(safe-area-inset-bottom))] lg:hidden">
-        <nav class="pointer-events-auto flex h-14 flex-1 items-center justify-between rounded-full border border-white/10 bg-slate-900/90 px-2 shadow-2xl backdrop-blur-2xl">
+        <nav data-guide="navigation" class="pointer-events-auto flex h-14 flex-1 items-center justify-between rounded-full border border-white/10 bg-slate-900/90 px-2 shadow-2xl backdrop-blur-2xl">
             @foreach ($mobileNav as $item)
                 @if ($item['create'] ?? false)
                     <a
                         href="{{ CreateRfp::getUrl() }}"
                         aria-label="New RFP"
+                        data-guide="new-rfp"
                         class="-mt-7 flex size-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-slate-700 to-slate-950 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_12px_24px_-6px_rgba(15,23,42,0.6)] ring-[5px] ring-[#f5f6fb] transition active:scale-95"
                     >
                         <x-filament::icon :icon="Heroicon::Plus" class="size-7" />
