@@ -45,22 +45,35 @@ it('returns 404 for an unknown RFP', function () {
         ->assertNotFound();
 });
 
-it('approves without remarks', function () {
-    Livewire::test(RfpDetail::class, ['number' => 'RFP-2026-001482'])
-        ->call('decide', 'approve')
+it('approves without remarks and shows where the RFP goes next', function () {
+    Livewire::test(RfpDetail::class, ['number' => 'RFP-2026-001490'])
+        ->assertDontSee('RFP approved')
+        ->call('submitDecision', 'approve')
         ->assertHasNoErrors()
         ->assertReturned(true)
-        ->assertNotified('Approved');
+        ->assertSee('RFP approved')
+        ->assertSee("It's now with the BU Head. We'll let Juan know.")
+        ->assertSee('Step 3 of 4 signed')
+        ->assertSee('Review next · Meralco')
+        ->assertSee('Preview only. Nothing was saved yet.');
+});
+
+it('shows a returned screen with the remarks', function () {
+    Livewire::test(RfpDetail::class, ['number' => 'RFP-2026-001490'])
+        ->call('submitDecision', 'return', 'Please attach the hotel receipts.')
+        ->assertSee('Returned to Juan')
+        ->assertSee('Please attach the hotel receipts.')
+        ->assertDontSee('signed');
 });
 
 it('needs remarks to return or reject', function (string $decision) {
     Livewire::test(RfpDetail::class, ['number' => 'RFP-2026-001482'])
-        ->call('decide', $decision, '')
+        ->call('submitDecision', $decision, '')
         ->assertHasErrors(['remarks' => 'required_unless']);
 })->with(['return', 'reject']);
 
 it('does not let the requestor decide on their own RFP', function () {
     Livewire::test(RfpDetail::class, ['number' => 'RFP-2026-001399'])
-        ->call('decide', 'approve')
+        ->call('submitDecision', 'approve')
         ->assertForbidden();
 });

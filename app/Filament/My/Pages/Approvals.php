@@ -2,6 +2,7 @@
 
 namespace App\Filament\My\Pages;
 
+use App\Enums\RfpRequestType;
 use App\Enums\RfpStatus;
 use App\Filament\My\Support\SampleRfps;
 use Filament\Pages\Page;
@@ -31,8 +32,29 @@ class Approvals extends Page
     #[Url]
     public string $sort = 'due';
 
+    /** Reviewed by Me filter: all, approved, returned or rejected. */
+    #[Url]
+    public string $decision = 'all';
+
     #[Url(as: 'q')]
     public string $search = '';
+
+    /**
+     * Filter sheet: due (For Approval), decided (Reviewed by Me), request types,
+     * requestor departments and an amount range.
+     *
+     * @var array{due: string, decided: string, type: list<string>, department: list<string>, min: string, max: string}
+     */
+    #[Url]
+    public array $filters = self::NO_FILTERS;
+
+    public const array NO_FILTERS = ['due' => '', 'decided' => '', 'type' => [], 'department' => [], 'min' => '', 'max' => ''];
+
+    /** @var array<string, string> */
+    public const array DUE_FILTERS = ['overdue' => 'Overdue', 'today' => 'Due today', 'week' => 'Due this week'];
+
+    /** @var array<string, string> */
+    public const array DECIDED_FILTERS = ['month' => 'This month', 'quarter' => 'Last 3 months'];
 
     public static function canAccess(): bool
     {
@@ -45,8 +67,8 @@ class Approvals extends Page
     public function tabs(): array
     {
         return [
-            'waiting' => 'Waiting for me',
-            'done' => 'Done by me',
+            'waiting' => 'For Approval',
+            'done' => 'Reviewed by Me',
         ];
     }
 
@@ -65,6 +87,69 @@ class Approvals extends Page
     public function setTab(string $tab): void
     {
         $this->tab = array_key_exists($tab, $this->tabs()) ? $tab : 'waiting';
+    }
+
+    /**
+     * Reviewed by Me filter chips: key => label, with how many match the search.
+     *
+     * @return array<string, array{label: string, count: int}>
+     */
+    public function decisionFilters(): array
+    {
+        $decided = SampleRfps::decidedByMe()->filter($this->matchesSearch(...))->filter($this->matchesFilters(...));
+
+        return collect(['all' => 'All', 'approved' => 'Approved', 'returned' => 'Returned', 'rejected' => 'Rejected'])
+            ->map(fn (string $label, string $key): array => [
+                'label' => $label,
+                'count' => $key === 'all' ? $decided->count() : $decided->where('decision', $key)->count(),
+            ])
+            ->all();
+    }
+
+    public function setDecision(string $decision): void
+    {
+        $this->decision = array_key_exists($decision, $this->decisionFilters()) ? $decision : 'all';
+    }
+
+    /**
+     * Departments of the requestors in the current tab, for the filter sheet.
+     *
+     * @return list<string>
+     */
+    public function departments(): array
+    {
+        $rows = $this->tab === 'done' ? SampleRfps::decidedByMe() : SampleRfps::awaitingMyApproval();
+
+        return $rows->pluck('department')->filter()->unique()->sort()->values()->all();
+    }
+
+    /**
+     * How many filters are set in the current tab, for the badge on the Filters button.
+     */
+    public function activeFilterCount(): int
+    {
+        $filters = [...self::NO_FILTERS, ...$this->filters];
+
+        return collect([
+            $this->tab === 'waiting' && filled($filters['due']),
+            $this->tab === 'done' && filled($filters['decided']),
+            filled($filters['type']),
+            filled($filters['department']),
+            filled($filters['min']) || filled($filters['max']),
+        ])->filter()->count();
+    }
+
+    /**
+     * Rows in the current tab after search and filters.
+     */
+    public function resultCount(): int
+    {
+        return $this->tab === 'done' ? $this->decided()->flatten(1)->count() : $this->waiting()->count();
+    }
+
+    public function resetFilters(): void
+    {
+        $this->filters = self::NO_FILTERS;
     }
 
     public function setSort(string $sort): void
@@ -93,7 +178,7 @@ class Approvals extends Page
      */
     public function waiting(): Collection
     {
-        $waiting = SampleRfps::awaitingMyApproval()->filter($this->matchesSearch(...));
+        $waiting = SampleRfps::awaitingMyApproval()->filter($this->matchesSearch(...))->filter($this->matchesFilters(...));
 
         $sorted = match ($this->sort) {
             'amount' => $waiting->sortByDesc('amount'),
@@ -113,6 +198,8 @@ class Approvals extends Page
     {
         return SampleRfps::decidedByMe()
             ->filter($this->matchesSearch(...))
+            ->filter($this->matchesFilters(...))
+            ->filter(fn (array $rfp): bool => $this->decision === 'all' || $rfp['decision'] === $this->decision)
             ->sortByDesc('decidedAt')
             ->groupBy(fn (array $rfp): string => $rfp['decidedAt']->format('F Y'));
     }
@@ -134,6 +221,35 @@ class Approvals extends Page
             MyRequests::stageOf($status) > 0 => 'Now in '.MyRequests::STAGES[MyRequests::stageOf($status) - 1],
             default => $status->getLabel(),
         };
+    }
+
+    /**
+     * @param  array<string, mixed>  $rfp
+     */
+    protected function matchesFilters(array $rfp): bool
+    {
+        $filters = [...self::NO_FILTERS, ...$this->filters];
+        $min = blank($filters['min']) ? null : CreateRfp::toAmount($filters['min']);
+        $max = blank($filters['max']) ? null : CreateRfp::toAmount($filters['max']);
+
+        /** @var RfpRequestType $type */
+        $type = $rfp['type'];
+
+        return match ($this->tab === 'waiting' ? $filters['due'] : null) {
+            'overdue' => $rfp['dueDate']->lt(today()),
+            'today' => $rfp['dueDate']->isToday(),
+            'week' => $rfp['dueDate']->lte(today()->endOfWeek()),
+            default => true,
+        }
+        && match ($this->tab === 'done' ? $filters['decided'] : null) {
+            'month' => $rfp['decidedAt']->isSameMonth(now()),
+            'quarter' => $rfp['decidedAt']->gte(now()->subMonths(3)->startOfDay()),
+            default => true,
+        }
+        && (blank($filters['type']) || in_array($type->value, $filters['type'], true))
+        && (blank($filters['department']) || in_array($rfp['department'], $filters['department'], true))
+        && ($min === null || $rfp['amount'] >= $min)
+        && ($max === null || $rfp['amount'] <= $max);
     }
 
     /**

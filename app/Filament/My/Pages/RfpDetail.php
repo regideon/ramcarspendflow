@@ -4,7 +4,6 @@ namespace App\Filament\My\Pages;
 
 use App\Enums\RfpStatus;
 use App\Filament\My\Support\SampleRfps;
-use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Validator;
@@ -41,6 +40,14 @@ class RfpDetail extends Page
      */
     #[Url]
     public ?string $decide = null;
+
+    /**
+     * The decision just made, for the success screen: decision (approve, return, reject),
+     * remarks and when.
+     *
+     * @var array{decision: string, remarks: ?string, at: string}|null
+     */
+    public ?array $outcome = null;
 
     public function mount(string $number): void
     {
@@ -232,7 +239,7 @@ class RfpDetail extends Page
     /**
      * Record the approver's decision. Preview only: nothing is saved yet.
      */
-    public function decide(string $decision, ?string $remarks = null): bool
+    public function submitDecision(string $decision, ?string $remarks = null): bool
     {
         abort_unless($this->isApproverView(), 403);
 
@@ -245,16 +252,33 @@ class RfpDetail extends Page
             ['remarks.required_unless' => 'Tell the requestor why.'],
         )->validate();
 
-        Notification::make()
-            ->title(match ($decision) {
-                'approve' => 'Approved',
-                'return' => 'Returned to the requestor',
-                'reject' => 'Rejected',
-            })
-            ->body('Preview only. Nothing was saved.')
-            ->success()
-            ->send();
+        $this->outcome = ['decision' => $decision, 'remarks' => filled($remarks) ? $remarks : null, 'at' => now()->format('M j, g:i A')];
 
         return true;
+    }
+
+    /**
+     * Where the RFP goes after the approver's decision, for the success screen.
+     *
+     * @return array{step: int, steps: int, next: ?string, nextApproval: ?array<string, mixed>}
+     */
+    public function afterDecision(): array
+    {
+        $rfp = $this->rfp();
+        $step = (int) $rfp['myStep'];
+
+        return [
+            'step' => $step,
+            'steps' => $rfp['approvers'],
+            'next' => match ($this->outcome['decision'] ?? null) {
+                'approve' => self::MATRIX_ROLES[$step] ?? 'AP Processing',
+                'return' => $this->requestorName(),
+                default => null,
+            },
+            'nextApproval' => SampleRfps::awaitingMyApproval()
+                ->reject(fn (array $other): bool => $other['number'] === $this->number)
+                ->sortBy('dueDate')
+                ->first(),
+        ];
     }
 }

@@ -2,6 +2,8 @@
     use App\Enums\RfpRequestType;
     use App\Enums\RfpStatus;
     use App\Filament\My\Pages\Approvals;
+    use App\Filament\My\Pages\Dashboard;
+    use App\Filament\My\Pages\RfpDetail;
     use App\Filament\My\Pages\MyRequests;
     use Filament\Support\Icons\Heroicon;
 
@@ -341,16 +343,16 @@
         {{-- Phones: decision bar above the floating nav (clear of its raised New RFP button) --}}
         <div class="h-20 lg:hidden"></div>
         <div class="fixed inset-x-0 bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+6rem)] z-40 px-4 lg:hidden">
-            <div class="mx-auto flex max-w-xl items-center gap-2 rounded-2xl border border-white bg-white/85 p-2.5 shadow-[0_20px_48px_-8px_rgba(15,23,42,0.25)] backdrop-blur-2xl">
-                <button type="button" x-on:click="sheet = 'return'" class="flex items-center gap-1 rounded-xl bg-orange-500/10 px-3 py-2.5 text-xs font-semibold text-orange-700 active:scale-95">
-                    <x-filament::icon :icon="Heroicon::ArrowUturnLeft" class="size-4" />
+            <div class="mx-auto flex max-w-xl items-center gap-2 rounded-2xl bg-gradient-to-br from-slate-950 via-indigo-950 to-indigo-800 p-2.5 shadow-[0_24px_56px_-10px_rgba(30,27,75,0.65),0_8px_20px_-8px_rgba(15,23,42,0.45)] ring-1 ring-white/15">
+                <button type="button" x-on:click="sheet = 'return'" class="flex items-center gap-1 rounded-xl bg-gradient-to-b from-orange-400 to-orange-500 px-3 py-2.5 text-xs font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_8px_18px_-6px_rgba(249,115,22,0.7)] active:scale-95">
+                    <x-filament::icon :icon="Heroicon::ArrowUturnLeft" class="size-4 text-white" />
                     Return
                 </button>
-                <button type="button" x-on:click="sheet = 'reject'" class="flex items-center gap-1 rounded-xl bg-rose-500/10 px-3 py-2.5 text-xs font-semibold text-rose-700 active:scale-95">
-                    <x-filament::icon :icon="Heroicon::XMark" class="size-4" />
+                <button type="button" x-on:click="sheet = 'reject'" class="flex items-center gap-1 rounded-xl bg-gradient-to-b from-rose-500 to-rose-600 px-3 py-2.5 text-xs font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3),0_8px_18px_-6px_rgba(225,29,72,0.7)] active:scale-95">
+                    <x-filament::icon :icon="Heroicon::XMark" class="size-4 text-white" />
                     Reject
                 </button>
-                <button type="button" x-on:click="sheet = 'approve'" class="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-gradient-to-b from-emerald-500 to-emerald-600 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_8px_20px_-6px_rgba(5,150,105,0.55)] px-4 py-2.5 text-xs font-semibold active:scale-95">
+                <button type="button" x-on:click="sheet = 'approve'" class="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-gradient-to-b from-emerald-400 to-emerald-600 px-4 py-2.5 text-xs font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_10px_24px_-6px_rgba(16,185,129,0.75)] active:scale-95">
                     <x-filament::icon :icon="Heroicon::CheckBadge" class="size-4 text-white" />
                     Approve
                 </button>
@@ -403,7 +405,7 @@
                     <button type="button" x-on:click="sheet = null" class="px-2 py-3 text-xs font-semibold text-slate-500 hover:text-slate-800">Cancel</button>
                     <button
                         type="button"
-                        x-on:click="$wire.decide(sheet, remarks).then((done) => { if (done) { sheet = null; remarks = '' } })"
+                        x-on:click="$wire.submitDecision(sheet, remarks).then((done) => { if (done) { sheet = null; remarks = '' } })"
                         wire:loading.attr="disabled"
                         x-bind:class="{ 'bg-gradient-to-b from-emerald-500 to-emerald-600 shadow-emerald-600/30': sheet === 'approve', 'bg-orange-600': sheet === 'return', 'bg-rose-600': sheet === 'reject' }"
                         class="flex-1 rounded-2xl px-4 py-3.5 font-display text-sm font-bold text-white shadow-lg transition active:scale-95 disabled:opacity-60"
@@ -412,6 +414,129 @@
                         <span x-show="sheet === 'return'">Return for revision</span>
                         <span x-show="sheet === 'reject'">Reject request</span>
                     </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- After a decision: full screen on phones, a dialog on laptops --}}
+    @if ($outcome)
+        @php
+            $after = $this->afterDecision();
+            $firstName = str($requestor)->before(' ');
+
+            [$heading, $lead, $icon, $ring, $badge, $pill] = match ($outcome['decision']) {
+                'approve' => [
+                    'RFP approved',
+                    $after['step'] < $after['steps'] ? "It's now with the {$after['next']}. We'll let {$firstName} know." : "All approvers signed. It moves on to AP Processing. We'll let {$firstName} know.",
+                    Heroicon::Check, 'bg-emerald-200/50', 'bg-emerald-600 shadow-[0_12px_28px_rgba(5,150,105,0.35)]', 'bg-emerald-50 text-emerald-700 ring-emerald-200/70',
+                ],
+                'return' => [
+                    'Returned to '.$firstName,
+                    "{$firstName} can fix it and send it back. It will come back to you after AP Review.",
+                    Heroicon::ArrowUturnLeft, 'bg-orange-200/50', 'bg-orange-500 shadow-[0_12px_28px_rgba(249,115,22,0.35)]', 'bg-orange-50 text-orange-700 ring-orange-200/70',
+                ],
+                default => [
+                    'RFP rejected',
+                    "This request is closed. {$firstName} will see your reason.",
+                    Heroicon::XMark, 'bg-rose-200/50', 'bg-rose-600 shadow-[0_12px_28px_rgba(225,29,72,0.35)]', 'bg-rose-50 text-rose-700 ring-rose-200/70',
+                ],
+            };
+
+            $decisionLabel = ['approve' => 'Approved', 'return' => 'Returned', 'reject' => 'Rejected'][$outcome['decision']];
+            $nextApproval = $after['nextApproval'];
+        @endphp
+
+        <div class="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-[#f5f6fb] p-4 lg:bg-slate-900/25 lg:pl-64 lg:backdrop-blur-sm">
+            <div class="my-aurora lg:hidden" aria-hidden="true">
+                <span class="top-6 left-1/2 size-72 -translate-x-1/2 bg-[#A7F3D0] opacity-40"></span>
+                <span class="top-1/3 -right-16 size-64 bg-[#C4B5FD] opacity-40"></span>
+                <span class="bottom-10 -left-16 size-64 bg-[#BAE6FD] opacity-40"></span>
+            </div>
+
+            <div class="relative flex w-full max-w-md flex-col gap-3">
+                <div class="my-glass flex flex-col items-center rounded-[28px] p-6 text-center shadow-xl shadow-indigo-900/5 lg:bg-white/95 lg:p-8">
+                    <div class="relative flex size-28 items-center justify-center">
+                        <span class="absolute inset-0 animate-pulse rounded-full {{ $ring }}"></span>
+                        <span class="absolute inset-3 rounded-full bg-white/80 shadow-sm backdrop-blur-md"></span>
+                        <span class="relative flex size-14 items-center justify-center rounded-full text-white {{ $badge }}">
+                            <x-filament::icon :icon="$icon" class="size-7" />
+                        </span>
+                    </div>
+
+                    <h2 class="mt-4 font-display text-2xl font-extrabold tracking-tight text-slate-900">{{ $heading }}</h2>
+                    <p class="mt-2 inline-flex items-center gap-2 rounded-full bg-white/80 px-3.5 py-1.5 shadow-sm ring-1 ring-slate-200/60">
+                        <span class="font-mono text-xs font-medium text-slate-600">{{ $rfp['number'] }}</span>
+                        <span class="size-1 rounded-full bg-slate-300"></span>
+                        <span class="font-display text-sm font-bold text-indigo-700 tabular-nums">{{ $peso($totals['gross']) }}</span>
+                    </p>
+                    <p class="mt-3 max-w-[300px] text-sm leading-relaxed text-slate-500">{{ $lead }}</p>
+
+                    {{-- Where it goes from here --}}
+                    <div class="mt-5 w-full rounded-2xl bg-slate-50/80 p-4 text-left ring-1 ring-slate-200/50">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                                <x-filament::icon :icon="Heroicon::OutlinedCheckBadge" class="size-4.5 text-indigo-600" />
+                                Approval
+                            </span>
+                            <span class="rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 {{ $pill }}">{{ $decisionLabel }} by you</span>
+                        </div>
+
+                        @if ($outcome['decision'] === 'approve')
+                            <div class="mt-3 flex gap-1">
+                                @foreach (range(1, $after['steps']) as $bar)
+                                    <span @class(['h-1.5 flex-1 rounded-full', 'bg-emerald-500' => $bar <= $after['step'], 'bg-slate-200' => $bar > $after['step']])></span>
+                                @endforeach
+                            </div>
+                            <p class="mt-1.5 text-[11px] text-slate-500">Step {{ $after['step'] }} of {{ $after['steps'] }} signed</p>
+                        @endif
+
+                        <dl class="mt-3 flex flex-col gap-2 border-t border-slate-200/70 pt-3 text-xs">
+                            <div class="flex items-center justify-between gap-3">
+                                <dt class="text-slate-500">Your decision</dt>
+                                <dd class="font-medium text-slate-900">{{ $decisionLabel }} · {{ $outcome['at'] }}</dd>
+                            </div>
+                            @if ($after['next'])
+                                <div class="flex items-center justify-between gap-3">
+                                    <dt class="text-slate-500">{{ $outcome['decision'] === 'return' ? 'Back with' : 'Next' }}</dt>
+                                    <dd class="flex items-center gap-1.5 font-semibold text-slate-900">
+                                        <span class="size-1.5 rounded-full bg-indigo-500"></span>
+                                        {{ $after['next'] }}
+                                    </dd>
+                                </div>
+                            @endif
+                            @unless ($outcome['decision'] === 'return')
+                                <div class="flex items-center justify-between gap-3">
+                                    <dt class="text-slate-500">Requestor</dt>
+                                    <dd class="font-medium text-slate-900">{{ $requestor }}</dd>
+                                </div>
+                            @endunless
+                            @if ($outcome['remarks'])
+                                <div class="flex flex-col gap-1">
+                                    <dt class="text-slate-500">Your remarks</dt>
+                                    <dd class="rounded-xl bg-white/80 px-3 py-2 text-slate-700 italic ring-1 ring-slate-200/60">“{{ $outcome['remarks'] }}”</dd>
+                                </div>
+                            @endif
+                        </dl>
+                    </div>
+
+                    <p class="mt-4 rounded-full bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-700">Preview only. Nothing was saved yet.</p>
+                </div>
+
+                <div class="flex flex-col gap-1">
+                    @if ($nextApproval)
+                        <a href="{{ RfpDetail::getUrl(['number' => $nextApproval['number']]) }}" class="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 py-3.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/20 transition hover:bg-slate-800 active:scale-[0.99]">
+                            Review next · {{ $nextApproval['payee'] }}
+                            <x-filament::icon :icon="Heroicon::ArrowRight" class="size-4" />
+                        </a>
+                        <a href="{{ Approvals::getUrl() }}" class="py-2.5 text-center text-sm font-semibold text-slate-500 hover:text-slate-800">Back to approvals</a>
+                    @else
+                        <a href="{{ Approvals::getUrl() }}" class="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 py-3.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/20 transition hover:bg-slate-800 active:scale-[0.99]">
+                            Back to approvals
+                            <x-filament::icon :icon="Heroicon::ArrowRight" class="size-4" />
+                        </a>
+                        <a href="{{ Dashboard::getUrl() }}" class="py-2.5 text-center text-sm font-semibold text-slate-500 hover:text-slate-800">Back to home</a>
+                    @endif
                 </div>
             </div>
         </div>

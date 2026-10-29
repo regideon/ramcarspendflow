@@ -34,25 +34,29 @@
     ];
 
     $isEmpty = $tab === 'waiting' ? $waiting->isEmpty() : $decided->isEmpty();
+    $activeFilters = $this->activeFilterCount();
 @endphp
 
-<div x-data="{ searchOpen: @js(filled($search)) }" class="flex flex-col gap-4 lg:gap-6">
+<div x-data="{ filtersOpen: false }" x-on:keydown.escape.window="filtersOpen = false" class="flex flex-col gap-4 lg:gap-6">
     {{-- Mobile header --}}
     <header class="flex items-start justify-between gap-3 lg:hidden">
         <div class="min-w-0">
             <h1 class="font-display text-2xl font-extrabold tracking-tight text-slate-900">Approvals</h1>
             <p class="mt-0.5 truncate text-xs text-slate-500">{{ $summary['count'] }} waiting for you · {{ $peso($summary['amount']) }} total</p>
         </div>
-        <button type="button" x-on:click="searchOpen = ! searchOpen; $nextTick(() => searchOpen && $refs.search.focus())" aria-label="Search approvals" class="my-glass flex size-10 shrink-0 items-center justify-center rounded-full text-slate-700 transition active:scale-95">
-            <x-filament::icon :icon="Heroicon::MagnifyingGlass" class="size-5" />
+        <button type="button" x-on:click="filtersOpen = true" aria-label="Filters" class="my-glass relative flex size-10 shrink-0 items-center justify-center rounded-full text-slate-700 transition active:scale-95">
+            <x-filament::icon :icon="Heroicon::OutlinedFunnel" class="size-5" />
+            @if ($activeFilters)
+                <span class="absolute -top-1 -right-1 flex size-4.5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white ring-2 ring-[#f5f6fb]">{{ $activeFilters }}</span>
+            @endif
         </button>
     </header>
 
     {{-- Mobile search --}}
-    <label x-cloak x-show="searchOpen" x-transition class="relative lg:hidden">
+    <label class="relative lg:hidden">
         <span class="sr-only">Search</span>
         <x-filament::icon :icon="Heroicon::MagnifyingGlass" class="pointer-events-none absolute top-1/2 left-3.5 z-10 size-4 -translate-y-1/2 text-slate-400" />
-        <input x-ref="search" type="search" wire:model.live.debounce.300ms="search" placeholder="Search payee, purpose, requestor or RFP #" class="w-full rounded-2xl border border-white/90 bg-white/60 py-3 pr-4 pl-10 text-sm text-slate-800 shadow-sm backdrop-blur-lg placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-3 focus:ring-indigo-500/15 focus:outline-none" />
+        <input type="search" wire:model.live.debounce.300ms="search" placeholder="Search payee, purpose, requestor or RFP #" class="w-full rounded-2xl border border-white/90 bg-white/60 py-3 pr-4 pl-10 text-sm text-slate-800 shadow-sm backdrop-blur-lg placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-3 focus:ring-indigo-500/15 focus:outline-none" />
     </label>
 
     {{-- Laptop header --}}
@@ -67,6 +71,14 @@
                 <x-filament::icon :icon="Heroicon::MagnifyingGlass" class="pointer-events-none absolute top-1/2 left-3.5 z-10 size-4 -translate-y-1/2 text-slate-400" />
                 <input type="search" wire:model.live.debounce.300ms="search" placeholder="Search payee, purpose or RFP #" class="w-full rounded-xl border border-white/90 bg-white/60 py-2.5 pr-4 pl-10 text-xs text-slate-800 shadow-sm backdrop-blur-lg placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-3 focus:ring-indigo-500/15 focus:outline-none" />
             </label>
+
+            <button type="button" x-on:click="filtersOpen = true" class="my-glass relative flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-white/80">
+                <x-filament::icon :icon="Heroicon::OutlinedFunnel" class="size-4 text-slate-500" />
+                Filters
+            @if ($activeFilters)
+                <span class="absolute -top-1 -right-1 flex size-4.5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white ring-2 ring-[#f5f6fb]">{{ $activeFilters }}</span>
+            @endif
+            </button>
 
             @if ($tab === 'waiting')
                 <label class="relative">
@@ -161,6 +173,29 @@
         </div>
     @endif
 
+    {{-- Reviewed by Me: filter by decision --}}
+    @if ($tab === 'done')
+        <div class="-mx-4 flex items-center gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0">
+            @foreach ($this->decisionFilters() as $key => $filter)
+                <button
+                    type="button"
+                    wire:click="setDecision('{{ $key }}')"
+                    @class([
+                        'flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs transition',
+                        'bg-slate-900 font-semibold text-white shadow-sm' => $decision === $key,
+                        'border border-white/90 bg-white/70 font-medium text-slate-600 backdrop-blur-lg hover:text-slate-900' => $decision !== $key,
+                    ])
+                >
+                    @if ($key !== 'all')
+                        <span @class(['size-1.5 rounded-full', 'bg-emerald-500' => $key === 'approved', 'bg-orange-500' => $key === 'returned', 'bg-rose-500' => $key === 'rejected'])></span>
+                    @endif
+                    {{ $filter['label'] }}
+                    <span @class(['tabular-nums', 'text-white/70' => $decision === $key, 'text-slate-400' => $decision !== $key])>{{ $filter['count'] }}</span>
+                </button>
+            @endforeach
+        </div>
+    @endif
+
     @if ($isEmpty)
         {{-- Empty state --}}
         <section class="flex justify-center py-4">
@@ -171,13 +206,15 @@
                     <span class="absolute inset-0 animate-pulse rounded-full bg-emerald-200/40"></span>
                     <span class="absolute inset-2.5 rounded-full bg-white/80 shadow-[0_4px_20px_rgba(5,150,105,0.1)] backdrop-blur-md"></span>
                     <span class="relative flex size-14 items-center justify-center rounded-full bg-gradient-to-tr from-emerald-600 via-indigo-600 to-violet-500 text-white shadow-[0_8px_16px_rgba(79,70,229,0.25)]">
-                        <x-filament::icon :icon="filled($search) ? Heroicon::MagnifyingGlass : Heroicon::Check" class="size-7" />
+                        <x-filament::icon :icon="filled($search) || $activeFilters ? Heroicon::MagnifyingGlass : Heroicon::Check" class="size-7" />
                     </span>
                 </div>
 
                 <h2 class="relative font-display text-xl font-bold tracking-tight text-slate-900">
-                    @if (filled($search))
+                    @if (filled($search) || $activeFilters)
                         No matches
+                    @elseif ($tab === 'done' && $decision !== 'all')
+                        Nothing {{ str($decision)->lower() }} yet
                     @elseif ($tab === 'waiting')
                         You're all caught up
                     @else
@@ -187,6 +224,10 @@
                 <p class="relative mt-2 max-w-[260px] text-sm leading-relaxed text-slate-500">
                     @if (filled($search))
                         Nothing here matches “{{ $search }}”.
+                    @elseif ($activeFilters)
+                        Nothing here matches your filters.
+                    @elseif ($tab === 'done' && $decision !== 'all')
+                        RFPs you mark {{ str($decision)->lower() }} will show up here.
                     @elseif ($tab === 'waiting')
                         New requests that need your sign-off will show up here.
                     @else
@@ -194,8 +235,12 @@
                     @endif
                 </p>
 
-                @if (filled($search))
+                @if ($activeFilters && blank($search))
+                    <button type="button" wire:click="resetFilters" class="relative mt-7 rounded-full bg-white/80 px-5 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-white active:scale-95">Clear filters</button>
+                @elseif (filled($search))
                     <button type="button" wire:click="$set('search', '')" class="relative mt-7 rounded-full bg-white/80 px-5 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-white active:scale-95">Clear search</button>
+                @elseif ($tab === 'done' && $decision !== 'all')
+                    <button type="button" wire:click="setDecision('all')" class="relative mt-7 rounded-full bg-white/80 px-5 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-white active:scale-95">Show all</button>
                 @elseif ($tab === 'waiting')
                     <button type="button" wire:click="setTab('done')" class="relative mt-7 flex items-center gap-2 rounded-full bg-white/80 px-5 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-white active:scale-95">
                         View past decisions
@@ -442,4 +487,124 @@
             </table>
         </section>
     @endif
+
+    {{-- Filters for approvers: a bottom sheet on phones, a right-side drawer on laptops --}}
+    <div x-cloak x-show="filtersOpen" class="fixed inset-0 z-50">
+        <div x-show="filtersOpen" x-transition.opacity x-on:click="filtersOpen = false" class="absolute inset-0 bg-slate-900/25 backdrop-blur-[2px]"></div>
+
+        <div
+            x-show="filtersOpen"
+            x-transition:enter="transition duration-200 ease-out"
+            x-transition:enter-start="translate-y-full lg:translate-x-full lg:translate-y-0"
+            x-transition:enter-end="translate-x-0 translate-y-0"
+            x-transition:leave="transition duration-150 ease-in"
+            x-transition:leave-start="translate-x-0 translate-y-0"
+            x-transition:leave-end="translate-y-full lg:translate-x-full lg:translate-y-0"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="approval-filters-title"
+            class="absolute inset-x-0 bottom-0 mx-auto flex max-h-[92vh] max-w-xl flex-col overflow-y-auto rounded-t-[32px] border-t border-white bg-white/90 p-6 pt-3 shadow-[0_-10px_40px_-10px_rgba(15,23,42,0.15)] backdrop-blur-2xl lg:inset-y-0 lg:right-0 lg:left-auto lg:max-h-none lg:w-[400px] lg:rounded-none lg:rounded-l-[28px] lg:border-t-0 lg:border-l lg:pt-6"
+        >
+            <span class="mx-auto my-1 h-1.5 w-12 shrink-0 rounded-full bg-slate-300 lg:hidden"></span>
+
+            <div class="mt-2 mb-5 flex items-center justify-between lg:mt-0">
+                <div>
+                    <h2 id="approval-filters-title" class="font-display text-lg font-bold text-slate-900">Filter approvals</h2>
+                    <p class="text-xs text-slate-500">{{ $tab === 'done' ? 'Narrow down what you reviewed' : 'Find what to approve first' }}</p>
+                </div>
+                <button type="button" x-on:click="filtersOpen = false" aria-label="Close filters" class="flex size-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200">
+                    <x-filament::icon :icon="Heroicon::XMark" class="size-4" />
+                </button>
+            </div>
+
+            <div class="flex flex-col gap-5 text-xs">
+                @if ($tab === 'waiting')
+                    <fieldset>
+                        <legend class="mb-2 font-semibold text-slate-700">Due</legend>
+                        <div class="flex flex-wrap gap-2">
+                            <label class="cursor-pointer rounded-full border border-slate-200 bg-white/80 px-3.5 py-1.5 text-center font-medium text-slate-700 transition has-checked:border-slate-900 has-checked:bg-slate-900 has-checked:text-white">
+                                <input type="radio" wire:model.live="filters.due" value="" class="sr-only" />
+                                Any
+                            </label>
+                            @foreach (Approvals::DUE_FILTERS as $key => $label)
+                                <label @class([
+                                    'cursor-pointer rounded-full border bg-white/80 px-3.5 py-1.5 text-center font-medium transition has-checked:ring-2',
+                                    'border-rose-200 text-rose-700 has-checked:bg-rose-50 has-checked:ring-rose-400' => $key === 'overdue',
+                                    'border-amber-200 text-amber-800 has-checked:bg-amber-50 has-checked:ring-amber-400' => $key === 'today',
+                                    'border-slate-200 text-slate-700 has-checked:bg-slate-50 has-checked:ring-slate-400' => $key === 'week',
+                                ])>
+                                    <input type="radio" wire:model.live="filters.due" value="{{ $key }}" class="sr-only" />
+                                    {{ $label }}
+                                </label>
+                            @endforeach
+                        </div>
+                    </fieldset>
+                @else
+                    <fieldset>
+                        <legend class="mb-2 font-semibold text-slate-700">Date you decided</legend>
+                        <div class="grid grid-cols-3 gap-2">
+                            <label class="cursor-pointer rounded-xl border border-slate-200 bg-white/80 py-2 text-center font-medium text-slate-700 transition has-checked:border-slate-900 has-checked:bg-slate-900 has-checked:text-white">
+                                <input type="radio" wire:model.live="filters.decided" value="" class="sr-only" />
+                                Any time
+                            </label>
+                            @foreach (Approvals::DECIDED_FILTERS as $key => $label)
+                                <label class="cursor-pointer rounded-xl border border-slate-200 bg-white/80 py-2 text-center font-medium text-slate-700 transition has-checked:border-slate-900 has-checked:bg-slate-900 has-checked:text-white">
+                                    <input type="radio" wire:model.live="filters.decided" value="{{ $key }}" class="sr-only" />
+                                    {{ $label }}
+                                </label>
+                            @endforeach
+                        </div>
+                    </fieldset>
+                @endif
+
+                <fieldset>
+                    <legend class="mb-2 font-semibold text-slate-700">Request type</legend>
+                    <div class="flex flex-wrap gap-2">
+                        @foreach (RfpRequestType::cases() as $type)
+                            <label class="cursor-pointer rounded-full border border-slate-200 bg-white/80 px-3.5 py-1.5 font-medium text-slate-700 transition has-checked:border-slate-900 has-checked:bg-slate-900 has-checked:text-white">
+                                <input type="checkbox" wire:model.live="filters.type" value="{{ $type->value }}" class="sr-only" />
+                                {{ $type->getLabel() }}
+                            </label>
+                        @endforeach
+                    </div>
+                </fieldset>
+
+                @if ($departments = $this->departments())
+                    <fieldset>
+                        <legend class="mb-2 font-semibold text-slate-700">Requestor’s department</legend>
+                        <div class="flex flex-wrap gap-2">
+                            @foreach ($departments as $department)
+                                <label class="cursor-pointer rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 font-medium text-slate-700 transition has-checked:border-slate-900 has-checked:bg-slate-900 has-checked:text-white">
+                                    <input type="checkbox" wire:model.live="filters.department" value="{{ $department }}" class="sr-only" />
+                                    {{ $department }}
+                                </label>
+                            @endforeach
+                        </div>
+                    </fieldset>
+                @endif
+
+                <fieldset>
+                    <legend class="mb-2 font-semibold text-slate-700">Amount range (PHP)</legend>
+                    <div class="grid grid-cols-2 gap-2">
+                        @foreach (['min' => 'Min', 'max' => 'Max'] as $key => $bound)
+                            <label class="relative">
+                                <span class="sr-only">{{ $bound }}</span>
+                                <span class="absolute top-1/2 left-3 -translate-y-1/2 font-mono text-slate-400">₱</span>
+                                <input type="text" inputmode="decimal" wire:model.live.debounce.500ms="filters.{{ $key }}" placeholder="{{ $bound }}" class="w-full rounded-xl border border-slate-200/70 bg-white/70 py-2 pr-3 pl-7 font-mono text-xs text-slate-800 focus:border-indigo-500 focus:bg-white focus:ring-3 focus:ring-indigo-500/15 focus:outline-none" />
+                            </label>
+                        @endforeach
+                    </div>
+                </fieldset>
+            </div>
+
+            <div class="mt-6 flex items-center justify-between gap-3 border-t border-slate-200/70 pt-4 lg:mt-auto lg:pt-5">
+                <button type="button" wire:click="resetFilters" class="px-2 py-3 text-xs font-semibold text-slate-500 hover:text-slate-800">Reset</button>
+                <button type="button" x-on:click="filtersOpen = false" class="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-slate-900 px-4 py-3.5 font-display text-xs font-bold text-white shadow-lg transition active:scale-95">
+                    @php($results = $this->resultCount())
+                    Show {{ $results }} {{ $results === 1 ? 'result' : 'results' }}
+                    <x-filament::icon :icon="Heroicon::ArrowRight" class="size-4" />
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
