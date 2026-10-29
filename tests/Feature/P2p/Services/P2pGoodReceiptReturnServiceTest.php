@@ -9,8 +9,10 @@ use App\Models\P2p\SapGoodReceiptItem;
 use App\Models\P2p\SapPurchaseOrder;
 use App\Models\User;
 use App\Services\P2p\P2pGoodReceiptReturnService;
+use App\Services\P2p\P2pGoodReceiptReversalService;
 use App\Services\P2p\P2pGoodReceiptSubmissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 pest()->use(RefreshDatabase::class);
@@ -46,7 +48,11 @@ function returnContext(): array
         ['p2p_sap_good_receipt_item_id' => $item->id, 'quantity_billed' => 10],
     ], $user);
 
-    return compact('invoice', 'state', 'po', 'user');
+    $splitState = GoodReceiptState::query()
+        ->where('good_receipt_number', $invoice->gr_numbers[0])
+        ->sole();
+
+    return compact('invoice', 'state', 'splitState', 'po', 'user');
 }
 
 it('returns an invoice to the vendor and reopens the GR', function () {
@@ -55,7 +61,8 @@ it('returns an invoice to the vendor and reopens the GR', function () {
     $invoice = app(P2pGoodReceiptReturnService::class)->returnToVendor($c['invoice'], $c['user'], 'Wrong UoM');
 
     expect($invoice->status)->toBe(P2pStatus::ReturnedToVendor)
-        ->and($c['state']->fresh()->status)->toBe(P2pStatus::ReturnedToVendor)
+        ->and($c['splitState']->fresh()->status)->toBe(P2pStatus::ReturnedToVendor)
+        ->and($c['state']->fresh()->status)->toBe(P2pStatus::Pending)
         ->and($c['po']->fresh()->status_id)->toBe(P2pPurchaseOrderStatus::PartiallySubmitted)
         ->and($invoice->histories()->first()->is_visible_to_vendor)->toBeTrue();
 });
@@ -76,7 +83,27 @@ it('cancels a returned request and makes the GR billable again', function () {
 
     expect($invoice->status)->toBe(P2pStatus::Cancelled)
         ->and($c['state']->fresh()->status)->toBe(P2pStatus::Pending)
+        ->and($c['splitState']->fresh()->status)->toBe(P2pStatus::Cancelled)
+        ->and($c['splitState']->fresh()->merged_at)->not->toBeNull()
         ->and($c['po']->fresh()->status_id)->toBe(P2pPurchaseOrderStatus::Pending);
+});
+
+it('does not merge a cancelled split when its base GR was reversed', function () {
+    Mail::fake();
+
+    $c = returnContext();
+    $service = app(P2pGoodReceiptReturnService::class);
+
+    $service->returnToVendor($c['invoice'], $c['user'], 'Please fix');
+    app(P2pGoodReceiptReversalService::class)->apply($c['state'], '4900000003');
+
+    $invoice = $service->cancel($c['invoice']->fresh(), $c['user'], 'No longer needed');
+    $splitItem = $invoice->lines()->first()->sapItem;
+
+    expect($invoice->status)->toBe(P2pStatus::Cancelled)
+        ->and($c['state']->fresh()->status)->toBe(P2pStatus::Reversed)
+        ->and($splitItem->fresh()->merged_at)->toBeNull()
+        ->and($splitItem->fresh()->p2p_sap_good_receipt_id)->toBe($c['splitState']->p2p_sap_good_receipt_id);
 });
 
 it('only cancels an invoice that is returned to the vendor', function () {

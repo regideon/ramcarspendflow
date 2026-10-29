@@ -6,6 +6,7 @@ use App\Filament\Resources\P2p\Approvals\ApprovalResource;
 use App\Filament\Resources\P2p\Approvals\Pages\ListApprovals;
 use App\Models\Company;
 use App\Models\P2p\Invoice;
+use App\Models\Rfp\Rfp;
 use App\Models\User;
 use App\Models\Vendor;
 use Database\Seeders\RoleAndUserSeeder;
@@ -150,6 +151,19 @@ it('hides the navigation badge when the queue is empty', function () {
     apInvoice(P2pStatus::InvoiceParked);
 
     expect(ApprovalResource::getNavigationBadge())->toBeNull();
+});
+
+it('shows the linked RFP number on approvals and a dash when unlinked', function () {
+    $this->actingAs(User::factory()->create()->assignRole(RoleName::ApProcessor));
+
+    $rfp = Rfp::factory()->create();
+    $linked = apInvoice(P2pStatus::SubmittedToAp);
+    $linked->forceFill(['rfp_id' => $rfp->id])->save();
+    $unlinked = apInvoice(P2pStatus::SubmittedToAp);
+
+    Livewire::test(ListApprovals::class)
+        ->assertTableColumnStateSet('rfp.rfp_number', $rfp->rfp_number, $linked)
+        ->assertTableColumnStateSet('rfp.rfp_number', null, $unlinked);
 });
 
 it('opens the AP processing screen for a queued submission', function () {

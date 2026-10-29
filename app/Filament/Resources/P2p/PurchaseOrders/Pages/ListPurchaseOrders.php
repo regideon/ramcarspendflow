@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\P2p\PurchaseOrders\Pages;
 
+use App\Enums\RoleName;
 use App\Filament\Resources\P2p\PurchaseOrders\Actions\SyncFromSapAction;
 use App\Filament\Resources\P2p\PurchaseOrders\PurchaseOrderResource;
 use App\Filament\Resources\P2p\PurchaseOrders\Tables\PurchaseOrdersTable;
@@ -24,12 +25,16 @@ class ListPurchaseOrders extends ListRecords
     public function getTabs(): array
     {
         $user = auth()->user();
-        $vendorCode = $user->vendor->code ?? null;
+        $vendorCodes = $user !== null
+            && $user->hasRole(RoleName::Vendor)
+            && ! $user->hasRole(RoleName::Admin)
+                ? $user->vendorCodes()
+                : [];
 
         // ->toBase() skips Eloquent model hydration for a massive speed boost
         $counts = SapPurchaseOrder::query()
             ->whereNotNull('gr_numbers')
-            ->when($vendorCode, fn (Builder $q) => $q->where('vendor_code', $vendorCode))
+            ->when($vendorCodes !== [], fn (Builder $q) => $q->whereIn('vendor_code', $vendorCodes))
             // ->when(ActiveCompany::code(), fn (Builder $q, string $code) => $q->where('company_code', $code)) // TODO: Service provider for active company code
             // Match the table's company scoping so the tab badges agree with the rows.
             // ->when( // TODO: ONSELECT OF COMPANY CODES, THIS IS THE PLACE TO FILTER

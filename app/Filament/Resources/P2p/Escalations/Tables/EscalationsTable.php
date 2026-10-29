@@ -2,10 +2,12 @@
 
 namespace App\Filament\Resources\P2p\Escalations\Tables;
 
+use App\Enums\RoleName;
 use App\Filament\Actions\OpenCommentsAction;
 use App\Filament\Pages\P2p\BulkGoodsReceipt;
 use App\Models\P2p\Escalation;
 use App\Models\P2p\Invoice;
+use App\Services\P2p\Escalation\HasStepActionForm;
 use App\Services\P2p\P2pEscalationRoutingService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Textarea;
@@ -105,32 +107,49 @@ class EscalationsTable
             ->recordActions([
                 OpenCommentsAction::make(fn (Escalation $record): ?Invoice => $record->invoice),
 
-                self::hopAction(),
+                // self::hopAction(),
 
-                Action::make('resolve')
-                    ->label('Resolve')
-                    ->icon(Heroicon::OutlinedCheckCircle)
-                    ->color('success')
-                    ->visible(fn (Escalation $record): bool => $record->currentStepAction() === null)
+                // Action::make('resolve')
+                //     ->label('Resolve')
+                //     ->icon(Heroicon::OutlinedCheckCircle)
+                //     ->color('success')
+                //     ->visible(fn (Escalation $record): bool => $record->status === Escalation::STATUS_OPEN
+                //         && $record->currentStepAction() === null)
+                //     ->schema([
+                //         Textarea::make('remarks')->required()->columnSpanFull(),
+                //     ])
+                //     ->action(function (Escalation $record, array $data): void {
+                //         app(P2pEscalationRoutingService::class)->resolve($record, auth()->user(), $data['remarks']);
+
+                //         Notification::make()->title('Escalation resolved')->success()->send();
+                //     }),
+
+                Action::make('reEscalate')
+                    ->label('Re-escalate')
+                    ->icon(Heroicon::OutlinedArrowPathRoundedSquare)
+                    ->color('warning')
+                    ->visible(fn (Escalation $record): bool => $record->status === Escalation::STATUS_RESOLVED
+                        && $record->previousStep() !== null
+                        && self::canReEscalate($record))
                     ->schema([
                         Textarea::make('remarks')->required()->columnSpanFull(),
                     ])
                     ->action(function (Escalation $record, array $data): void {
-                        app(P2pEscalationRoutingService::class)->resolve($record, auth()->user(), $data['remarks']);
+                        app(P2pEscalationRoutingService::class)->reEscalate($record, auth()->user(), $data['remarks']);
 
-                        Notification::make()->title('Escalation resolved')->success()->send();
+                        Notification::make()->title('Escalation re-opened')->success()->send();
                     }),
 
-                Action::make('history')
-                    ->label('History')
-                    ->icon(Heroicon::OutlinedClock)
-                    ->color('gray')
-                    ->modalHeading('Approval history')
-                    ->modalSubmitAction(false)
-                    ->modalCancelActionLabel('Close')
-                    ->modalContent(fn (Escalation $record): View => view('filament.components.approval-history-timeline', [
-                        'record' => $record->invoice,
-                    ])),
+                // Action::make('history')
+                //     ->label('History')
+                //     ->icon(Heroicon::OutlinedClock)
+                //     ->color('gray')
+                //     ->modalHeading('Approval history')
+                //     ->modalSubmitAction(false)
+                //     ->modalCancelActionLabel('Close')
+                //     ->modalContent(fn (Escalation $record): View => view('filament.components.approval-history-timeline', [
+                //         'record' => $record->invoice,
+                //     ])),
 
                 // Mirrors the Invoices list: open the request in the bulk
                 // goods-receipt screen, read-only, with the hop's Advance / Return
@@ -146,6 +165,28 @@ class EscalationsTable
             ->recordActionsPosition(RecordActionsPosition::BeforeColumns)
             ->recordUrl(fn (Escalation $record): ?string => self::viewUrl($record))
             ->striped();
+    }
+
+    /**
+     * The terminal/current team or the originator can ask the previous hop for
+     * feedback. Admins can re-open any resolved escalation.
+     */
+    protected static function canReEscalate(Escalation $record): bool
+    {
+        $user = auth()->user();
+
+        if ($user === null) {
+            return false;
+        }
+
+        if ($user->hasRole(RoleName::Admin)) {
+            return true;
+        }
+
+        $role = Escalation::appRoleFor($record->current_role)
+            ?? Escalation::appRoleFor($record->origin_role);
+
+        return $role !== null && $user->hasRole($role);
     }
 
     /**
@@ -167,22 +208,38 @@ class EscalationsTable
     protected static function hopAction(): Action
     {
         return Action::make('advance')
-            ->label(fn (Escalation $record): string => $record->currentStepAction() !== null
-                ? ($record->currentActionLabel() ?? $record->currentStepAction()->label ?? 'Advance')
-                : 'Advance')
+            ->label(fn (Escalation $record): string => $record->currentStepAction() instanceof HasStepActionForm
+                ? $record->currentStepAction()->label($record)
+                : ($record->currentActionLabel() ?? 'Advance'))
             ->icon(fn (Escalation $record): string|\BackedEnum => $record->currentStepAction() !== null
                 ? Heroicon::OutlinedArrowUturnLeft
                 : Heroicon::OutlinedArrowRightCircle)
             ->color(fn (Escalation $record): string => $record->currentStepAction() !== null ? 'danger' : 'warning')
-            ->visible(fn (Escalation $record): bool => $record->current_role !== 'origin')
-            ->modalHeading(fn (Escalation $record): string => $record->currentActionLabel() ?? 'Advance escalation')
-            ->schema([
-                Textarea::make('remarks')
-                    ->required()
-                    ->columnSpanFull(),
-            ])
+            ->visible(fn (Escalation $record): bool => $record->status === Escalation::STATUS_OPEN
+                && $record->current_role !== 'origin')
+            ->modalHeading(fn (Escalation $record): string => $record->currentStepAction() instanceof HasStepActionForm
+                ? $record->currentStepAction()->modalHeading($record)
+                : ($record->currentActionLabel() ?? 'Advance escalation'))
+            ->modalDescription(fn (Escalation $record): ?string => $record->currentStepAction() instanceof HasStepActionForm
+                ? $record->currentStepAction()->modalDescription($record)
+                : null)
+            ->modalSubmitActionLabel(fn (Escalation $record): string => $record->currentStepAction() instanceof HasStepActionForm
+                ? $record->currentStepAction()->submitLabel($record)
+                : 'Advance')
+            ->schema(fn (Escalation $record): array => $record->currentStepAction() instanceof HasStepActionForm
+                ? $record->currentStepAction()->schema($record)
+                : [
+                    Textarea::make('remarks')
+                        ->required()
+                        ->columnSpanFull(),
+                ])
             ->action(function (Escalation $record, array $data): void {
-                app(P2pEscalationRoutingService::class)->advance($record, auth()->user(), $data['remarks']);
+                app(P2pEscalationRoutingService::class)->advance(
+                    $record,
+                    auth()->user(),
+                    $data['remarks'] ?? null,
+                    $data,
+                );
 
                 Notification::make()->title('Escalation advanced')->success()->send();
             });

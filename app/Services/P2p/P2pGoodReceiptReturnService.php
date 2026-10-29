@@ -26,6 +26,7 @@ class P2pGoodReceiptReturnService
     public function __construct(
         private readonly P2pGoodReceiptStatusService $goodReceiptStatus,
         private readonly P2pPurchaseOrderStatusService $purchaseOrderStatus,
+        private readonly P2pGoodReceiptSubmissionService $submissions,
     ) {}
 
     public function returnToVendor(Invoice $invoice, User $by, string $remarks): Invoice
@@ -48,6 +49,10 @@ class P2pGoodReceiptReturnService
         }
 
         $invoice = $this->transition($invoice, P2pStatus::Cancelled, $by, $remarks, 'Request cancelled by vendor.', true);
+
+        // Cancellation (unlike a return/reject/reversal) puts the split items back
+        // on their base GR so they can be processed again.
+        $this->submissions->mergeCancelledSplits($invoice);
 
         if ($invoice->vendor?->email !== null) {
             Mail::to($invoice->vendor->email)->queue(new GoodReceiptCancelledMail($invoice));

@@ -21,6 +21,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 #[Fillable([
     'p2p_sap_good_receipt_id', 'purchase_order', 'good_receipt_number', 'company_id', 'vendor_id',
     'status', 'quantity_total', 'quantity_served', 'amount_total', 'is_fully_processed',
+    'merged_at', 'merged_into_good_receipt_number',
     'reversed_at', 'reversal_document', 'replacement_gr_number',
 ])]
 class GoodReceiptState extends Model
@@ -68,6 +69,37 @@ class GoodReceiptState extends Model
     }
 
     /**
+     * Hide GRs whose SAP receipt has no remaining items. Legacy/projection-only
+     * states without a mirror receipt stay visible so older data and tests are not
+     * hidden.
+     */
+    #[Scope]
+    protected function withBillableItems(Builder $query): void
+    {
+        $query->where(function (Builder $query): void {
+            $query->whereNull('p2p_sap_good_receipt_id')
+                ->orWhereHas('sapGoodReceipt.items', function (Builder $items): void {
+                    $items->whereNull('merged_at')->where('quantity_served', '>', 0);
+                });
+        });
+    }
+
+    /**
+     * Whether this GR still owns items that can be processed.
+     */
+    public function hasBillableItems(): bool
+    {
+        if ($this->p2p_sap_good_receipt_id === null) {
+            return true;
+        }
+
+        return $this->sapGoodReceipt?->items()
+            ->whereNull('merged_at')
+            ->where('quantity_served', '>', 0)
+            ->exists() ?? false;
+    }
+
+    /**
      * @return array<string, string>
      */
     protected function casts(): array
@@ -78,6 +110,7 @@ class GoodReceiptState extends Model
             'quantity_served' => 'integer',
             'amount_total' => 'decimal:2',
             'is_fully_processed' => 'boolean',
+            'merged_at' => 'datetime',
             'reversed_at' => 'datetime',
         ];
     }

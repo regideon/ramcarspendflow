@@ -51,7 +51,7 @@ class PurchaseOrderResource extends Resource
         $user = auth()->user();
 
         if ($user !== null && $user->hasRole(RoleName::Vendor) && ! $user->hasRole(RoleName::Admin)) {
-            $query->where('vendor_code', $user->vendor?->code);
+            $query->whereIn('vendor_code', $user->vendorCodes());
         }
 
         return $query;

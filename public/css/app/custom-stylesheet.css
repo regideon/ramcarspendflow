@@ -1,6 +1,24 @@
 @import url('https://fonts.bunny.net/css?family=manrope:600,700,800&display=swap');
 
 /* ---------------------------------------------------------
+   Local PHP Debugbar vs Filament modals
+   The debugbar is fixed at z-index 100000000, so when it overlaps a modal
+   footer it intercepts clicks on action buttons such as "Submit anyway".
+   Keep it below modals, and hide it entirely while a modal is open.
+--------------------------------------------------------- */
+.phpdebugbar {
+    z-index: 40 !important;
+}
+
+body:has(.fi-modal-open) .phpdebugbar {
+    display: none !important;
+}
+
+/* ---------------------------------------------------------
+   SPEND FLOW BLUE — enterprise navy + blue (DigitalOcean-like)
+   Brand blue is Filament's primary palette (HubPanelProvider::BRAND_BLUE,
+   primary-600 = #0069FF), so these rules use the CSS variables and follow
+   dark mode on their own.
    SPEND FLOW INDIGO: the look of the My panel (/my), applied to the Hub.
    Indigo brand (Filament primary = Color::Indigo in HubPanelProvider), slate
    greys, a soft "aurora" canvas, frosted-glass cards and a deep ink top bar.
@@ -440,10 +458,17 @@ button.fi-icon-btn.fi-size-md.fi-topbar-open-sidebar-btn {
 }
 
 .p2p-bulk-goods-receipt .fi-fo-repeater-item .fi-fo-table-repeater {
-    /* Filament's table repeater scrolls (overflow: auto), which clips the
-       rounded ring/shadow of the <table> inside it. Let it show — the table is
-       w-full and stacks on narrow screens, so there is nothing to scroll. */
-    overflow: visible;
+    /* Keep the wide item table inside its card: scroll it horizontally instead
+       of letting it push the whole page wider. The 3-way breakdown modal is
+       teleported to <body>, so it is not clipped by this container. */
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+    min-width: 0;
+    /* Establish a containing block so the wide table's min-content width does
+       not propagate to <html> and widen the whole page. */
+    position: relative;
+    overscroll-behavior-x: contain;
     /* A little breathing room so the ring/shadow is not flush against the card. */
     padding-block: 4px;
 }

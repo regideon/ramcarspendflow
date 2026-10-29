@@ -33,6 +33,20 @@ class User extends Authenticatable implements FilamentUser
         'is_active' => true,
     ];
 
+    /**
+     * Memoised vendor assignments for the current request. Filament evaluates
+     * the resource query several times per page (table, tabs, badges), and each
+     * `vendorIds()` call used to re-query the pivot, producing an N+1.
+     *
+     * @var array<int, int>|null
+     */
+    protected ?array $memoisedVendorIds = null;
+
+    /**
+     * @var array<int, string>|null
+     */
+    protected ?array $memoisedVendorCodes = null;
+
     public function canAccessPanel(Panel $panel): bool
     {
         return $this->is_active;
@@ -150,6 +164,95 @@ class User extends Authenticatable implements FilamentUser
     public function vendor(): BelongsTo
     {
         return $this->belongsTo(Vendor::class);
+    }
+
+    /**
+     * The SAP vendor codes this login may transact for. A supplier may be
+     * registered under several codes (e.g. a local supplier and a service
+     * provider record for the same legal entity).
+     *
+     * @return BelongsToMany<Vendor, $this>
+     */
+    public function vendors(): BelongsToMany
+    {
+        return $this->belongsToMany(Vendor::class, 'vendor_user')->withTimestamps();
+    }
+
+    /**
+     * Vendor ids for scoping, preferring the pivot and falling back to the
+     * legacy `users.vendor_id` for rows that predate the pivot.
+     *
+     * @return array<int, int>
+     */
+    public function vendorIds(): array
+    {
+        if ($this->memoisedVendorIds !== null) {
+            return $this->memoisedVendorIds;
+        }
+
+        $ids = $this->relationLoaded('vendors')
+            ? $this->vendors->modelKeys()
+            : $this->vendors()->pluck('vendors.id')->all();
+
+        if ($ids === [] && $this->vendor_id !== null) {
+            return $this->memoisedVendorIds = [(int) $this->vendor_id];
+        }
+
+        return $this->memoisedVendorIds = array_values(array_unique(array_map('intval', $ids)));
+    }
+
+    /**
+     * Vendor codes (the SAP LIFNR values) for the PO/GR `vendor_code` columns.
+     *
+     * @return array<int, string>
+     */
+    public function vendorCodes(): array
+    {
+        if ($this->memoisedVendorCodes !== null) {
+            return $this->memoisedVendorCodes;
+        }
+
+        $codes = $this->relationLoaded('vendors')
+            ? $this->vendors->pluck('code')
+            : $this->vendors()->pluck('vendors.code');
+
+        if ($codes->isEmpty() && $this->vendor_id !== null) {
+            $code = Vendor::query()->whereKey($this->vendor_id)->value('code');
+
+            return $this->memoisedVendorCodes = filled($code) ? [$code] : [];
+        }
+
+        return $this->memoisedVendorCodes = $codes->filter()->unique()->values()->all();
+    }
+
+    /**
+     * Keep the legacy single `vendor_id` in the pivot when rows are created or
+     * updated outside the Filament form (factories, seeders, tests).
+     */
+    protected static function booted(): void
+    {
+        static::created(function (User $user): void {
+            $user->syncLegacyVendor();
+        });
+
+        static::updated(function (User $user): void {
+            if ($user->wasChanged('vendor_id')) {
+                $user->syncLegacyVendor();
+            }
+        });
+    }
+
+    public function syncLegacyVendor(): void
+    {
+        if ($this->vendor_id === null) {
+            return;
+        }
+
+        if (! Vendor::query()->whereKey($this->vendor_id)->exists()) {
+            return;
+        }
+
+        $this->vendors()->syncWithoutDetaching([$this->vendor_id]);
     }
 
     /**

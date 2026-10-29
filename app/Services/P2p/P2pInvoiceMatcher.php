@@ -6,6 +6,7 @@ use App\Enums\P2pStatus;
 use App\Enums\P2pThreeWayMatchStatus;
 use App\Models\P2p\Invoice;
 use App\Models\P2p\SapGoodReceiptItem;
+use App\Support\GoodReceiptNumber;
 use Illuminate\Support\Collection;
 
 /**
@@ -234,9 +235,12 @@ class P2pInvoiceMatcher
     {
         $score = 0;
 
-        $grNumbers = array_map($this->digits(...), array_filter([$line['gr_number'] ?? null, ...($invoice['gr_numbers'] ?? [])]));
+        $grNumbers = array_map(
+            fn (mixed $number): string => $this->digits(GoodReceiptNumber::base(is_scalar($number) ? (string) $number : null)),
+            array_filter([$line['gr_number'] ?? null, ...($invoice['gr_numbers'] ?? [])]),
+        );
 
-        if (in_array($this->digits($item->goodReceipt?->good_receipt_number), $grNumbers, true)) {
+        if (in_array($this->digits(GoodReceiptNumber::base($item->goodReceipt?->good_receipt_number)), $grNumbers, true)) {
             $score += 2;
         }
 
@@ -262,7 +266,10 @@ class P2pInvoiceMatcher
             $score += 2;
         }
 
-        $score += min(3, count(array_intersect($this->words($line['description'] ?? ''), $this->words($item->item_name.' '.$item->item?->name))));
+        $score += min(3, count(array_intersect(
+            $this->words($line['description'] ?? ''),
+            $this->words($item->item_name.' '.$item->item_description.' '.$item->item?->name),
+        )));
 
         return $score;
     }

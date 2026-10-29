@@ -62,6 +62,7 @@ class P2pPurchaseOrderStatusService
     public function derive(SapPurchaseOrder $purchaseOrder): P2pPurchaseOrderStatus
     {
         $states = GoodReceiptState::query()
+            ->withBillableItems()
             ->where('purchase_order', $purchaseOrder->purchase_order)
             ->get();
 

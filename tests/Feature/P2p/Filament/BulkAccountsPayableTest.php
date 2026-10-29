@@ -11,6 +11,7 @@ use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
 use App\Models\P2p\SapGoodReceipt;
 use App\Models\P2p\SapGoodReceiptItem;
+use App\Models\Rfp\Rfp;
 use App\Models\TaxCode;
 use App\Models\User;
 use App\Models\Vendor;
@@ -125,7 +126,7 @@ it('moves the submission to the checker once a tax code is set', function () {
         ->and((float) $invoice->total)->toBeGreaterThan(0);
 });
 
-it('escalates only the ticked goods receipts', function () {
+it('escalates only the ticked goods receipts when lines are ticked', function () {
     [$processor, $invoice, $state] = apPageContext();
     $this->actingAs($processor);
 
@@ -142,14 +143,6 @@ it('escalates only the ticked goods receipts', function () {
 
     $component = Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id]);
 
-    // Nothing ticked: the escalation must be refused.
-    $component->callAction('escalate', [
-        'escalationReason' => 'qty_issue',
-        'escalationRemarks' => 'Numbers do not agree.',
-    ]);
-
-    expect($invoice->fresh()->escalations()->count())->toBe(0);
-
     // Tick the line, then escalate.
     $goodsReceipts = $component->get('data.goods_receipts');
     $goodsReceipts[0]['goodReceiptItems'][0]['escalate'] = true;
@@ -161,6 +154,81 @@ it('escalates only the ticked goods receipts', function () {
     ]);
 
     expect($invoice->fresh()->escalations()->count())->toBe(1)
+        ->and($state->fresh()->status)->toBe(P2pStatus::EscalateToProcurement);
+});
+
+it('escalates the whole request when no line is ticked', function () {
+    [$processor, $invoice, $state] = apPageContext();
+    $this->actingAs($processor);
+
+    EscalationReason::create([
+        'code' => 'qty_issue',
+        'name' => 'Quantity Issue',
+        'origin_role' => 'processor',
+        'is_active' => true,
+    ])->steps()->create([
+        'step_order' => 1,
+        'role' => 'procurement',
+        'status_id' => P2pStatus::EscalateToProcurement->value,
+    ]);
+
+    // The per-line Report column is gone; escalating without a tick now covers
+    // every goods receipt on the request.
+    Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
+        ->callAction('escalate', [
+            'escalationReason' => 'qty_issue',
+            'escalationRemarks' => 'The whole request needs review.',
+        ]);
+
+    expect($invoice->fresh()->escalations()->count())->toBe(1)
+        ->and($state->fresh()->status)->toBe(P2pStatus::EscalateToProcurement);
+});
+
+it('escalates the goods receipt state when its id differs from the SAP receipt id', function () {
+    [$processor, $invoice, $state] = apPageContext();
+    $this->actingAs($processor);
+
+    // The page used to send the SAP receipt id: give the line a receipt whose id is
+    // not the GR state's id, which is what real SAP data looks like.
+    $receipt = SapGoodReceipt::factory()->create([
+        'purchase_order' => '4500006000',
+        'good_receipt_number' => '5000006000',
+    ]);
+    $item = SapGoodReceiptItem::factory()->for($receipt, 'goodReceipt')->create([
+        'purchase_order' => '4500006000',
+        'purchase_order_item' => '00010',
+        'quantity_po' => 10,
+        'quantity_served' => 10,
+        'unit_cost' => 100,
+    ]);
+    $invoice->lines()->update(['p2p_sap_good_receipt_item_id' => $item->id]);
+
+    EscalationReason::create([
+        'code' => 'price_difference',
+        'name' => 'Price difference',
+        'origin_role' => 'processor',
+        'is_active' => true,
+    ])->steps()->create([
+        'step_order' => 1,
+        'role' => 'procurement',
+        'status_id' => P2pStatus::EscalateToProcurement->value,
+    ]);
+
+    $component = Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id]);
+
+    expect($receipt->id)->not->toBe($state->id)
+        ->and($component->get('data.goods_receipts.0.p2p_good_receipt_state_id'))->toBe($state->id);
+
+    $goodsReceipts = $component->get('data.goods_receipts');
+    $goodsReceipts[0]['goodReceiptItems'][0]['escalate'] = true;
+    $component->set('data.goods_receipts', $goodsReceipts);
+
+    $component->callAction('escalate', [
+        'escalationReason' => 'price_difference',
+        'escalationRemarks' => 'Price is higher than the PO.',
+    ]);
+
+    expect($invoice->fresh()->escalations()->sole()->p2p_good_receipt_state_id)->toBe($state->id)
         ->and($state->fresh()->status)->toBe(P2pStatus::EscalateToProcurement);
 });
 
@@ -359,4 +427,37 @@ it('opens the processor queue read-only for a supervisor', function () {
         ->all();
 
     expect($actions)->not->toContain('approve', 'returnToApProcessor');
+});
+
+it('links the submission to an RFP when it is submitted', function () {
+    [$processor, $invoice] = apPageContext();
+    $this->actingAs($processor);
+
+    TaxCode::factory()->create(['code' => 'I2', 'description' => 'Input VAT 12%', 'rate' => 12]);
+    $rfp = Rfp::factory()->create();
+
+    Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
+        ->set('data.tax_code', 'I2')
+        ->set('data.rfp_id', $rfp->id)
+        ->call('submit');
+
+    expect($invoice->fresh()->rfp_id)->toBe($rfp->id);
+});
+
+it('warns but still links an RFP already used by another request', function () {
+    [$processor, $invoice] = apPageContext();
+    $this->actingAs($processor);
+
+    TaxCode::factory()->create(['code' => 'I2', 'description' => 'Input VAT 12%', 'rate' => 12]);
+
+    $rfp = Rfp::factory()->create();
+    $alreadyLinked = Invoice::factory()->create(['rfp_id' => $rfp->id]);
+
+    Livewire::test(BulkAccountsPayable::class, ['invoice' => $invoice->id])
+        ->set('data.rfp_id', $rfp->id)
+        ->assertSee('already linked to '.$alreadyLinked->p2p_number)
+        ->set('data.tax_code', 'I2')
+        ->call('submit');
+
+    expect($invoice->fresh()->rfp_id)->toBe($rfp->id);
 });

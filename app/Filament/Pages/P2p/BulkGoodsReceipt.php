@@ -17,6 +17,7 @@ use App\Models\P2p\Invoice;
 use App\Models\P2p\InvoiceLine;
 use App\Models\P2p\SapGoodReceiptItem;
 use App\Models\User;
+use App\Services\P2p\Escalation\HasStepActionForm;
 use App\Services\P2p\P2pEscalationRoutingService;
 use App\Services\P2p\P2pGoodReceiptReturnService;
 use App\Services\P2p\P2pGoodReceiptSubmissionService;
@@ -53,7 +54,9 @@ use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Url;
 
@@ -96,6 +99,9 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
     #[Url]
     public ?int $invoice = null;
 
+    #[Url]
+    public ?string $code = null;
+
     public ?bool $isViewOnly = false;
 
     public ?bool $isReturned = false;
@@ -107,6 +113,8 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
     public ?string $company_name = null;
 
     public ?string $grc_number = null;
+
+    public ?string $p2p_number = null;
 
     /**
      * @var array<int, string>
@@ -193,11 +201,13 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             $this->isViewOnly = ! $this->isReturned;
 
             $this->grc_number = $invoice->grc_number;
+            $this->p2p_number = $invoice->p2p_number;
             $this->reference_number = array_values($invoice->reference_number ?? []);
             $this->attachments = array_values($invoice->attachments ?? []);
             $this->invoiceAt = optional($invoice->invoice_at)->toDateString() ?? now()->toDateString();
         } else {
             $this->invoiceAt = now()->toDateString();
+            $this->isViewOnly = $this->selectionIsViewOnly();
         }
 
         $first = $this->receipts->first();
@@ -269,6 +279,11 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                                 ->dehydrated(false)
                                 ->hidden(),
 
+                            TextInput::make('p2p_number')
+                                ->label('P2P ID')
+                                ->readOnly()
+                                ->dehydrated(false),
+
                             DatePicker::make('invoiceAt')
                                 ->label('Invoice Date')
                                 ->markAsRequired()
@@ -301,7 +316,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                     Hidden::make('good_receipt_number'),
 
                     Section::make('Items')
-                        ->heading(fn (Get $get): string => 'Items for GR #'.($get('good_receipt_number') ?? 'N/A'))
+                        ->heading(fn (Get $get): string => 'Items for GR #'.($get('good_receipt_number') ?? 'N/A').' · PO '.($get('purchase_order') ?? 'N/A'))
                         ->description('The items selected for purchase')
                         ->icon(Heroicon::OutlinedShoppingBag)
                         ->schema([
@@ -314,15 +329,15 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
                                     Hidden::make('p2p_sap_good_receipt_item_id'),
                                     Hidden::make('purchase_order_item'),
+                                    Hidden::make('purchase_order'),
+                                    Hidden::make('gr_number'),
                                     Hidden::make('unit_cost'),
                                     Hidden::make('quantity_remaining'),
                                     Hidden::make('ai'), // the invoice line it was matched to (Read invoice with AI)
                                     Hidden::make('quantity_edited'),
 
-                                    TextEntry::make('purchase_order')->hiddenLabel(),
-                                    TextEntry::make('gr_number')->hiddenLabel(),
                                     TextEntry::make('purchase_order_item')->hiddenLabel(),
-                                    TextEntry::make('item_name')->hiddenLabel(),
+                                    TextEntry::make('item_short_text')->hiddenLabel(),
                                     // The vendor's invoice line this GR line was matched to (Read invoice with AI)
                                     TextEntry::make('invoice_line')
                                         ->hiddenLabel()
@@ -330,8 +345,8 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                                             ? ($ai['description'] ?? 'On invoice').(filled($ai['invoice_number'] ?? null) ? " ({$ai['invoice_number']})" : '')
                                             : null)
                                         ->placeholder('—'),
-                                    TextEntry::make('quantity_po')->hiddenLabel(),
                                     TextEntry::make('uom')->hiddenLabel(),
+                                    TextEntry::make('quantity_po')->hiddenLabel(),
                                     TextEntry::make('quantity_served')->hiddenLabel(),
 
                                     // Inv Qty comes from the vendor's invoice (Read invoice with AI); the
@@ -402,13 +417,36 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                     ->modalIcon(Heroicon::OutlinedExclamationTriangle)
                     ->modalIconColor('warning')
                     ->modalSubmitActionLabel('Submit anyway')
+                    // Check the invoice date, reference and PDF before the confirmation modal
+                    // opens: its overlay hides the page's field errors, so a missing document
+                    // would otherwise look like the button did nothing.
+                    ->mountUsing(function (): void {
+                        try {
+                            $this->validateSubmissionForm();
+                        } catch (ValidationException $exception) {
+                            $this->notifyValidationFailure($exception);
+
+                            // Filament unmounts the action and rethrows, so the page shows
+                            // the field errors and the modal never opens.
+                            throw $exception;
+                        }
+                    })
                     ->schema(fn (): array => $this->matchFlags() === [] ? [] : [
                         Textarea::make('match_remarks')
                             ->label('Remarks for AP (optional)')
                             ->placeholder('e.g. Price increase approved by Purchasing')
                             ->rows(2),
                     ])
-                    ->action(fn (array $data) => $this->submit($data['match_remarks'] ?? null)),
+                    ->action(function (array $data): void {
+                        try {
+                            $this->submit($data['match_remarks'] ?? null);
+                        } catch (ValidationException $exception) {
+                            // Close the modal so the field errors underneath are visible.
+                            $this->unmountAction();
+
+                            $this->notifyValidationFailure($exception);
+                        }
+                    }),
 
                 $this->escalateAction(),
 
@@ -435,10 +473,22 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         $user = auth()->user();
 
         if ($user !== null && $user->hasRole(RoleName::Vendor) && ! $user->hasRole(RoleName::Admin)) {
-            $query->where('vendor_id', $user->vendor_id);
+            $query->whereIn('vendor_id', $user->vendorIds());
         }
 
         return $query->get();
+    }
+
+    /**
+     * A selection is read-only unless every GR in it is still pending or returned.
+     * Non-pending GRs may be opened for viewing, but never processed or escalated.
+     */
+    protected function selectionIsViewOnly(): bool
+    {
+        return $this->receipts->isEmpty() || $this->receipts->contains(
+            fn (GoodReceiptState $state): bool => ! $state->status->isEditableByVendor()
+                || ! $state->hasBillableItems(),
+        );
     }
 
     /**
@@ -480,11 +530,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             return;
         }
 
-        $this->validate([
-            'invoiceAt' => ['required', 'date'],
-            'reference_number' => ['required', 'array', 'min:1'],
-            'attachments' => ['required', 'array', 'min:1'],
-        ]);
+        $this->validateSubmissionForm();
 
         $lines = $this->selectedLines();
 
@@ -497,25 +543,67 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         $user = auth()->user();
         $service = app(P2pGoodReceiptSubmissionService::class);
 
-        $invoice = $this->invoiceModel() ?? $service->start($user, array_map('intval', $this->ids));
+        // Only the GRs behind the ticked lines belong to this request; a GR the vendor
+        // left unticked stays pending.
+        $states = $service->statesForItems(array_map(
+            fn (array $line): int => (int) $line['p2p_sap_good_receipt_item_id'],
+            $lines,
+        ));
 
         $flags = $this->matchFlags();
 
-        $service->submit($invoice, $lines, $user, [
-            'invoice_at' => $this->invoiceAt,
-            'reference_number' => array_values(array_filter($this->reference_number)),
-            'attachments' => $this->persistedAttachments(),
-            'invoice_match' => [
-                ...$this->invoiceMatch,
-                'flags' => $flags,
-                'vendor_remarks' => filled($matchRemarks) ? $matchRemarks : null,
-            ],
-            'match_flag_count' => count($flags),
-        ]);
+        try {
+            DB::transaction(function () use ($lines, $states, $user, $flags, $matchRemarks, $service): void {
+                $invoice = $this->invoiceModel() ?? $service->start($user, $states);
+
+                $service->submit($invoice, $lines, $user, [
+                    'invoice_at' => $this->invoiceAt,
+                    'reference_number' => array_values(array_filter($this->reference_number)),
+                    'attachments' => $this->persistedAttachments(),
+                    'invoice_match' => [
+                        ...$this->invoiceMatch,
+                        'flags' => $flags,
+                        'vendor_remarks' => filled($matchRemarks) ? $matchRemarks : null,
+                    ],
+                    'match_flag_count' => count($flags),
+                ]);
+            });
+        } catch (ValidationException $exception) {
+            $this->notifyValidationFailure($exception);
+
+            return;
+        }
 
         Notification::make()->title('Invoice submitted to AP')->success()->send();
 
         $this->redirectBack();
+    }
+
+    /**
+     * Every submission needs an invoice date, at least one reference number and the
+     * invoice PDF.
+     */
+    protected function validateSubmissionForm(): void
+    {
+        $this->validate([
+            'invoiceAt' => ['required', 'date'],
+            'reference_number' => ['required', 'array', 'min:1'],
+            'attachments' => ['required', 'array', 'min:1'],
+        ]);
+    }
+
+    /**
+     * Tell the vendor what stopped the submission; the field itself also keeps its
+     * validation error, so the message stays visible once the modal is gone.
+     */
+    protected function notifyValidationFailure(ValidationException $exception): void
+    {
+        Notification::make()
+            ->title('Could not submit')
+            ->body($exception->validator?->errors()->first() ?? $exception->getMessage())
+            ->danger()
+            ->persistent()
+            ->send();
     }
 
     /**
@@ -535,26 +623,55 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             'escalationRemarks' => ['required', 'string'],
         ]);
 
-        $ids = $this->goodsReceiptStateIds();
+        $lines = $this->selectedLines();
 
-        if ($ids === []) {
-            Notification::make()->title('Select at least one goods receipt to escalate.')->danger()->send();
+        if ($lines === []) {
+            Notification::make()->title('Select at least one line with a quantity to escalate.')->danger()->send();
 
             return;
         }
 
         $user = auth()->user();
         $service = app(P2pGoodReceiptSubmissionService::class);
+        $reason = (string) $this->escalationReason;
 
-        $invoice = $this->invoiceModel() ?? $service->start($user, $ids);
-
-        app(P2pEscalationRoutingService::class)->start(
-            $invoice,
-            $this->escalationReason,
-            $ids,
-            $user,
-            $this->escalationRemarks,
+        $itemIds = array_map(
+            fn (array $line): int => (int) $line['p2p_sap_good_receipt_item_id'],
+            $lines,
         );
+
+        try {
+            DB::transaction(function () use ($itemIds, $user, $service, $reason): void {
+                $states = $service->statesForItems($itemIds);
+                $invoice = $this->invoiceModel() ?? $service->start($user, $states);
+
+                // Only the ticked items go on the escalation; the rest stay pending.
+                $splitStates = $service->splitForEscalation($invoice, $itemIds);
+
+                if ($splitStates->isEmpty()) {
+                    throw ValidationException::withMessages([
+                        'lines' => 'Select at least one goods-receipt line to escalate.',
+                    ]);
+                }
+
+                app(P2pEscalationRoutingService::class)->start(
+                    $invoice,
+                    $reason,
+                    $splitStates->pluck('id')->all(),
+                    $user,
+                    $this->escalationRemarks,
+                );
+            });
+        } catch (ValidationException $exception) {
+            Notification::make()
+                ->title('Could not escalate')
+                ->body($exception->validator?->errors()->first() ?? $exception->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+
+            return;
+        }
 
         Notification::make()->title('Escalation raised')->success()->send();
 
@@ -577,13 +694,14 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         }
 
         $columns = array_merge($columns, [
-            TableColumn::make('PO Number'),
-            TableColumn::make('GR Number'),
             TableColumn::make('GR Item'),
-            TableColumn::make('SAP Short Text'),
+            TableColumn::make('Description'),
             TableColumn::make('On the Invoice'),
-            TableColumn::make('PO Qty'),
+        ]);
+
+        $columns = array_merge($columns, [
             TableColumn::make('Uom'),
+            TableColumn::make('PO Qty'),
             TableColumn::make('GR Qty'),
             TableColumn::make('Inv Qty'),
         ]);
@@ -667,34 +785,44 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         $chosen = $invoice?->lines()->get()->keyBy('p2p_sap_good_receipt_item_id')->all() ?? [];
 
         return $receipts
-            ->map(fn (GoodReceiptState $state): array => [
-                'good_receipt_id' => $state->id,
-                'purchase_order' => $state->purchase_order,
-                'good_receipt_number' => $state->good_receipt_number,
-                'goodReceiptItems' => ($state->sapGoodReceipt?->items ?? collect())
-                    ->map(fn (SapGoodReceiptItem $item): array => [
-                        'p2p_sap_good_receipt_item_id' => $item->id,
-                        'purchase_order' => $item->purchase_order,
-                        'purchase_order_item' => $item->purchase_order_item,
-                        'gr_number' => $state->good_receipt_number,
-                        'material_doc_item' => $item->material_doc_item,
-                        'item_name' => $item->item_name,
-                        'uom' => $item->uom,
-                        'quantity_po' => (int) $item->quantity_po,
-                        'quantity_served' => (int) ($item->quantity_served ?? $item->quantity_po),
-                        'unit_cost' => (float) $item->unit_cost,
-                        // New invoice: nothing selected; the vendor picks the PO/GR lines on their
-                        // invoice, and the 3-way badge stays "For Verification" until they do
-                        'include' => isset($chosen[$item->id]),
-                        // Inv Qty is empty until it is read from the invoice (or the line is selected)
-                        'quantity' => isset($chosen[$item->id]) ? ($remaining[$item->id] ?? 0) : null,
-                        'quantity_remaining' => $remaining[$item->id] ?? 0,
-                        'ai' => isset($chosen[$item->id]) ? $this->savedMatch($chosen[$item->id]) : null,
-                        'quantity_edited' => (bool) ($chosen[$item->id]->is_quantity_edited ?? false),
-                    ])
-                    ->values()
-                    ->all(),
-            ])
+            ->map(function (GoodReceiptState $state) use ($remaining, $chosen): array {
+                $visible = ($state->sapGoodReceipt?->items ?? collect())
+                    ->filter(fn (SapGoodReceiptItem $item): bool => $item->merged_at === null
+                        && ($remaining[$item->id] ?? 0) > 0)
+                    ->values();
+
+                return [
+                    'good_receipt_id' => $state->id,
+                    'purchase_order' => $state->purchase_order,
+                    'good_receipt_number' => $state->good_receipt_number,
+                    'goodReceiptItems' => $visible
+                        ->map(fn (SapGoodReceiptItem $item): array => [
+                            'p2p_sap_good_receipt_item_id' => $item->id,
+                            'purchase_order' => $item->purchase_order,
+                            'purchase_order_item' => $item->purchase_order_item,
+                            'gr_number' => $state->good_receipt_number,
+                            'material_doc_item' => $item->material_doc_item,
+                            'item_name' => $item->item_name,
+                            'item_description' => $item->item_description,
+                            'item_short_text' => $item->item_description ?: $item->item_name,
+                            'uom' => $item->uom,
+                            'quantity_po' => (int) $item->quantity_po,
+                            'quantity_served' => (int) ($item->quantity_served ?? $item->quantity_po),
+                            'unit_cost' => (float) $item->unit_cost,
+                            // New invoice: nothing selected; the vendor picks the PO/GR lines on their
+                            // invoice, and the 3-way badge stays "For Verification" until they do
+                            'include' => isset($chosen[$item->id]),
+                            // Inv Qty is empty until it is read from the invoice (or the line is selected)
+                            'quantity' => isset($chosen[$item->id]) ? ($remaining[$item->id] ?? 0) : null,
+                            'quantity_remaining' => $remaining[$item->id] ?? 0,
+                            'ai' => isset($chosen[$item->id]) ? $this->savedMatch($chosen[$item->id]) : null,
+                            'quantity_edited' => (bool) ($chosen[$item->id]->is_quantity_edited ?? false),
+                        ])
+                        ->values()
+                        ->all(),
+                ];
+            })
+            ->filter(fn (array $goodsReceipt): bool => $goodsReceipt['goodReceiptItems'] !== [])
             ->values()
             ->all();
     }
@@ -724,6 +852,10 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
                         'gr_number' => $grNumber,
                         'material_doc_item' => $line->sapItem?->material_doc_item,
                         'item_name' => $line->item_name,
+                        'item_description' => $line->item_description ?: $line->sapItem?->item_description,
+                        'item_short_text' => $line->item_description
+                            ?: $line->sapItem?->item_description
+                            ?: $line->item_name,
                         'uom' => $line->uom,
                         'quantity_po' => (int) $line->quantity_po,
                         'quantity_served' => (int) ($line->sapItem?->quantity_served ?? $line->quantity_po),
@@ -764,6 +896,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         }
 
         $items = SapGoodReceiptItem::query()
+            ->whereNull('merged_at')
             ->where(function (Builder $query) use ($lineKeys): void {
                 foreach ($lineKeys as $key) {
                     [$purchaseOrder, $purchaseOrderItem] = explode('|', $key, 2);
@@ -938,7 +1071,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             ->map(fn (array $flag): string => sprintf(
                 '<li><strong>GR %s · %s</strong>: %s</li>',
                 e($flag['gr_number']),
-                e($flag['item_name']),
+                e($flag['purchase_order_item']),
                 e(implode(' ', $flag['reasons'])),
             ))
             ->implode('');
@@ -1223,21 +1356,6 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         return array_values(array_filter($state['attachments'] ?? $this->attachments));
     }
 
-    /**
-     * @return array<int, int>
-     */
-    protected function goodsReceiptStateIds(): array
-    {
-        if ($invoice = $this->invoiceModel()) {
-            return GoodReceiptState::query()
-                ->whereIn('good_receipt_number', $invoice->gr_numbers ?? [])
-                ->pluck('id')
-                ->all();
-        }
-
-        return array_map('intval', $this->ids);
-    }
-
     protected function invoiceQuery(): Builder
     {
         return Invoice::query()->with(['lines.sapItem.goodReceipt', 'vendor', 'company']);
@@ -1253,11 +1371,15 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
     protected function invoiceModel(): ?Invoice
     {
-        if (blank($this->invoice)) {
-            return null;
+        if (! blank($this->code)) {
+            return $this->loadedInvoice ??= $this->invoiceQuery()->where('code', $this->code)->first();
         }
 
-        return $this->loadedInvoice ??= $this->invoiceQuery()->findOrFail((int) $this->invoice);
+        if (! blank($this->invoice)) {
+            return $this->loadedInvoice ??= $this->invoiceQuery()->findOrFail((int) $this->invoice);
+        }
+
+        return null;
     }
 
     protected function authorizeInvoiceOwnership(Invoice $invoice): void
@@ -1266,7 +1388,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
 
         if ($user?->hasRole(RoleName::Vendor) && ! $user->hasRole(RoleName::Admin)) {
             abort_unless(
-                (int) $invoice->vendor_id === (int) $user->vendor_id,
+                in_array((int) $invoice->vendor_id, $user->vendorIds(), true),
                 403,
                 'You are not authorized to view this record.',
             );
@@ -1326,6 +1448,11 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
      * lowercase legacy tokens, so map them to the app's TitleCase Spatie roles.
      * The umbrella `warehouse` hop is handled by any warehouse role.
      */
+    protected function activeEscalationAction(): mixed
+    {
+        return $this->escalationForUser()?->currentStepAction();
+    }
+
     protected function userHandlesEscalation(User $user, Escalation $escalation): bool
     {
         $hopRole = $escalation->current_role;
@@ -1343,19 +1470,43 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
         return $appRole !== null && $user->hasRole($appRole);
     }
 
+    /**
+     * A return to the same role it is already waiting on would be a no-op.
+     */
+    protected function canReturnEscalation(): bool
+    {
+        $escalation = $this->escalationForUser();
+
+        if ($escalation === null) {
+            return false;
+        }
+
+        return $escalation->previousHopRole() !== $escalation->current_role;
+    }
+
     protected function advanceEscalationAction(): Action
     {
         return Action::make('advanceEscalation')
-            ->label(fn (): string => $this->escalationForUser()?->currentActionLabel() ?? 'Advance')
+            ->label(fn (): string => $this->activeEscalationAction() instanceof HasStepActionForm
+                ? $this->activeEscalationAction()->label($this->escalationForUser())
+                : ($this->escalationForUser()?->currentActionLabel() ?? 'Advance'))
             ->icon(Heroicon::OutlinedArrowRightCircle)
             ->color('warning')
             ->visible(fn (): bool => $this->escalationForUser() !== null)
-            ->modalHeading('Advance escalation')
-            ->modalDescription(fn (): ?string => $this->escalationForUser()?->stepLabel())
-            ->modalSubmitActionLabel('Advance')
-            ->schema([
-                Textarea::make('remarks')->label('Remarks')->required(),
-            ])
+            ->modalHeading(fn (): string => $this->activeEscalationAction() instanceof HasStepActionForm
+                ? $this->activeEscalationAction()->modalHeading($this->escalationForUser())
+                : 'Advance escalation')
+            ->modalDescription(fn (): ?string => $this->activeEscalationAction() instanceof HasStepActionForm
+                ? $this->activeEscalationAction()->modalDescription($this->escalationForUser())
+                : $this->escalationForUser()?->stepLabel())
+            ->modalSubmitActionLabel(fn (): string => $this->activeEscalationAction() instanceof HasStepActionForm
+                ? $this->activeEscalationAction()->submitLabel($this->escalationForUser())
+                : 'Advance')
+            ->schema(fn (): array => $this->activeEscalationAction() instanceof HasStepActionForm
+                ? $this->activeEscalationAction()->schema($this->escalationForUser())
+                : [
+                    Textarea::make('remarks')->label('Remarks')->required(),
+                ])
             ->action(fn (array $data) => $this->advanceOpenEscalation($data));
     }
 
@@ -1365,7 +1516,7 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             ->label(fn (): string => 'Return to '.($this->escalationForUser()?->previousRoleLabel() ?? 'previous step'))
             ->icon(Heroicon::OutlinedArrowUturnLeft)
             ->color('gray')
-            ->visible(fn (): bool => $this->escalationForUser() !== null)
+            ->visible(fn (): bool => $this->canReturnEscalation())
             ->modalHeading('Return escalation')
             ->modalDescription(fn (): ?string => $this->escalationForUser()?->stepLabel())
             ->modalSubmitActionLabel('Return')
@@ -1386,7 +1537,12 @@ class BulkGoodsReceipt extends Page implements HasActions, HasForms
             return;
         }
 
-        app(P2pEscalationRoutingService::class)->advance($escalation, auth()->user(), (string) ($data['remarks'] ?? ''));
+        app(P2pEscalationRoutingService::class)->advance(
+            $escalation,
+            auth()->user(),
+            (string) ($data['remarks'] ?? ''),
+            $data,
+        );
 
         Notification::make()
             ->title('Escalation advanced')

@@ -116,13 +116,16 @@ items are hard-deleted.
 **Target.**
 
 1. **One workflow owner.** `p2p_invoices.status` (enum) is authoritative; every transition writes `p2p_approval_histories`.
-2. **Bill by quantity.** `p2p_invoice_lines.quantity_billed`; remaining = mirror qty − Σ billed. A line is billable while remaining > 0.
-3. **GR status is derived.** `GoodReceiptStatusService` computes Pending / Partially Billed / Billed / Returned / Escalated / Reversed from invoice lines + escalations, recomputed in the same `DB::transaction`. Optionally cached in `p2p_good_receipt_states` (single writer → no drift).
-4. **Mirror untouched** so SAP stays authoritative.
+2. **Bill by quantity.** `p2p_invoice_lines.quantity_billed`; remaining = mirror qty - Σ billed. A line is billable while remaining > 0.
+3. **Split the selected quantity.** The base GR is a permanent pending container and is never submitted. Every submit/escalate clones the selected quantity onto a local `{GR}-P{n}` split; the base keeps the remainder. The split is what carries the invoice/escalation status.
+4. **GR status is derived.** `GoodReceiptStatusService` computes Pending / Partially Billed / Billed / Returned / Escalated / Reversed from invoice lines + escalations, recomputed in the same `DB::transaction`. Optionally cached in `p2p_good_receipt_states` (single writer → no drift).
+5. **Adjust the mirror quantity, not the SAP document.** The base item keeps its SAP identity; `quantity_served` is reduced by the split quantity and `quantity_split_out` tracks the total out. A SAP re-sync subtracts `quantity_split_out` instead of restoring it.
 
-**Partial + escalation still work.** Multiple invoices per GR are supported; escalation
-stays per-GR (batch number for multi-GR), records `from_status` for the return, and
+**Partial + escalation still work.** Multiple splits per GR are supported; escalation
+stays per-split (batch number for multi-GR), records `from_status` for the return, and
 "partially escalated" is derived on the header instead of a competing stored status.
+A vendor cancellation merges a split's items back onto its base GR; returns, rejects,
+reversals and re-GRs do not merge. Split numbers are per base GR and never reused.
 
 ## 2.6 Partial-GR number mapping (open)
 

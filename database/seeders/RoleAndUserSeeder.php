@@ -79,6 +79,7 @@ class RoleAndUserSeeder extends Seeder
                 'p2p_sap_purchase_orders',
                 'p2p_material_classification_user',
                 'company_user',
+                'vendor_user',
                 'model_has_roles',
                 'model_has_permissions',
                 'role_has_permissions',
@@ -143,6 +144,10 @@ class RoleAndUserSeeder extends Seeder
         $user->forceFill(['email_verified_at' => now()])->save();
         $user->assignRole($roleName);
         $user->companies()->sync($companies->pluck('id'));
+
+        if ($vendor !== null) {
+            $user->vendors()->syncWithoutDetaching([$vendor->id]);
+        }
 
         if (in_array($roleName, RoleName::companyScoped(), true)) {
             $user->syncCompanyRoles([['role' => $roleName, 'companies' => $companies->pluck('id')->all()]]);

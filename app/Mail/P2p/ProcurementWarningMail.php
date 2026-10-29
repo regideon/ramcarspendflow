@@ -9,6 +9,7 @@ use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\URL;
 
 /**
  * Overdue-warning mail sent to Points of Contact. Queued, and guarded so it is not
@@ -27,13 +28,27 @@ class ProcurementWarningMail extends Mailable implements ShouldQueue
 
     public function content(): Content
     {
+        $this->escalation->loadMissing(['reason', 'invoice.vendor', 'invoice.company']);
+
         return new Content(
-            view: 'mail.p2p.escalation',
+            view: 'mail.p2p.procurement-warning',
             with: [
-                'heading' => 'Overdue escalation',
-                'body' => 'This escalation has been open for more than three days.',
                 'escalation' => $this->escalation,
+                'shareUrl' => $this->shareUrl(),
             ],
+        );
+    }
+
+    protected function shareUrl(): ?string
+    {
+        if ($this->escalation->p2p_invoice_id === null) {
+            return null;
+        }
+
+        return URL::temporarySignedRoute(
+            'filament.hub.pages.p2p.bulk-goods-receipt',
+            now()->addDays(7),
+            ['invoice' => $this->escalation->p2p_invoice_id],
         );
     }
 }

@@ -38,7 +38,8 @@ it('generates an GRC number and a short code on create', function () {
     $invoice = Invoice::factory()->create();
 
     expect($invoice->grc_number)->toBe(sprintf('GRC-%08d', $invoice->id))
-        ->and($invoice->code)->toHaveLength(8);
+        ->and($invoice->code)->toHaveLength(8)
+        ->and($invoice->p2p_number)->toBe(sprintf('P2P-%s-%08d', $invoice->created_at->format('Y'), $invoice->id));
 });
 
 it('links an invoice to its vendor, company and submitter', function () {
